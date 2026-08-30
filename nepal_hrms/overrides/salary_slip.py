@@ -232,7 +232,12 @@ def compute_nepal_hr_variables(doc, data):
 
     # 3. Distinct LWP vs Unapproved Absent
     lwp_days = flt(doc.leave_without_pay or 0)
-    unapproved_absent_days = flt(doc.absent_days or 0) - lwp_days
+    # absent_days and leave_without_pay are disjoint in HRMS: `absent` is counted
+    # from Attendance status=Absent, `lwp` from LWP leave types, and payment_days
+    # subtracts both (see hrms salary_slip.py get_working_days_details). Deducting
+    # lwp_days here under-counted unapproved absence by exactly the LWP days, so
+    # 3 absent + 2 LWP was charged as 1 + 2 = 3 days instead of 5.
+    unapproved_absent_days = flt(doc.absent_days or 0)
     if unapproved_absent_days < 0:
         unapproved_absent_days = 0.0
 

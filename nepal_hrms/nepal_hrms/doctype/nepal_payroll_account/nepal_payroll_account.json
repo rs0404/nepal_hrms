@@ -1,0 +1,29 @@
+{
+ "actions": [],
+ "creation": "2026-08-30 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["company", "purpose", "account"],
+ "fields": [
+  {"columns": 3, "fieldname": "company", "fieldtype": "Link", "in_list_view": 1, "label": "Company", "options": "Company", "reqd": 1},
+  {"columns": 4, "fieldname": "purpose", "fieldtype": "Select", "in_list_view": 1, "label": "Purpose", "reqd": 1,
+   "options": "Salary Expense\nWages Expense\nOvertime Expense\nSSF Payable\nProvident Fund Payable\nGratuity Payable\nCIT Payable\nInsurance Payable\nTDS Payable\nLeave Encashment Expense (Salary)\nLeave Encashment Expense (Wages)\nEmployer Contribution Expense",
+   "description": "Which kind of payroll posting this account backs. Setup assigns it to every matching Salary Component."},
+  {"columns": 4, "fieldname": "account", "fieldtype": "Link", "in_list_view": 1, "label": "Account", "options": "Account", "reqd": 1}
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-30 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nepal HRMS",
+ "name": "Nepal Payroll Account",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

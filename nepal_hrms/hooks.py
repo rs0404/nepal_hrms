@@ -34,6 +34,11 @@ app_include_js = [
 
 boot_session = "nepal_hrms.boot.get_boot_info"
 
+# nepal_compliance registers the same Salary Slip after_insert and daily BS task.
+# Merged hooks fire both, so neutralise its copies per worker process.
+before_request = ["nepal_hrms.compat.nepal_compliance.apply"]
+before_job = ["nepal_hrms.compat.nepal_compliance.apply"]
+
 doctype_js = {
 	"Salary Slip": "public/js/salary_slip_nepali.js",
 	"Payroll Entry": "public/js/payroll_entry_nepali.js",
