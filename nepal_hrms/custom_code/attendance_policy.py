@@ -1,0 +1,778 @@
+# Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
+# For license information, please see license.txt
+
+"""C&R attendance helpers: late/early minutes, grace flags, application linking, OOO hours."""
+
+import frappe
+from frappe import _
+from frappe.utils import cint, flt, get_datetime, get_time, getdate, time_diff_in_hours
+
+
+def get_hr_settings():
+	"""Return Nepal HRMS Settings without requiring DocType read permission.
+
+	Employees need grace/deadline values when filing Late/Early/OOO applications.
+	enable_nepali_date / date_format are overlaid from Nepal Compliance Settings.
+	"""
+	settings = frappe._dict()
+	try:
+		if frappe.db.exists("DocType", "Nepal HRMS Settings"):
+			settings.update(frappe.db.get_singles_dict("Nepal HRMS Settings") or {})
+	except Exception:
+		pass
+	try:
+		if frappe.db.exists("DocType", "Nepal Compliance Settings"):
+			nc = frappe.db.get_singles_dict("Nepal Compliance Settings") or {}
+			settings.setdefault("enable_nepali_date", nc.get("enable_nepali_date"))
+			settings.setdefault("date_format", nc.get("date_format") or "YYYY-MM-DD")
+	except Exception:
+		pass
+	return settings
+
+
+def get_shift_bounds(employee, attendance_date, shift=None):
+	"""Return (shift_start_dt, shift_end_dt) for the employee on a date, or (None, None)."""
+	attendance_date = getdate(attendance_date)
+	shift_name = shift
+	if not shift_name:
+		shift_name = frappe.db.get_value(
+			"Shift Assignment",
+			{
+				"employee": employee,
+				"start_date": ["<=", attendance_date],
+				"docstatus": 1,
+				"status": "Active",
+			},
+			"shift_type",
+			order_by="start_date desc",
+		)
+
+	if not shift_name:
+		shift_name = frappe.db.get_value("Employee", employee, "default_shift")
+
+	if not shift_name:
+		return None, None
+
+	start_time, end_time = frappe.db.get_value(
+		"Shift Type", shift_name, ["start_time", "end_time"]
+	) or (None, None)
+	if not start_time or not end_time:
+		return None, None
+
+	shift_start = get_datetime(f"{attendance_date} {start_time}")
+	shift_end = get_datetime(f"{attendance_date} {end_time}")
+	if shift_end <= shift_start:
+		from frappe.utils import add_to_date
+
+		shift_end = add_to_date(shift_end, days=1)
+	return shift_start, shift_end
+
+
+def compute_late_early_minutes(employee, attendance_date, in_time=None, out_time=None, shift=None):
+	"""Compute late and early minutes vs shift start/end. Returns (late_mins, early_mins)."""
+	late_mins = 0
+	early_mins = 0
+	shift_start, shift_end = get_shift_bounds(employee, attendance_date, shift)
+	if not shift_start:
+		return late_mins, early_mins
+
+	if in_time:
+		in_dt = get_datetime(in_time)
+		delta = (in_dt - shift_start).total_seconds() / 60.0
+		if delta > 0:
+			late_mins = cint(round(delta))
+
+	if out_time:
+		out_dt = get_datetime(out_time)
+		delta = (shift_end - out_dt).total_seconds() / 60.0
+		if delta > 0:
+			early_mins = cint(round(delta))
+
+	return late_mins, early_mins
+
+
+def _protected_status(doc):
+	"""Do not override leave / absent rows."""
+	status = (doc.status or "").strip()
+	if status in ("On Leave", "Absent", "Work From Home"):
+		return True
+	if getattr(doc, "leave_type", None):
+		return True
+	return False
+
+
+def _has_half_day_leave(employee, attendance_date):
+	return bool(
+		frappe.db.exists(
+			"Leave Application",
+			{
+				"employee": employee,
+				"docstatus": 1,
+				"status": "Approved",
+				"from_date": ["<=", getdate(attendance_date)],
+				"to_date": [">=", getdate(attendance_date)],
+				"half_day": 1,
+			},
+		)
+	)
+
+
+def delay_excused_for_attendance_status(mins, app, employee, attendance_date, grace, max_delay):
+	"""
+	Whether Attendance should stay/restore Present for this late/early delay.
+
+	- Within grace: yes
+	- Minor (grace < mins <= max): yes — status stays Present; payroll uses occurrence pool
+	- Office Work approved slip: yes (full excuse, including major)
+	- Major + Personal / no slip: only if half-day leave covers the date
+	"""
+	kind = classify_delay(mins, grace, max_delay)
+	if not kind:
+		return True
+	# Minor delays never force Attendance Half Day (pool / payroll only)
+	if kind == "minor":
+		return True
+	if app and (app.type_of_work or "") == "Office Work":
+		return True
+	return _has_half_day_leave(employee, attendance_date)
+
+
+def delay_in_occurrence_pool(mins, app, grace, max_delay):
+	"""True when delay is minor and has no approved application (counts toward monthly pool)."""
+	kind = classify_delay(mins, grace, max_delay)
+	if kind != "minor":
+		return False
+	return not app
+
+
+def _month_bounds(attendance_date):
+	from calendar import monthrange
+
+	d = getdate(attendance_date)
+	start = d.replace(day=1)
+	end = d.replace(day=monthrange(d.year, d.month)[1])
+	return start, end
+
+
+def count_month_pool(employee, attendance_date, pool_field, current_in_pool=0, exclude_name=None):
+	"""Calendar-month pool size including the current attendance row's contribution."""
+	if not frappe.get_meta("Attendance").has_field(pool_field):
+		return cint(current_in_pool)
+	start, end = _month_bounds(attendance_date)
+	filters = {
+		"employee": employee,
+		"attendance_date": ["between", [start, end]],
+		"docstatus": ["<", 2],
+		pool_field: 1,
+	}
+	if exclude_name:
+		filters["name"] = ["!=", exclude_name]
+	count = frappe.db.count("Attendance", filters)
+	return cint(count) + (1 if cint(current_in_pool) else 0)
+
+
+def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
+	"""
+	Store custom_late_mins / custom_early_mins and set late_entry / early_exit
+	using Nepal Compliance Settings grace minutes (not Shift Type grace alone).
+
+	Minor (grace→max) without approved app: Present + in occurrence pool.
+	Major unexcused: Half Day (half_day_status=Present) with unexcused flags.
+	"""
+	if not doc.employee or not doc.attendance_date:
+		return
+
+	settings = get_hr_settings()
+	grace = cint(getattr(settings, "late_early_grace_mins", None) or 15)
+	max_delay = cint(getattr(settings, "late_early_max_delay_mins", None) or 60)
+	penalty_on = cint(getattr(settings, "enable_late_early_penalty", None) or 0)
+
+	# C&R Half Day we may restore when an approved slip excuses the delay.
+	was_cnr_half_day = (
+		(doc.status or "") == "Half Day"
+		and not getattr(doc, "leave_type", None)
+		and (getattr(doc, "half_day_status", None) or "Present") == "Present"
+		and (
+			cint(getattr(doc, "custom_cnr_unexcused_late", 0))
+			or cint(getattr(doc, "custom_cnr_unexcused_early", 0))
+			or cint(getattr(doc, "late_entry", 0))
+			or cint(getattr(doc, "early_exit", 0))
+		)
+	)
+
+	late_mins, early_mins = compute_late_early_minutes(
+		doc.employee,
+		doc.attendance_date,
+		in_time=getattr(doc, "in_time", None),
+		out_time=getattr(doc, "out_time", None),
+		shift=getattr(doc, "shift", None),
+	)
+
+	if hasattr(doc, "custom_late_mins"):
+		doc.custom_late_mins = late_mins
+	if hasattr(doc, "custom_early_mins"):
+		doc.custom_early_mins = early_mins
+
+	# Beyond grace => flagged for payroll / C&R rules
+	doc.late_entry = 1 if late_mins > grace else 0
+	doc.early_exit = 1 if early_mins > grace else 0
+
+	from nepal_hrms.custom_code.policy_escape import has_policy_escape
+
+	escape_late_early = has_policy_escape(
+		doc.employee, "escape_late_early", doc.attendance_date
+	)
+
+	unexcused_late = 0
+	unexcused_early = 0
+	late_in_pool = 0
+	early_in_pool = 0
+
+	if escape_late_early:
+		# Keep minutes / late_entry flags for visibility; no pool, unexcused, or Half Day
+		if hasattr(doc, "custom_cnr_unexcused_late"):
+			doc.custom_cnr_unexcused_late = 0
+		if hasattr(doc, "custom_cnr_unexcused_early"):
+			doc.custom_cnr_unexcused_early = 0
+		if hasattr(doc, "custom_cnr_late_in_pool"):
+			doc.custom_cnr_late_in_pool = 0
+		if hasattr(doc, "custom_cnr_early_in_pool"):
+			doc.custom_cnr_early_in_pool = 0
+		if hasattr(doc, "custom_cnr_month_late_pool_count"):
+			doc.custom_cnr_month_late_pool_count = count_month_pool(
+				doc.employee,
+				doc.attendance_date,
+				"custom_cnr_late_in_pool",
+				current_in_pool=0,
+				exclude_name=getattr(doc, "name", None)
+				if getattr(doc, "name", None) and not str(doc.name).startswith("new-")
+				else None,
+			)
+		if hasattr(doc, "custom_cnr_month_early_pool_count"):
+			doc.custom_cnr_month_early_pool_count = count_month_pool(
+				doc.employee,
+				doc.attendance_date,
+				"custom_cnr_early_in_pool",
+				current_in_pool=0,
+				exclude_name=getattr(doc, "name", None)
+				if getattr(doc, "name", None) and not str(doc.name).startswith("new-")
+				else None,
+			)
+		if apply_unexcused_status and was_cnr_half_day:
+			doc.status = "Present"
+			if hasattr(doc, "half_day_status"):
+				doc.half_day_status = None
+		return
+
+	if penalty_on and not _protected_status(doc):
+		if doc.late_entry:
+			lea = get_approved_application(
+				"Late Entry Application", doc.employee, doc.attendance_date
+			)
+			if not delay_excused_for_attendance_status(
+				late_mins, lea, doc.employee, doc.attendance_date, grace, max_delay
+			):
+				unexcused_late = 1
+			if delay_in_occurrence_pool(late_mins, lea, grace, max_delay):
+				late_in_pool = 1
+		if doc.early_exit:
+			eea = get_approved_application(
+				"Early Exit Application", doc.employee, doc.attendance_date
+			)
+			if not delay_excused_for_attendance_status(
+				early_mins, eea, doc.employee, doc.attendance_date, grace, max_delay
+			):
+				unexcused_early = 1
+			if delay_in_occurrence_pool(early_mins, eea, grace, max_delay):
+				early_in_pool = 1
+
+	if hasattr(doc, "custom_cnr_unexcused_late"):
+		doc.custom_cnr_unexcused_late = unexcused_late
+	if hasattr(doc, "custom_cnr_unexcused_early"):
+		doc.custom_cnr_unexcused_early = unexcused_early
+	if hasattr(doc, "custom_cnr_late_in_pool"):
+		doc.custom_cnr_late_in_pool = late_in_pool
+	if hasattr(doc, "custom_cnr_early_in_pool"):
+		doc.custom_cnr_early_in_pool = early_in_pool
+
+	# Month-to-date pool counts (include this row; exclude self from DB count)
+	att_name = getattr(doc, "name", None)
+	if hasattr(doc, "custom_cnr_month_late_pool_count"):
+		doc.custom_cnr_month_late_pool_count = count_month_pool(
+			doc.employee,
+			doc.attendance_date,
+			"custom_cnr_late_in_pool",
+			current_in_pool=late_in_pool,
+			exclude_name=att_name if att_name and not att_name.startswith("new-") else None,
+		)
+	if hasattr(doc, "custom_cnr_month_early_pool_count"):
+		doc.custom_cnr_month_early_pool_count = count_month_pool(
+			doc.employee,
+			doc.attendance_date,
+			"custom_cnr_early_in_pool",
+			current_in_pool=early_in_pool,
+			exclude_name=att_name if att_name and not att_name.startswith("new-") else None,
+		)
+
+	if not apply_unexcused_status:
+		return
+
+	if unexcused_late or unexcused_early:
+		if (doc.status or "") in ("Present", "Half Day") and not getattr(doc, "leave_type", None):
+			doc.status = "Half Day"
+			if hasattr(doc, "half_day_status"):
+				doc.half_day_status = "Present"
+	elif was_cnr_half_day and not (unexcused_late or unexcused_early):
+		# Excused now (approved slip within rules / within grace) — restore Present
+		doc.status = "Present"
+		if hasattr(doc, "half_day_status"):
+			doc.half_day_status = None
+
+
+def get_attendance_for_employee_date(employee, attendance_date):
+	return frappe.db.get_value(
+		"Attendance",
+		{
+			"employee": employee,
+			"attendance_date": getdate(attendance_date),
+			"docstatus": ["<", 2],
+		},
+		"name",
+	)
+
+
+def fill_application_from_attendance(doc):
+	"""When Attendance is linked (e.g. from Connections), copy employee/date/company/times."""
+	if not doc.meta.has_field("attendance") or not doc.attendance:
+		return
+
+	att = frappe.db.get_value(
+		"Attendance",
+		doc.attendance,
+		["employee", "attendance_date", "company", "in_time", "out_time", "docstatus"],
+		as_dict=True,
+	)
+	if not att or cint(att.docstatus) == 2:
+		return
+
+	if not doc.employee:
+		doc.employee = att.employee
+	if not doc.attendance_date:
+		doc.attendance_date = att.attendance_date
+	if doc.meta.has_field("company") and not doc.company and att.company:
+		doc.company = att.company
+
+	if doc.doctype == "Late Entry Application" and doc.meta.has_field("late_entry_time") and att.in_time:
+		doc.late_entry_time = get_time(att.in_time)
+	if doc.doctype == "Early Exit Application" and doc.meta.has_field("early_exit_time") and att.out_time:
+		doc.early_exit_time = get_time(att.out_time)
+
+	# Keep employee/date consistent with linked Attendance
+	if doc.employee and doc.employee != att.employee:
+		frappe.throw(
+			_("Employee must match linked Attendance {0}").format(doc.attendance)
+		)
+	if doc.attendance_date and getdate(doc.attendance_date) != getdate(att.attendance_date):
+		frappe.throw(
+			_("Attendance Date must match linked Attendance {0}").format(doc.attendance)
+		)
+
+
+def link_application_to_attendance(doc):
+	"""Resolve and set Attendance link on Late/Early/OOO applications."""
+	fill_application_from_attendance(doc)
+
+	if not doc.employee or not doc.attendance_date:
+		return
+
+	attendance_name = get_attendance_for_employee_date(doc.employee, doc.attendance_date)
+	if attendance_name:
+		doc.attendance = attendance_name
+	elif doc.meta.has_field("attendance") and not doc.attendance:
+		# Leave empty if attendance not marked yet; payroll still matches by date
+		pass
+
+
+def sync_attendance_after_application(doc):
+	"""Recompute linked Attendance status/flags after LEA/EEA/OOO submit or cancel."""
+	attendance_name = getattr(doc, "attendance", None)
+	if not attendance_name and doc.employee and doc.attendance_date:
+		attendance_name = get_attendance_for_employee_date(doc.employee, doc.attendance_date)
+	if not attendance_name:
+		return
+	recompute_attendance_late_early(attendance_name, update_status=True, source_doc=doc)
+
+
+def _cnr_snapshot(doc):
+	"""Status/flag fields used to decide whether a timeline comment is needed."""
+	return frappe._dict(
+		status=(doc.status or "").strip() or None,
+		half_day_status=getattr(doc, "half_day_status", None) or None,
+		late_entry=cint(getattr(doc, "late_entry", 0)),
+		early_exit=cint(getattr(doc, "early_exit", 0)),
+		custom_cnr_unexcused_late=cint(getattr(doc, "custom_cnr_unexcused_late", 0)),
+		custom_cnr_unexcused_early=cint(getattr(doc, "custom_cnr_unexcused_early", 0)),
+		custom_cnr_late_in_pool=cint(getattr(doc, "custom_cnr_late_in_pool", 0)),
+		custom_cnr_early_in_pool=cint(getattr(doc, "custom_cnr_early_in_pool", 0)),
+		custom_late_mins=cint(getattr(doc, "custom_late_mins", 0)),
+		custom_early_mins=cint(getattr(doc, "custom_early_mins", 0)),
+	)
+
+
+def _cnr_tracking_changed(before, after):
+	if not before or not after:
+		return False
+	return (
+		(before.status or None) != (after.status or None)
+		or cint(before.late_entry) != cint(after.late_entry)
+		or cint(before.early_exit) != cint(after.early_exit)
+		or cint(before.custom_cnr_unexcused_late) != cint(after.custom_cnr_unexcused_late)
+		or cint(before.custom_cnr_unexcused_early) != cint(after.custom_cnr_unexcused_early)
+		or cint(before.custom_cnr_late_in_pool) != cint(after.custom_cnr_late_in_pool)
+		or cint(before.custom_cnr_early_in_pool) != cint(after.custom_cnr_early_in_pool)
+		or cint(before.custom_late_mins) != cint(after.custom_late_mins)
+		or cint(before.custom_early_mins) != cint(after.custom_early_mins)
+	)
+
+
+def add_cnr_attendance_comment(name, message):
+	"""Write a Comment on Attendance for C&R status tracking."""
+	if not name or not message:
+		return
+	try:
+		frappe.get_doc("Attendance", name).add_comment("Comment", text=message)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "C&R Attendance Comment Failed")
+
+
+def _source_app_label(source_doc):
+	if not source_doc:
+		return None
+	work = getattr(source_doc, "type_of_work", None) or ""
+	label = f"{source_doc.doctype} {source_doc.name}"
+	if work:
+		label = f"{label} ({work})"
+	return label
+
+
+def _source_app_event(source_doc):
+	"""submit | cancel | None — based on docstatus after the triggering hook."""
+	if not source_doc:
+		return None
+	ds = cint(getattr(source_doc, "docstatus", 0))
+	if ds == 2:
+		return "cancel"
+	if ds == 1:
+		return "submit"
+	return None
+
+
+def build_cnr_attendance_comment(before, after, source_doc=None, employee=None, attendance_date=None):
+	"""
+	Build a single timeline message when status/unexcused/pool flags change.
+	Returns None if nothing meaningful changed.
+	"""
+	if not _cnr_tracking_changed(before, after):
+		return None
+
+	old_status = before.status or "—"
+	new_status = after.status or "—"
+	late_mins = cint(after.custom_late_mins)
+	early_mins = cint(after.custom_early_mins)
+	parts = [_("C&R: Status {0} → {1}.").format(old_status, new_status)]
+
+	source_label = _source_app_label(source_doc)
+	event = _source_app_event(source_doc)
+
+	became_half = new_status == "Half Day" and old_status != "Half Day"
+	restored_present = new_status == "Present" and old_status == "Half Day"
+	flags_only = old_status == new_status
+
+	late_pool_cleared = cint(before.custom_cnr_late_in_pool) and not cint(after.custom_cnr_late_in_pool)
+	early_pool_cleared = cint(before.custom_cnr_early_in_pool) and not cint(after.custom_cnr_early_in_pool)
+	late_pool_added = not cint(before.custom_cnr_late_in_pool) and cint(after.custom_cnr_late_in_pool)
+	early_pool_added = not cint(before.custom_cnr_early_in_pool) and cint(after.custom_cnr_early_in_pool)
+
+	delay_bits = []
+	if late_mins:
+		delay_bits.append(_("late {0} mins").format(late_mins))
+	if early_mins:
+		delay_bits.append(_("early {0} mins").format(early_mins))
+	delay_txt = ", ".join(delay_bits) if delay_bits else _("no recorded delay minutes")
+
+	def _cap(s):
+		return s[:1].upper() + s[1:] if s else s
+
+	if late_pool_cleared or early_pool_cleared:
+		pool_bits = []
+		if late_pool_cleared:
+			pool_bits.append(_("late"))
+		if early_pool_cleared:
+			pool_bits.append(_("early"))
+		pool_label = " / ".join(pool_bits)
+		if source_label and event == "submit":
+			parts.append(
+				_(
+					"{0} pool cleared: {1} approved. Removed from monthly occurrence count."
+				).format(_cap(pool_label), source_label)
+			)
+		elif source_label:
+			parts.append(
+				_("{0} pool cleared via {1}. Removed from monthly occurrence count.").format(
+					_cap(pool_label), source_label
+				)
+			)
+		else:
+			parts.append(
+				_("{0} pool cleared. Removed from monthly occurrence count.").format(
+					_cap(pool_label)
+				)
+			)
+
+	if late_pool_added or early_pool_added:
+		pool_bits = []
+		if late_pool_added:
+			pool_bits.append(_("late"))
+		if early_pool_added:
+			pool_bits.append(_("early"))
+		pool_label = " / ".join(pool_bits)
+		if source_label and event == "cancel":
+			parts.append(
+				_(
+					"{0} pool restored: {1} cancelled. Added back to monthly occurrence count."
+				).format(_cap(pool_label), source_label)
+			)
+		else:
+			parts.append(
+				_("{0} counted in monthly occurrence pool ({1}).").format(
+					_cap(pool_label), delay_txt
+				)
+			)
+
+	if restored_present:
+		excuse_label = source_label
+		if not excuse_label and employee and attendance_date:
+			for dt in ("Late Entry Application", "Early Exit Application"):
+				app = get_approved_application(dt, employee, attendance_date)
+				if app:
+					work = app.type_of_work or ""
+					excuse_label = f"{dt} {app.name}" + (f" ({work})" if work else "")
+					break
+		if excuse_label:
+			parts.append(_("Excused by {0}. {1}.").format(excuse_label, _cap(delay_txt)))
+		else:
+			parts.append(_("Delay excused ({0}).").format(delay_txt))
+	elif became_half or (
+		flags_only
+		and (after.custom_cnr_unexcused_late or after.custom_cnr_unexcused_early)
+		and not (late_pool_cleared or early_pool_cleared or late_pool_added or early_pool_added)
+	):
+		reasons = []
+		if after.custom_cnr_unexcused_late:
+			reasons.append(_("unexcused late {0} mins").format(late_mins))
+		if after.custom_cnr_unexcused_early:
+			reasons.append(_("unexcused early {0} mins").format(early_mins))
+		if reasons:
+			parts.append(_cap(", ".join(reasons)) + ".")
+		if source_label and event == "cancel":
+			parts.append(
+				_("{0} cancelled or no longer excuses this delay.").format(source_label)
+			)
+		elif not source_label:
+			parts.append(_("No approved Late Entry / Early Exit Application."))
+		else:
+			parts.append(_("Related: {0}.").format(source_label))
+	elif (
+		source_label
+		and not (late_pool_cleared or early_pool_cleared or late_pool_added or early_pool_added)
+	):
+		parts.append(_("Related: {0} ({1}).").format(source_label, delay_txt))
+	elif not (late_pool_cleared or early_pool_cleared or late_pool_added or early_pool_added):
+		parts.append(_("Updated C&R flags ({0}).").format(delay_txt))
+
+	return " ".join(parts)
+
+
+def maybe_comment_cnr_attendance_change(
+	name, before, after, source_doc=None, employee=None, attendance_date=None
+):
+	"""Post a Comment when status or unexcused flags changed."""
+	message = build_cnr_attendance_comment(
+		before,
+		after,
+		source_doc=source_doc,
+		employee=employee,
+		attendance_date=attendance_date,
+	)
+	if message:
+		add_cnr_attendance_comment(name, message)
+	return message
+
+
+def calculate_ooo_hours_from_checkins(employee, attendance_date, approved_only=True):
+	"""Sum OOO Work IN/OUT pair hours for a day. By default only approved OOO counts."""
+	attendance_date = getdate(attendance_date)
+	filters = {
+		"employee": employee,
+		"time": ["between", [f"{attendance_date} 00:00:00", f"{attendance_date} 23:59:59"]],
+		"custom_attendance_type": "OOO Work",
+	}
+	if approved_only:
+		filters["custom_is_approved"] = 1
+
+	checkins = frappe.get_all(
+		"Employee Checkin",
+		filters=filters,
+		fields=["time", "log_type", "custom_is_approved"],
+		order_by="time asc",
+	)
+
+	total_hours = 0.0
+	last_in = None
+	for c in checkins:
+		if c.log_type == "IN":
+			last_in = c.time
+		elif c.log_type == "OUT" and last_in:
+			total_hours += time_diff_in_hours(c.time, last_in)
+			last_in = None
+	return flt(total_hours, 2)
+
+
+def set_attendance_ooo_hours(employee, attendance_date, hours=None):
+	"""Persist custom_ooo_hours on Attendance when field exists."""
+	attendance_name = get_attendance_for_employee_date(employee, attendance_date)
+	if not attendance_name:
+		return
+
+	if not frappe.get_meta("Attendance").has_field("custom_ooo_hours"):
+		return
+
+	if hours is None:
+		hours = calculate_ooo_hours_from_checkins(employee, attendance_date)
+
+	frappe.db.set_value("Attendance", attendance_name, "custom_ooo_hours", flt(hours, 2))
+
+
+def get_approved_application(doctype, employee, attendance_date):
+	return frappe.db.get_value(
+		doctype,
+		{
+			"employee": employee,
+			"attendance_date": getdate(attendance_date),
+			"status": "Approved",
+			"docstatus": 1,
+		},
+		["name", "type_of_work"],
+		as_dict=True,
+	)
+
+
+def classify_delay(mins, grace, max_delay):
+	"""
+	Return None (within grace), 'minor', or 'major'.
+	mins must already be raw minutes from shift start/end.
+	"""
+	mins = cint(mins)
+	grace = cint(grace)
+	max_delay = cint(max_delay)
+	if mins <= grace:
+		return None
+	if mins > max_delay:
+		return "major"
+	return "minor"
+
+
+def occurrence_half_days(count, initial_grace, subsequent_step):
+	"""
+	C&R occurrence pool:
+	- First `initial_grace` lates are free (default 2 → first 2 free, 3rd half-day).
+	- Next occurrence after the free pool => 1 half-day.
+	- Next `subsequent_step` occurrences are free after that penalty (default 2).
+	- Then another half-day, and the pattern repeats every (subsequent_step + 1).
+	"""
+	count = cint(count)
+	initial_grace = cint(initial_grace) or 2
+	subsequent_step = cint(subsequent_step) or 2
+	if count <= initial_grace:
+		return 0
+	# Distance past the free pool; penalties every (step + 1) starting at 1
+	return 1 + ((count - initial_grace - 1) // (subsequent_step + 1))
+
+
+def free_occurrences_remaining(count, initial_grace, subsequent_step):
+	"""How many more free pool slots before the next half-day penalty."""
+	count = cint(count)
+	initial_grace = cint(initial_grace) or 2
+	subsequent_step = cint(subsequent_step) or 2
+	if count < initial_grace:
+		return initial_grace - count
+	# past=0 when count == initial_grace → next occurrence is the first half-day
+	past = count - initial_grace
+	if past == 0:
+		return 0
+	# After first threshold: repeating (1 penalty + subsequent_step free)
+	idx = (past - 1) % (subsequent_step + 1)
+	if idx == 0:
+		return subsequent_step
+	return subsequent_step - idx
+
+
+def recompute_attendance_late_early(name, update_status=True, source_doc=None, post_comment=True):
+	"""
+	Recompute late/early minutes and C&R flags for an Attendance (including submitted).
+	Uses db.set_value so submitted docs can be fixed without cancel/amend.
+	Posts a timeline Comment when status, unexcused, or pool flags change
+	(unless post_comment=False — e.g. bulk Recalculate writes its own comment).
+	Returns the values written.
+	"""
+	doc = frappe.get_doc("Attendance", name)
+	before = _cnr_snapshot(doc)
+	apply_late_early_to_attendance(doc, apply_unexcused_status=update_status)
+	after = _cnr_snapshot(doc)
+
+	meta = frappe.get_meta("Attendance")
+	values = {
+		"late_entry": cint(doc.late_entry),
+		"early_exit": cint(doc.early_exit),
+	}
+	for field in (
+		"custom_late_mins",
+		"custom_early_mins",
+		"custom_cnr_unexcused_late",
+		"custom_cnr_unexcused_early",
+		"custom_cnr_late_in_pool",
+		"custom_cnr_early_in_pool",
+		"custom_cnr_month_late_pool_count",
+		"custom_cnr_month_early_pool_count",
+	):
+		if meta.has_field(field):
+			values[field] = cint(getattr(doc, field, 0))
+
+	if update_status and not _protected_status(doc):
+		values["status"] = doc.status
+		if hasattr(doc, "half_day_status"):
+			values["half_day_status"] = doc.half_day_status or None
+
+	frappe.db.set_value("Attendance", name, values, update_modified=False)
+
+	if update_status and post_comment:
+		maybe_comment_cnr_attendance_change(
+			name,
+			before,
+			after,
+			source_doc=source_doc,
+			employee=doc.employee,
+			attendance_date=doc.attendance_date,
+		)
+
+	return values
+
+
+@frappe.whitelist()
+def recalculate_attendance_late_early(name):
+	"""Desk button: recompute minutes/flags/status for one Attendance."""
+	if not name:
+		frappe.throw(_("Attendance name is required"))
+	frappe.has_permission("Attendance", "write", throw=True)
+	values = recompute_attendance_late_early(name, update_status=True)
+	return {"ok": 1, "values": values}

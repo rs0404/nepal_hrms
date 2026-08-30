@@ -1,0 +1,172 @@
+<style>
+.lab-container { padding: 20px; font-family: inherit; }
+.lab-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; gap: 16px; flex-wrap: wrap; }
+.lab-title { font-size: 24px; font-weight: 700; color: #1f2937; margin: 0; }
+.lab-subtitle { font-size: 14px; color: #6b7280; }
+.lab-controls { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.lab-date-wrap { min-width: 160px; }
+.lab-date-wrap .frappe-control { margin-bottom: 0; }
+.lab-date-wrap .clearfix { display: none; }
+.lab-date-wrap .help-box { display: none; }
+.lab-date-ad { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+.lab-board { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.lab-column { flex: 1; min-width: 300px; background: #f9fafb; border-radius: 12px; padding: 16px; border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+
+.lab-col-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid transparent; }
+.lab-col-header.pending { border-color: #fca5a5; }
+.lab-col-header.active { border-color: #86efac; }
+.lab-col-header.completed { border-color: #93c5fd; }
+.lab-col-header.leave { border-color: #d8b4fe; }
+.lab-col-header.upcoming { border-color: #fdba74; }
+.lab-col-header.pending_leave { border-color: #fbbf24; }
+
+.lab-col-title { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.lab-col-title .dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot.pending { background: #ef4444; box-shadow: 0 0 0 3px #fee2e2; }
+.dot.active { background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
+.dot.completed { background: #3b82f6; box-shadow: 0 0 0 3px #dbeafe; }
+.dot.leave { background: #a855f7; box-shadow: 0 0 0 3px #f3e8ff; }
+.dot.upcoming { background: #f97316; box-shadow: 0 0 0 3px #ffedd5; }
+.dot.pending_leave { background: #f59e0b; box-shadow: 0 0 0 3px #fef3c7; }
+
+.lab-count { background: #fff; padding: 2px 10px; border-radius: 20px; font-size: 13px; font-weight: 700; color: #4b5563; border: 1px solid #e5e7eb; }
+
+.lab-cards { display: flex; flex-direction: column; gap: 12px; max-height: 70vh; overflow-y: auto; padding-right: 4px; }
+.lab-cards::-webkit-scrollbar { width: 6px; }
+.lab-cards::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+
+.lab-card { background: #fff; border-radius: 10px; padding: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: all 0.2s; position: relative; }
+.lab-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+
+.lab-dept-header {
+    background: #f1f5f9;
+    padding: 6px 12px;
+    border-radius: 8px;
+    margin: 16px 0 8px 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.lab-dept-header:hover { background: #e2e8f0; }
+.lab-dept-header:first-child { margin-top: 0; }
+.lab-dept-header .fold-icon { transition: transform 0.2s; font-size: 10px; margin-right: 8px; }
+.lab-dept-header.collapsed .fold-icon { transform: rotate(-90deg); }
+
+.lab-dept-body { display: flex; flex-direction: column; gap: 12px; }
+.lab-dept-header.collapsed + .lab-dept-body { display: none; }
+
+.lab-emp-name { font-weight: 600; color: #1e293b; font-size: 15px; margin-bottom: 4px; }
+.lab-emp-dept { font-size: 12px; color: #64748b; margin-bottom: 12px; display: flex; justify-content: space-between;}
+
+.lab-punches { display: flex; flex-wrap: wrap; gap: 6px; }
+.lab-punch { font-size: 11px; padding: 4px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; font-family: monospace; font-weight: 600; border: 1px solid #e2e8f0; }
+.lab-punch.in { color: #166534; background: #dcfce7; border-color: #bbf7d0; }
+.lab-punch.out { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
+
+.lab-empty { padding: 30px; text-align: center; color: #94a3b8; font-size: 14px; font-weight: 500; border: 2px dashed #cbd5e1; border-radius: 10px; }
+.lab-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; text-transform: uppercase; margin-left: 6px; vertical-align: middle; }
+.lab-tag.ooo { background: #6366f1; color: #fff; }
+</style>
+
+<div class="lab-container">
+    <div class="lab-header">
+        <div>
+            <h2 class="lab-title">Live Attendance Board</h2>
+            <div class="lab-subtitle">Attendance for <span id="lab-date-bs" style="font-weight:700;color:#2563eb;font-size:1.1em;">----</span> (BS)</div>
+            <div class="lab-date-ad" id="lab-date-ad"></div>
+        </div>
+        <div class="lab-controls">
+            <div class="lab-date-wrap" id="lab-date-control"></div>
+            <button class="btn btn-default btn-sm" id="lab-today-btn" title="Jump to today">
+                Today
+            </button>
+            <button class="btn btn-primary btn-sm" id="lab-refresh-btn">
+                <i class="fa fa-refresh"></i> Refresh
+            </button>
+        </div>
+    </div>
+    
+    <div class="lab-board">
+        <!-- PENDING COLUMN -->
+        <div class="lab-column">
+            <div class="lab-col-header pending">
+                <div class="lab-col-title">
+                    <div class="dot pending"></div> Pending
+                </div>
+                <div class="lab-count" id="count-pending">0</div>
+            </div>
+            <div class="lab-cards" id="col-pending">
+                <div class="lab-empty">Initializing...</div>
+            </div>
+        </div>
+
+        <!-- ACTIVE COLUMN -->
+        <div class="lab-column">
+            <div class="lab-col-header active">
+                <div class="lab-col-title">
+                    <div class="dot active"></div> Active
+                </div>
+                <div class="lab-count" id="count-active">0</div>
+            </div>
+            <div class="lab-cards" id="col-active">
+            </div>
+        </div>
+
+        <!-- COMPLETED COLUMN -->
+        <div class="lab-column">
+            <div class="lab-col-header completed">
+                <div class="lab-col-title">
+                    <div class="dot completed"></div> Checked Out
+                </div>
+                <div class="lab-count" id="count-completed">0</div>
+            </div>
+            <div class="lab-cards" id="col-completed">
+            </div>
+        </div>
+
+        <!-- ON LEAVE COLUMN -->
+        <div class="lab-column">
+            <div class="lab-col-header leave">
+                <div class="lab-col-title">
+                    <div class="dot leave"></div> <span id="lab-leave-label">On Leave</span>
+                </div>
+                <div class="lab-count" id="count-leave">0</div>
+            </div>
+            <div class="lab-cards" id="col-leave">
+            </div>
+        </div>
+
+        <!-- UPCOMING LEAVES COLUMN -->
+        <div class="lab-column">
+            <div class="lab-col-header upcoming">
+                <div class="lab-col-title">
+                    <div class="dot upcoming"></div> Upcoming Leaves
+                </div>
+                <div class="lab-count" id="count-upcoming">0</div>
+            </div>
+            <div class="lab-cards" id="col-upcoming">
+            </div>
+        </div>
+
+        <!-- PENDING APPROVAL COLUMN -->
+        <div class="lab-column">
+            <div class="lab-col-header pending_leave">
+                <div class="lab-col-title">
+                    <div class="dot pending_leave"></div> Pending Approvals
+                </div>
+                <div class="lab-count" id="count-pending_leave">0</div>
+            </div>
+            <div class="lab-cards" id="col-pending_leave">
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,22 @@
+[project]
+name = "nepal_hrms"
+authors = [
+    { name = "Yarsa Labs Pvt. Ltd.", email = "support@yarsalabs.com"}
+]
+description = "Nepali HR and Payroll (Bikram Sambat) for Frappe HR"
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = []
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.isort]
+profile = "black"
+known_frappe = "frappe"
+known_erpnext = "erpnext"
+known_hrms = "hrms"
+no_lines_before = ["ERPNEXT"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FRAPPE", "ERPNEXT", "HRMS", "FIRSTPARTY", "LOCALFOLDER"]

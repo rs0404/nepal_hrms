@@ -1,0 +1,293 @@
+<template>
+	<div class="flex flex-col w-full gap-3">
+		<div class="bg-white rounded-lg p-2 shadow-sm border border-gray-100">
+			<div ref="calendarContainer"></div>
+		</div>
+
+		<!-- Status summary — visible month only -->
+		<div class="grid grid-cols-4 gap-1 mx-1" v-if="hasSummary">
+			<div v-for="status in summaryStatuses" :key="status" class="flex flex-col gap-0.5">
+				<div class="flex flex-row gap-1 items-center">
+					<span
+						class="h-2.5 w-2.5 shrink-0 rounded-md"
+						:style="{ backgroundColor: STATUS_FILL[status]?.backgroundColor }"
+					/>
+					<span class="text-gray-600 text-[11px] font-medium leading-4 whitespace-nowrap">
+						{{ __(status) }}
+					</span>
+				</div>
+				<span class="text-gray-800 text-sm font-semibold leading-5 mx-auto">
+					{{ summary[status] || 0 }}
+				</span>
+			</div>
+		</div>
+		<div v-else-if="attendanceEvents.loading" class="text-xs text-gray-400 mx-1">
+			{{ __("Loading attendance…") }}
+		</div>
+		<div
+			v-else-if="attendanceEvents.error"
+			class="text-xs text-red-500 mx-1"
+		>
+			{{ __("Could not load attendance markers") }}
+		</div>
+
+		<div class="flex flex-wrap gap-x-3 gap-y-1 mx-1 text-[11px] text-gray-600">
+			<span class="inline-flex items-center gap-1">
+				<span class="status-swatch" style="background:#dcfce7;box-shadow:inset 0 0 0 1px #4ade80" />
+				{{ __("Present") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="status-swatch" style="background:#fef9c3;box-shadow:inset 0 0 0 1px #facc15" />
+				{{ __("Half Day") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="status-swatch" style="background:#dbeafe;box-shadow:inset 0 0 0 1px #60a5fa" />
+				{{ __("Leave") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="status-swatch" style="background:#fee2e2;box-shadow:inset 0 0 0 1px #f87171" />
+				{{ __("Absent") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<i class="marker-dot late" />{{ __("Late") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<i class="marker-dot early" />{{ __("Early") }}
+			</span>
+		</div>
+	</div>
+</template>
+
+<script setup>
+import { onMounted, onBeforeUnmount, ref, inject, watch, computed, nextTick } from "vue"
+import { createResource } from "frappe-ui"
+
+const emit = defineEmits(["select-day"])
+
+const __ = inject("$translate")
+const dayjs = inject("$dayjs")
+const calendarContainer = ref(null)
+const visibleRange = ref({
+	from_date: dayjs().subtract(20, "day").format("YYYY-MM-DD"),
+	to_date: dayjs().add(15, "day").format("YYYY-MM-DD"),
+})
+
+const STATUS_FILL = {
+	Present: { backgroundColor: "#dcfce7", boxShadow: "inset 0 0 0 1.5px #4ade80" },
+	"Work From Home": { backgroundColor: "#ccfbf1", boxShadow: "inset 0 0 0 1.5px #2dd4bf" },
+	"Half Day": { backgroundColor: "#fef9c3", boxShadow: "inset 0 0 0 1.5px #facc15" },
+	Absent: { backgroundColor: "#fee2e2", boxShadow: "inset 0 0 0 1.5px #f87171" },
+	"On Leave": { backgroundColor: "#dbeafe", boxShadow: "inset 0 0 0 1.5px #60a5fa" },
+	Holiday: { backgroundColor: "#f3f4f6", boxShadow: "inset 0 0 0 1.5px #d1d5db" },
+	"Weekly Off": { backgroundColor: "#f3f4f6", boxShadow: "inset 0 0 0 1.5px #d1d5db" },
+}
+
+const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave"]
+
+const attendanceEvents = createResource({
+	url: "nepal_hrms.api.attendance_calendar.get_attendance_calendar_details",
+	auto: true,
+	makeParams() {
+		// Keep range modest so holiday resolution stays fast/reliable
+		return {
+			from_date: dayjs().subtract(6, "month").startOf("month").format("YYYY-MM-DD"),
+			to_date: dayjs().add(3, "month").endOf("month").format("YYYY-MM-DD"),
+		}
+	},
+	onSuccess() {
+		paintAttendanceDays()
+	},
+})
+
+const dayStatus = (info) => {
+	if (!info) return null
+	if (typeof info === "string") return info
+	return info.status || null
+}
+
+const dayMarkers = (info) => {
+	if (!info || typeof info === "string") {
+		return { leave: info === "On Leave", late: false, early: false }
+	}
+	return {
+		leave: !!info.leave || info.status === "On Leave",
+		late: !!info.late,
+		early: !!info.early,
+	}
+}
+
+const summary = computed(() => {
+	if (!attendanceEvents.data) return {}
+	const from = visibleRange.value.from_date
+	const to = visibleRange.value.to_date
+	const counts = {}
+	for (const [date, info] of Object.entries(attendanceEvents.data)) {
+		if (from && date < from) continue
+		if (to && date > to) continue
+		let status = dayStatus(info)
+		if (!status || status === "Holiday" || status === "Weekly Off") continue
+		if (status === "Work From Home") status = "Present"
+		if (!summaryStatuses.includes(status)) continue
+		counts[status] = (counts[status] || 0) + 1
+	}
+	return counts
+})
+
+const hasSummary = computed(() => Object.keys(summary.value).length > 0)
+
+const handleMonthChange = (range) => {
+	if (!range?.from_date || !range?.to_date) return
+	visibleRange.value = {
+		from_date: range.from_date,
+		to_date: range.to_date,
+	}
+	// Re-paint after React re-renders the month grid
+	requestAnimationFrame(() => paintAttendanceDays())
+}
+
+function clearDayPaint(btn) {
+	// Color fill is CSS ::before — only sync classes / markers here
+	btn.style.backgroundColor = ""
+	btn.style.boxShadow = ""
+	btn.style.borderRadius = ""
+	btn.removeAttribute("data-painted-status")
+	const markers = btn.querySelector(":scope > .day-markers")
+	if (markers) markers.remove()
+	;[...btn.classList].forEach((c) => {
+		if (c.startsWith("status-") || c === "has-markers") btn.classList.remove(c)
+	})
+}
+
+function paintAttendanceDays() {
+	const root = calendarContainer.value
+	const events = attendanceEvents.data
+	if (!root || !events) return
+
+	const buttons = root.querySelectorAll(".days-grid .day[data-ad]")
+	if (!buttons.length) {
+		// Old calendar build without data-ad — try again shortly after React paints
+		setTimeout(() => {
+			const retry = root.querySelectorAll(".days-grid .day[data-ad]")
+			if (retry.length) paintAttendanceDays()
+		}, 50)
+		return
+	}
+
+	buttons.forEach((btn) => {
+		clearDayPaint(btn)
+		const key = btn.getAttribute("data-ad")
+		const info = events[key]
+		if (!info) return
+
+		const status = dayStatus(info)
+		if (status && STATUS_FILL[status]) {
+			btn.dataset.paintedStatus = status
+			btn.classList.add(
+				`status-${String(status).toLowerCase().replace(/ /g, "-")}`
+			)
+		}
+
+		const m = dayMarkers(info)
+		if (m.leave || m.late || m.early) {
+			btn.classList.add("has-markers")
+			const wrap = document.createElement("span")
+			wrap.className = "day-markers"
+			wrap.setAttribute("aria-hidden", "true")
+			if (m.leave) {
+				const i = document.createElement("i")
+				i.className = "marker leave"
+				i.title = "Leave"
+				wrap.appendChild(i)
+			}
+			if (m.late) {
+				const i = document.createElement("i")
+				i.className = "marker late"
+				i.title = "Late"
+				wrap.appendChild(i)
+			}
+			if (m.early) {
+				const i = document.createElement("i")
+				i.className = "marker early"
+				i.title = "Early exit"
+				wrap.appendChild(i)
+			}
+			btn.appendChild(wrap)
+		}
+	})
+}
+
+const renderCalendar = async () => {
+	await nextTick()
+	if (!calendarContainer.value || !window.NepaliCalendarLib) return
+
+	window.NepaliCalendarLib.render(calendarContainer.value, {
+		events: attendanceEvents.data || {},
+		onSelect: (nepaliDate) => {
+			if (!nepaliDate) return
+			const ad = nepaliDate.format({ format: "YYYY-MM-DD", calendar: "AD" })
+			const info = attendanceEvents.data?.[ad]
+			const m = dayMarkers(info)
+			const status = dayStatus(info)
+			if (!m.late && !m.early && status !== "Absent") return
+			emit("select-day", {
+				date: ad,
+				late: m.late,
+				early: m.early,
+				status,
+			})
+		},
+		onMonthChange: handleMonthChange,
+	})
+	// Paint after React commit
+	requestAnimationFrame(() => paintAttendanceDays())
+	setTimeout(paintAttendanceDays, 80)
+}
+
+onMounted(() => {
+	renderCalendar()
+})
+
+onBeforeUnmount(() => {
+	if (calendarContainer.value && window.NepaliCalendarLib) {
+		window.NepaliCalendarLib.unmount(calendarContainer.value)
+	}
+})
+
+watch(
+	() => attendanceEvents.data,
+	() => {
+		renderCalendar()
+	},
+	{ deep: true }
+)
+</script>
+
+<style scoped>
+:deep(.calendar-wrapper) {
+	@apply w-full border-none shadow-none max-w-none;
+}
+
+.status-swatch {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 3px;
+	flex-shrink: 0;
+}
+
+.marker-dot {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+.marker-dot.late {
+	background-color: #ea580c;
+}
+
+.marker-dot.early {
+	background-color: #7c3aed;
+}
+</style>

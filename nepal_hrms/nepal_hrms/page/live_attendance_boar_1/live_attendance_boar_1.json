@@ -1,0 +1,23 @@
+{
+ "content": null,
+ "creation": "2026-04-15 06:43:56.140913",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-04-15 06:43:56.140913",
+ "modified_by": "Administrator",
+ "module": "Nepal HRMS",
+ "name": "live_attendance_boar-1",
+ "owner": "Administrator",
+ "page_name": "live_attendance_boar-1",
+ "roles": [
+  {
+   "role": "Attendance Report Viewer"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Live Attendance Board"
+}

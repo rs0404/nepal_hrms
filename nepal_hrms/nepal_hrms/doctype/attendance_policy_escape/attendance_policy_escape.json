@@ -1,0 +1,187 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "employee",
+  "employee_name",
+  "department",
+  "column_break_1",
+  "company",
+  "is_active",
+  "from_date",
+  "to_date",
+  "section_escapes",
+  "escape_sandwich",
+  "escape_late_early",
+  "escape_continuous_lwp_gross",
+  "column_break_escapes",
+  "escape_absent_gross",
+  "escape_applications",
+  "section_reason",
+  "reason"
+ ],
+ "fields": [
+  {
+   "default": "APE-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "APE-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "employee.department",
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Department",
+   "options": "Department",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "employee.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Is Active"
+  },
+  {
+   "description": "Leave blank for open-ended start",
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From Date"
+  },
+  {
+   "description": "Leave blank for open-ended end",
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To Date"
+  },
+  {
+   "fieldname": "section_escapes",
+   "fieldtype": "Section Break",
+   "label": "Escape Rules"
+  },
+  {
+   "default": "0",
+   "fieldname": "escape_sandwich",
+   "fieldtype": "Check",
+   "label": "Escape Sandwich Rule"
+  },
+  {
+   "default": "0",
+   "description": "Late/early stays Present; no pool or Half Day; no application required",
+   "fieldname": "escape_late_early",
+   "fieldtype": "Check",
+   "label": "Escape Late Entry / Early Exit"
+  },
+  {
+   "default": "0",
+   "description": "Continuous LWP stays on basic daily rate instead of gross",
+   "fieldname": "escape_continuous_lwp_gross",
+   "fieldtype": "Check",
+   "label": "Escape Consecutive LWP Gross"
+  },
+  {
+   "fieldname": "column_break_escapes",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Unapproved absent charged at basic daily instead of gross",
+   "fieldname": "escape_absent_gross",
+   "fieldtype": "Check",
+   "label": "Escape Absent Gross"
+  },
+  {
+   "default": "0",
+   "description": "Skip Late/Early application deadline; OOO Personal overage does not create half-day",
+   "fieldname": "escape_applications",
+   "fieldtype": "Check",
+   "label": "Escape Late / Early / OOO Applications"
+  },
+  {
+   "fieldname": "section_reason",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nepal HRMS",
+ "name": "Attendance Policy Escape",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "HR Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "employee_name",
+ "track_changes": 1
+}

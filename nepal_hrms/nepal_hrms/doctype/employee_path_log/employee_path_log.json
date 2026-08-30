@@ -1,0 +1,123 @@
+{
+  "actions": [],
+  "autoname": "format:EPL-{employee}-{####}",
+  "creation": "2026-04-26 12:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "employee",
+    "employee_name",
+    "checkin_reference",
+    "column_break_1",
+    "timestamp",
+    "accuracy",
+    "section_break_coordinates",
+    "latitude",
+    "column_break_2",
+    "longitude"
+  ],
+  "fields": [
+    {
+      "fieldname": "employee",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Employee",
+      "options": "Employee",
+      "reqd": 1
+    },
+    {
+      "fieldname": "employee_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Employee Name",
+      "read_only": 1,
+      "fetch_from": "employee.employee_name"
+    },
+    {
+      "fieldname": "checkin_reference",
+      "fieldtype": "Link",
+      "label": "Checkin Reference",
+      "options": "Employee Checkin",
+      "description": "The OOO Work check-in that started this tracking session"
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "timestamp",
+      "fieldtype": "Datetime",
+      "in_list_view": 1,
+      "label": "Timestamp",
+      "reqd": 1
+    },
+    {
+      "fieldname": "accuracy",
+      "fieldtype": "Float",
+      "label": "Accuracy (meters)",
+      "description": "GPS accuracy in meters"
+    },
+    {
+      "fieldname": "section_break_coordinates",
+      "fieldtype": "Section Break",
+      "label": "Coordinates"
+    },
+    {
+      "fieldname": "latitude",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Latitude",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "longitude",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Longitude",
+      "reqd": 1
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "modified": "2026-04-26 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Nepal HRMS",
+  "name": "Employee Path Log",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "HR Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 0,
+      "delete": 0,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Employee",
+      "share": 0,
+      "write": 0
+    }
+  ],
+  "sort_field": "timestamp",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 0,
+  "title_field": "employee_name"
+}
