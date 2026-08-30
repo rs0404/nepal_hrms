@@ -70,12 +70,20 @@ def get_suggested_payroll_dates(employee=None, start_date=None):
 	if not bs_year or not bs_month:
 		return {}
 
-	days_in_month = _bs_months.get(bs_year, [])[bs_month - 1]
-	start_ad = bs_to_ad(bs_year, bs_month, 1)
-	end_ad = bs_to_ad(bs_year, bs_month, days_in_month)
+	# Honour the configured payroll period basis: a whole BS month, or a custom
+	# range such as the 29th of one month to the 28th of the next.
+	from nepal_hrms.custom_code.payroll.period import resolve_bs_period
+
+	start_ad, end_ad, days = resolve_bs_period(bs_year, bs_month)
+	if not start_ad:
+		days_in_month = _bs_months.get(bs_year, [])[bs_month - 1]
+		start_ad = bs_to_ad(bs_year, bs_month, 1)
+		end_ad = bs_to_ad(bs_year, bs_month, days_in_month)
+		days = days_in_month
 
 	return {
 		"start_date": str(start_ad) if start_ad else None,
 		"end_date": str(end_ad) if end_ad else None,
+		"period_days": days,
 		"is_first_day": bs_day == 1,
 	}

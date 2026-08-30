@@ -19,6 +19,10 @@ def create_custom_fields():
 			{"fieldname": "taxable_salary", "label": "Taxable Salary", "fieldtype": "Currency", "insert_after": "total_deduction", "allow_on_submit": 1},
 			{"fieldname": "custom_tax_breakup_html", "label": "Detailed Tax Calculation", "fieldtype": "HTML", "insert_after": "income_tax_calculation_breakup_section"},
 			{"fieldname": "custom_tax_calculation_data", "label": "Tax Calculation Data", "fieldtype": "Long Text", "insert_after": "custom_tax_breakup_html", "hidden": 1, "allow_on_submit": 1},
+			# Divisor snapshot: written on first calculation so a later Nepal Payroll
+			# Period Override cannot restate pay that has already been computed.
+			{"fieldname": "custom_daily_divisor_used", "label": "Daily Rate Divisor Used", "fieldtype": "Float", "insert_after": "total_working_days", "read_only": 1, "description": "Days this slip was divided by for per-day deductions. Frozen at first calculation."},
+			{"fieldname": "custom_daily_divisor_basis", "label": "Daily Rate Basis Used", "fieldtype": "Data", "insert_after": "custom_daily_divisor_used", "read_only": 1},
 		],
 		"Employee Checkin": [
 			{"fieldname": "custom_attendance_type", "label": "Attendance Type", "fieldtype": "Select", "options": "Normal\nOOO Work", "default": "Normal", "insert_after": "log_type", "in_list_view": 1, "allow_on_submit": 1},

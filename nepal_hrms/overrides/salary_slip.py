@@ -269,7 +269,7 @@ def compute_nepal_hr_variables(doc, data):
     # `doc`: Salary Slip has no `base` field and BaseDocument has no __getattr__,
     # so `doc.base` raises AttributeError. `doc.gross_pay` is also still 0 here --
     # this runs while the earnings table is being built.
-    from nepal_hrms.custom_code.payroll.salary_breakdown import get_daily_divisor
+    from nepal_hrms.custom_code.payroll.period import resolve_daily_divisor
 
     ssa_base = flt(data.get("base"))
     basic_remuneration = flt(data.get("custom_basic_remuneration"))
@@ -280,7 +280,25 @@ def compute_nepal_hr_variables(doc, data):
         percent = flt(settings.get("default_basic_percent") or 60)
         basic_remuneration = flt(ssa_base * percent / 100.0, 2)
 
-    working_days = get_daily_divisor(settings, fallback_working_days=doc.total_working_days)
+    # Snapshot the divisor onto the slip the first time it is calculated. A later
+    # Nepal Payroll Period Override must not restate pay that already exists, so
+    # a slip that carries a snapshot keeps using it.
+    snapshot = flt(getattr(doc, "custom_daily_divisor_used", 0))
+    if snapshot > 0:
+        working_days, divisor_basis = snapshot, "snapshot on slip"
+    else:
+        working_days, divisor_basis = resolve_daily_divisor(
+            doc.start_date,
+            doc.end_date,
+            working_days=doc.total_working_days,
+            company=doc.company,
+            created_on=getattr(doc, "creation", None) or frappe.utils.today(),
+        )
+        if hasattr(doc, "custom_daily_divisor_used"):
+            doc.custom_daily_divisor_used = flt(working_days)
+    if hasattr(doc, "custom_daily_divisor_basis"):
+        doc.custom_daily_divisor_basis = divisor_basis
+
     basic_daily = flt(basic_remuneration) / working_days if working_days else 0.0
     gross_daily = flt(total_fixed) / working_days if working_days else 0.0
 

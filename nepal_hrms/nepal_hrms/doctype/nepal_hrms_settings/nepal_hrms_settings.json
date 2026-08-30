@@ -29,12 +29,18 @@
   "last_bs_allocation_month",
   "payroll_tab",
   "payroll_section",
-  "salary_daily_divisor",
+  "daily_rate_basis",
+  "daily_rate_fixed_days",
   "default_basic_percent",
   "include_grade_in_ssf_base",
   "include_da_in_ssf_base",
   "overtime_rate_multiplier",
   "column_break_payroll",
+  "payroll_period_section",
+  "payroll_period_basis",
+  "payroll_period_start_day",
+  "column_break_period",
+  "period_override_help",
   "minimum_wage_section",
   "enforce_minimum_wage",
   "minimum_monthly_basic",
@@ -219,11 +225,20 @@
    "description": "How the Salary Structure Assignment breakdown converts to pay. Base always equals Basic + Dearness Allowance + Grade + Other Allowances."
   },
   {
-   "fieldname": "salary_daily_divisor",
+   "fieldname": "daily_rate_basis",
+   "fieldtype": "Select",
+   "label": "Daily Rate Basis",
+   "default": "Fixed Days",
+   "options": "Fixed Days\nDays in Payroll Period\nDays in BS Month\nWorking Days in Period",
+   "description": "How a monthly salary is converted to a per-day rate for absence, LWP, late and OOO deductions.\n\n<b>Fixed Days</b> - always divide by the number below (Nepali practice is 30). Same deduction for the same absence in every month.\n<b>Days in Payroll Period</b> - the actual length of the slip's period, so a 29-day period divides by 29.\n<b>Days in BS Month</b> - the true length of the Bikram Sambat month the period starts in (29 to 32 days).\n<b>Working Days in Period</b> - the slip's Total Working Days, i.e. excluding holidays and weekly offs. This makes each absent day cost the most."
+  },
+  {
+   "fieldname": "daily_rate_fixed_days",
    "fieldtype": "Int",
-   "label": "Daily Rate Divisor",
+   "label": "Fixed Days",
    "default": "30",
-   "description": "Days used to convert monthly salary to a daily rate for absence / LWP / late deductions. Nepali practice is a fixed 30. Set to 0 to use the slip's Total Working Days instead."
+   "depends_on": "eval: doc.daily_rate_basis === 'Fixed Days'",
+   "description": "Divisor used when the basis is Fixed Days."
   },
   {
    "fieldname": "default_basic_percent",
@@ -256,6 +271,38 @@
   {
    "fieldname": "column_break_payroll",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payroll_period_section",
+   "fieldtype": "Section Break",
+   "label": "Attendance & Payroll Period",
+   "description": "Defines the period a payroll run covers. Used to suggest dates on Payroll Entry and Salary Slip, and to resolve per-period day overrides."
+  },
+  {
+   "fieldname": "payroll_period_basis",
+   "fieldtype": "Select",
+   "label": "Payroll Period Basis",
+   "default": "Nepali Month",
+   "options": "Nepali Month\nCustom Day Range",
+   "description": "<b>Nepali Month</b> - the period runs from day 1 to the last day of the BS month.\n<b>Custom Day Range</b> - the period straddles two BS months, e.g. the 29th of one to the 28th of the next."
+  },
+  {
+   "fieldname": "payroll_period_start_day",
+   "fieldtype": "Int",
+   "label": "Period Start Day (BS)",
+   "default": "1",
+   "depends_on": "eval: doc.payroll_period_basis === 'Custom Day Range'",
+   "description": "BS day the period opens on. 29 means the period runs from the 29th of one month to the 28th of the next. Must be between 1 and 28 so it exists in every BS month."
+  },
+  {
+   "fieldname": "column_break_period",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "period_override_help",
+   "fieldtype": "HTML",
+   "label": "Period Override Help",
+   "options": "<p style='color:var(--text-muted)'>To change the day count for one month only &mdash; for example treating Shrawan as 32 days instead of 31 &mdash; create a <b>Nepal Payroll Period Override</b>. Overrides carry an <i>Applies From</i> date and are snapshotted onto each salary slip when it is first calculated, so existing slips keep the divisor they were computed with.</p>"
   },
   {
    "fieldname": "minimum_wage_section",

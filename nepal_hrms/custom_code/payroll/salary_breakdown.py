@@ -35,16 +35,11 @@ def _settings():
 
 
 def get_daily_divisor(settings=None, fallback_working_days=None):
-	"""Days used to turn a monthly figure into a daily rate.
-
-	Defaults to 30 (Nepali practice). A configured 0 means "use the slip's
-	Total Working Days", which is the legacy behaviour.
-	"""
+	"""Deprecated shim. Use period.resolve_daily_divisor(), which knows the
+	payroll period and any per-period override."""
 	settings = settings if settings is not None else _settings()
-	divisor = cint(settings.get("salary_daily_divisor") or 0)
-	if divisor > 0:
-		return flt(divisor)
-	return flt(fallback_working_days) or 30.0
+	fixed = cint(settings.get("daily_rate_fixed_days") or 30) or 30
+	return flt(fallback_working_days) if settings.get("daily_rate_basis") == "Working Days in Period" and flt(fallback_working_days) else flt(fixed)
 
 
 def compute_basic_remuneration(basic, dearness_allowance, grade, settings=None):
