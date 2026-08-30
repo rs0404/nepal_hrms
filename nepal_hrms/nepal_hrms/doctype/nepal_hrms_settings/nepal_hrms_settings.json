@@ -51,6 +51,14 @@
   "minimum_hourly_remuneration",
   "payroll_accounts_section",
   "payroll_accounts",
+  "payroll_automation_section",
+  "enable_scheduled_payroll",
+  "scheduled_payroll_run_day",
+  "scheduled_payroll_action",
+  "scheduled_payroll_notify",
+  "column_break_automation",
+  "scheduled_payroll_runs",
+  "run_scheduled_payroll_now",
   "payroll_setup_section",
   "payroll_setup_help",
   "run_payroll_setup"
@@ -369,6 +377,63 @@
    "fieldtype": "Table",
    "label": "Payroll Accounts",
    "options": "Nepal Payroll Account"
+  },
+  {
+   "fieldname": "payroll_automation_section",
+   "fieldtype": "Section Break",
+   "label": "Automated Payroll Runs",
+   "description": "Creates a Payroll Entry per salary structure on a chosen day of the BS month, for the period that just ended. Runs from the daily scheduler, so the site's scheduler must be enabled."
+  },
+  {
+   "fieldname": "enable_scheduled_payroll",
+   "fieldtype": "Check",
+   "label": "Enable Scheduled Payroll Entry",
+   "default": "0"
+  },
+  {
+   "fieldname": "scheduled_payroll_run_day",
+   "fieldtype": "Int",
+   "label": "Run on BS Day",
+   "default": "1",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "BS day of the month the job fires on. 1 means it runs on the first day of the new month and covers the month that just ended. Keep it at 28 or below so it exists in every BS month."
+  },
+  {
+   "fieldname": "scheduled_payroll_action",
+   "fieldtype": "Select",
+   "label": "How Far to Go",
+   "default": "Create Payroll Entry Only",
+   "options": "Create Payroll Entry Only\nCreate Payroll Entry and Salary Slips\nCreate, and Submit Salary Slips",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "<b>Create Payroll Entry Only</b> - a draft with employees filled in, for someone to review. Safest.\n<b>...and Salary Slips</b> - also creates draft slips.\n<b>...and Submit Salary Slips</b> - also submits the slips, which posts the accrual journal entry. Nothing is ever submitted without this set explicitly."
+  },
+  {
+   "fieldname": "scheduled_payroll_notify",
+   "fieldtype": "Link",
+   "label": "Notify Role",
+   "options": "Role",
+   "default": "HR Manager",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "Users with this role get a notification with the result of each run, including failures."
+  },
+  {
+   "fieldname": "column_break_automation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "scheduled_payroll_runs",
+   "fieldtype": "Table",
+   "label": "Scheduled Runs",
+   "options": "Nepal Scheduled Payroll",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "One row per Payroll Entry to create each period. Typically one per salary structure, e.g. a Wages row and a Salary row."
+  },
+  {
+   "fieldname": "run_scheduled_payroll_now",
+   "fieldtype": "Button",
+   "label": "Run Scheduled Payroll Now",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "Runs the rows above immediately for the period that just ended, ignoring the day check. Useful for a dry run before relying on the scheduler."
   },
   {
    "fieldname": "payroll_setup_section",

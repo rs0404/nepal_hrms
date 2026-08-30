@@ -28,6 +28,59 @@ frappe.ui.form.on("Nepal HRMS Settings", {
 		);
 	},
 
+	run_scheduled_payroll_now(frm) {
+		if (frm.is_dirty()) {
+			frappe.msgprint({
+				title: __("Unsaved Changes"),
+				message: __("Save the settings first — the run reads the scheduled rows from the saved document."),
+				indicator: "orange",
+			});
+			return;
+		}
+
+		const action = frm.doc.scheduled_payroll_action || "Create Payroll Entry Only";
+		const submits = action === "Create, and Submit Salary Slips";
+		const warning = submits
+			? `<p style="color:var(--text-danger)"><b>${__(
+					"This will submit salary slips and post the accrual journal entry."
+			  )}</b></p>`
+			: "";
+
+		frappe.confirm(
+			`${warning}<p>${__("Run the scheduled payroll now for the period that just ended?")}</p>
+			 <p>${__("Mode")}: <b>${frappe.utils.escape_html(action)}</b></p>`,
+			() => {
+				frappe.call({
+					method: "nepal_hrms.custom_code.payroll.scheduled_payroll.run_now",
+					freeze: true,
+					freeze_message: __("Running payroll…"),
+					callback: (r) => {
+						const results = r.message || [];
+						if (!results.length) {
+							frappe.msgprint(__("Nothing to do — no enabled rows, or entries already exist for this period."));
+							return;
+						}
+						const rows = results
+							.map(
+								(i) =>
+									`<tr><td>${frappe.utils.escape_html(i.row)}</td>
+									 <td>${frappe.utils.escape_html(i.status)}</td>
+									 <td>${frappe.utils.escape_html(i.detail)}</td></tr>`
+							)
+							.join("");
+						frappe.msgprint({
+							title: __("Scheduled Payroll"),
+							wide: true,
+							message: `<table class="table table-bordered"><thead><tr>
+								<th>${__("Run")}</th><th>${__("Status")}</th><th>${__("Detail")}</th>
+								</tr></thead><tbody>${rows}</tbody></table>`,
+						});
+					},
+				});
+			}
+		);
+	},
+
 	show_setup_result(frm, log) {
 		const rows = (list, cols) =>
 			list.map((i) => `<tr>${cols.map((c) => `<td>${frappe.utils.escape_html(String(i[c] ?? ""))}</td>`).join("")}</tr>`).join("");

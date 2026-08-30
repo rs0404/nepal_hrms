@@ -510,6 +510,44 @@ def submit_salary_slips_for_employees(payroll_entry, salary_slips, publish_progr
 
 
 class CustomPayrollEntry(PayrollEntry):
+    @frappe.whitelist()
+    def fill_employee_details(self):
+        """Restrict the run to one salary structure when custom_salary_structure is set.
+
+        Stock Payroll Entry has no structure filter, so it pulls every employee in
+        the company. Wages and Salary structures post to different expense
+        accounts, so runs are normally kept separate.
+        """
+        result = super().fill_employee_details()
+
+        structure = getattr(self, "custom_salary_structure", None)
+        if not structure:
+            return result
+
+        keep = set(
+            frappe.get_all(
+                "Salary Structure Assignment",
+                filters={
+                    "salary_structure": structure,
+                    "docstatus": 1,
+                    "from_date": ["<=", self.end_date],
+                },
+                pluck="employee",
+            )
+        )
+        filtered = [e for e in self.get("employees") if e.employee in keep]
+        if not filtered:
+            frappe.throw(
+                _("No employees are assigned to Salary Structure {0} for this period.").format(
+                    frappe.bold(structure)
+                ),
+                title=_("No employees found"),
+            )
+
+        self.set("employees", filtered)
+        self.number_of_employees = len(filtered)
+        return result
+
     def should_add_component_to_accrual_jv(self, component_type: str, item: dict) -> bool:
         add_component = super().should_add_component_to_accrual_jv(component_type, item)
         if not add_component:

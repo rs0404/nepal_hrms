@@ -118,6 +118,7 @@ scheduler_events = {
 	"daily": [
 		"nepal_hrms.custom_code.leave_allocation.scheduled_tasks.run_daily_bs_tasks",
 		"nepal_hrms.api.ooo_attendance.cleanup_old_path_logs",
+		"nepal_hrms.custom_code.payroll.scheduled_payroll.run_scheduled_payroll",
 	]
 }
 

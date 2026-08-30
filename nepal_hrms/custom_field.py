@@ -66,6 +66,11 @@ def create_custom_fields():
 		"Payroll Entry": [
 			{"fieldname": "nepali_start_date", "label": "Start Date BS", "fieldtype": "Data", "insert_after": "start_date", "allow_on_submit": 1},
 			{"fieldname": "nepali_end_date", "label": "End Date BS", "fieldtype": "Data", "insert_after": "end_date", "allow_on_submit": 1},
+			# Stock Payroll Entry filters by branch/department/designation only. Wages
+			# and Salary structures post to different expense accounts, so a run is
+			# normally per-structure.
+			{"fieldname": "custom_salary_structure", "label": "Salary Structure", "fieldtype": "Link", "options": "Salary Structure", "insert_after": "designation", "description": "Restrict this run to employees assigned to one salary structure. Leave blank for every structure in the company."},
+			{"fieldname": "custom_created_by_scheduler", "label": "Created by Scheduler", "fieldtype": "Check", "insert_after": "status", "read_only": 1, "default": 0, "allow_on_submit": 1},
 		],
 		"Income Tax Slab": [
 			{"fieldname": "nepali_date", "label": "Nepali Date", "fieldtype": "Data", "insert_after": "effective_from", "allow_on_submit": 1},
