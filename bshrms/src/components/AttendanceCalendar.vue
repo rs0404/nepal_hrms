@@ -35,13 +35,10 @@
 					@click="onDayClick(index)"
 				>
 					<div
-						class="h-9 w-9 flex rounded-lg mx-auto"
+						class="h-9 w-9 flex rounded-lg mx-auto cursor-pointer"
 						:class="[
 							statusColor(getEventOnDate(index)),
-							hasLateOrEarly(getEventOnDate(index)) ||
-							dayStatus(getEventOnDate(index)) === 'Absent'
-								? 'cursor-pointer'
-								: '',
+							isSelected(index) ? 'ring-2 ring-blue-600 ring-offset-1' : '',
 						]"
 					>
 						<span class="text-gray-800 text-sm font-medium m-auto">
@@ -57,6 +54,47 @@
 						<i v-if="dayMarkers(getEventOnDate(index)).early" class="marker-dot early" />
 					</div>
 				</div>
+			</div>
+
+			<div
+				class="flex items-center justify-between gap-2 px-1 pt-1 border-t border-gray-100"
+			>
+				<template v-if="!selectMode">
+					<span class="text-[11px] text-gray-400">{{ __("Tap a day for details") }}</span>
+					<button
+						type="button"
+						class="text-[11px] font-semibold text-blue-600 py-1"
+						@click="startSelectMode"
+					>
+						{{ __("Select days for leave") }}
+					</button>
+				</template>
+				<template v-else>
+					<span class="text-[11px] text-gray-500">
+						{{
+							selectedCount
+								? __("{0} day(s) selected — tap more future days", [selectedCount])
+								: __("Tap future working days to select")
+						}}
+					</span>
+					<div class="flex items-center gap-3 shrink-0">
+						<button
+							type="button"
+							class="text-[11px] font-semibold text-gray-500 py-1"
+							@click="cancelSelectMode"
+						>
+							{{ __("Cancel") }}
+						</button>
+						<button
+							type="button"
+							class="text-[11px] font-semibold py-1"
+							:class="selectedCount ? 'text-blue-600' : 'text-gray-300 pointer-events-none'"
+							@click="applyLeaveSelection"
+						>
+							{{ __("Apply for Leave") }}
+						</button>
+					</div>
+				</template>
 			</div>
 
 			<hr class="border-gray-100" />
@@ -95,11 +133,12 @@
 import { computed, inject, ref, watch } from "vue"
 import { createResource } from "frappe-ui"
 
-const emit = defineEmits(["select-day"])
+const emit = defineEmits(["select-day", "create-leave"])
 
 const dayjs = inject("$dayjs")
 const __ = inject("$translate")
 const firstOfMonth = ref(dayjs().date(1).startOf("D"))
+const todayStr = dayjs().format("YYYY-MM-DD")
 
 const colorMap = {
 	Present: "bg-green-200 ring-1 ring-inset ring-green-400",
@@ -112,6 +151,9 @@ const colorMap = {
 }
 
 const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave"]
+const selectMode = ref(false)
+const selectedDates = ref(new Set())
+const selectedCount = computed(() => selectedDates.value.size)
 
 const dayStatus = (info) => {
 	if (!info) return null
@@ -139,17 +181,48 @@ const hasMarkers = (info) => {
 	return m.leave || m.late || m.early
 }
 
-const hasLateOrEarly = (info) => {
-	const m = dayMarkers(info)
-	return m.late || m.early
+const isDaySelectable = (date) => {
+	if (!date || date <= todayStr) return false
+	const status = dayStatus(calendarEvents.data?.[date])
+	return !["Holiday", "Weekly Off", "On Leave", "Leave Pending"].includes(status)
+}
+
+function startSelectMode() {
+	selectMode.value = true
+}
+
+function cancelSelectMode() {
+	selectMode.value = false
+	selectedDates.value = new Set()
+}
+
+function isSelected(index) {
+	return selectedDates.value.has(firstOfMonth.value.date(index).format("YYYY-MM-DD"))
+}
+
+function toggleDaySelection(date) {
+	const next = new Set(selectedDates.value)
+	if (next.has(date)) next.delete(date)
+	else next.add(date)
+	selectedDates.value = next
+}
+
+function applyLeaveSelection() {
+	if (!selectedDates.value.size) return
+	const sorted = [...selectedDates.value].sort()
+	emit("create-leave", { from_date: sorted[0], to_date: sorted[sorted.length - 1] })
+	cancelSelectMode()
 }
 
 const onDayClick = (index) => {
 	const date = firstOfMonth.value.date(index).format("YYYY-MM-DD")
+	if (selectMode.value) {
+		if (isDaySelectable(date)) toggleDaySelection(date)
+		return
+	}
 	const info = getEventOnDate(index)
 	const m = dayMarkers(info)
 	const status = dayStatus(info)
-	if (!m.late && !m.early && status !== "Absent") return
 	emit("select-day", { date, late: m.late, early: m.early, status })
 }
 

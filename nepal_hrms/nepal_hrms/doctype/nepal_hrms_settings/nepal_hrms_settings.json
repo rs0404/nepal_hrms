@@ -24,6 +24,15 @@
   "max_paid_out_of_office_hours",
   "enable_continuous_lwp_gross_deduction",
   "continuous_lwp_threshold_days",
+  "approval_policy_section",
+  "prevent_self_attendance_request_approval",
+  "prevent_self_cnr_application_approval",
+  "prevent_self_ooo_checkin_approval",
+  "pwa_access_section",
+  "pwa_live_board_roles",
+  "pwa_leave_board_roles",
+  "pwa_calendar_history_roles",
+  "pwa_calendar_view_others_roles",
   "bs_allocation_section",
   "last_bs_allocation_year",
   "last_bs_allocation_month",
@@ -201,6 +210,66 @@
    "fieldname": "continuous_lwp_threshold_days",
    "fieldtype": "Int",
    "label": "Continuous LWP Threshold Days (ASR)"
+  },
+  {
+   "fieldname": "approval_policy_section",
+   "fieldtype": "Section Break",
+   "label": "Self-Approval Policy"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, employees cannot approve or submit their own Attendance Request. Their Leave Approver or HR must do it.",
+   "fieldname": "prevent_self_attendance_request_approval",
+   "fieldtype": "Check",
+   "label": "Prevent Self-Approval of Attendance Requests"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, employees cannot approve, reject, or submit their own Late Entry, Early Exit, or Out of Office Application.",
+   "fieldname": "prevent_self_cnr_application_approval",
+   "fieldtype": "Check",
+   "label": "Prevent Self-Approval of CNR Applications"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, employees cannot approve or reject their own OOO Work check-ins.",
+   "fieldname": "prevent_self_ooo_checkin_approval",
+   "fieldtype": "Check",
+   "label": "Prevent Self-Approval of OOO Check-ins"
+  },
+  {
+   "description": "Control which roles can use BSHRMS PWA attendance and leave-board features. Empty tables turn that feature off; Leave Board also inherits Live Attendance Board roles.",
+   "fieldname": "pwa_access_section",
+   "fieldtype": "Section Break",
+   "label": "PWA Access Control"
+  },
+  {
+   "description": "Roles allowed to see the Live Attendance Board. Empty means nobody.",
+   "fieldname": "pwa_live_board_roles",
+   "fieldtype": "Table",
+   "label": "Live Attendance Board Roles",
+   "options": "Nepal HRMS Role"
+  },
+  {
+   "description": "Roles allowed to see leave boards. Live Attendance Board roles also have access.",
+   "fieldname": "pwa_leave_board_roles",
+   "fieldtype": "Table",
+   "label": "Leave Board Roles",
+   "options": "Nepal HRMS Role"
+  },
+  {
+   "description": "Roles allowed to browse historical attendance for other employees. Own attendance history remains available.",
+   "fieldname": "pwa_calendar_history_roles",
+   "fieldtype": "Table",
+   "label": "Calendar Past Attendance Roles",
+   "options": "Nepal HRMS Role"
+  },
+  {
+   "description": "Roles allowed to view other employees' attendance calendars.",
+   "fieldname": "pwa_calendar_view_others_roles",
+   "fieldtype": "Table",
+   "label": "View Others' Calendar Roles",
+   "options": "Nepal HRMS Role"
   },
   {
    "fieldname": "bs_allocation_section",

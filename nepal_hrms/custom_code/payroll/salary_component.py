@@ -234,6 +234,8 @@ def create_multiple_salary_components():
                 "type": "Deduction"
             },
             {
+                "amount_based_on_formula": 1,
+                "formula": "cit_contribution",
                 "name": "CIT",
                 "salary_component": "CIT",
                 "salary_component_abbr": "cit",
@@ -301,6 +303,12 @@ def update_salary_component_formulas():
                 frappe.db.set_value("Salary Component", component["name"], "formula", "custom_basic_salary")
             elif component["name"] == "Other Allowance":
                 frappe.db.set_value("Salary Component", component["name"], "formula", "nsa_other_allowance")
+            elif component["name"] == "CIT":
+                frappe.db.set_value(
+                    "Salary Component",
+                    component["name"],
+                    {"formula": "cit_contribution", "amount_based_on_formula": 1},
+                )
             elif component["name"] in ("Leave and Late Deduction", "Leaves and Late Comings"):
                 frappe.db.set_value(
                     "Salary Component",

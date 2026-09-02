@@ -37,15 +37,56 @@
 				<AttendanceCalendar
 					v-if="activeCalendar === 'English'"
 					@select-day="onCalendarDaySelect"
+					@create-leave="onCreateLeave"
 				/>
-				<NepaliAttendanceCalendar v-else @select-day="onCalendarDaySelect" />
+				<NepaliAttendanceCalendar
+					v-else
+					@select-day="onCalendarDaySelect"
+					@create-leave="onCreateLeave"
+				/>
 
-				<ion-action-sheet
-					:header="__('Absent day')"
-					:buttons="absentSheetButtons"
-					:is-open="showAbsentSheet"
-					@didDismiss="onAbsentSheetDismiss"
-				/>
+				<ion-modal
+					:is-open="showDaySheet"
+					@didDismiss="onDaySheetDismiss"
+					:initial-breakpoint="1"
+					:breakpoints="[0, 1]"
+				>
+					<AttendanceDaySheet
+						v-if="selectedDay"
+						:key="selectedDay.stamp"
+						:date="selectedDay.date"
+						:fallbackStatus="selectedDay.status"
+						@create-leave="onCreateLeave"
+					/>
+				</ion-modal>
+
+				<Dialog v-model="showSandwichDialog">
+					<template #body-title>
+						<h2 class="text-xl font-bold">{{ __("Sandwich Rule Warning") }}</h2>
+					</template>
+					<template #body-content>
+						<p class="text-sm text-gray-700">{{ sandwichInfo?.message }}</p>
+					</template>
+					<template #actions>
+						<div class="flex flex-row gap-4">
+							<Button
+								variant="outline"
+								class="py-5 w-full"
+								@click="showSandwichDialog = false"
+							>
+								{{ __("Cancel") }}
+							</Button>
+							<Button
+								variant="solid"
+								:theme="sandwichInfo?.block ? 'red' : 'gray'"
+								class="py-5 w-full"
+								@click="proceedWithLeave"
+							>
+								{{ __("Proceed Anyway") }}
+							</Button>
+						</div>
+					</template>
+				</Dialog>
 
 				<!-- Late / Early pool — coloured, above applications -->
 				<div
@@ -363,9 +404,9 @@
 
 <script setup>
 import { computed, inject, markRaw, ref, onMounted, watch } from "vue"
-import { createResource, createListResource, Badge } from "frappe-ui"
+import { createResource, createListResource, Badge, Dialog, Button, call } from "frappe-ui"
 import { useRouter } from "vue-router"
-import { IonActionSheet } from "@ionic/vue"
+import { IonModal } from "@ionic/vue"
 
 import BaseLayout from "@/components/BaseLayout.vue"
 import AttendanceRequestItem from "@/components/AttendanceRequestItem.vue"
@@ -375,6 +416,7 @@ import ShiftAssignmentItem from "@/components/ShiftAssignmentItem.vue"
 import RequestList from "@/components/RequestList.vue"
 import AttendanceCalendar from "@/components/AttendanceCalendar.vue"
 import NepaliAttendanceCalendar from "@/components/NepaliAttendanceCalendar.vue"
+import AttendanceDaySheet from "@/components/AttendanceDaySheet.vue"
 import { getBsMonthAdRange } from "@/utils/nepali_date"
 
 const activeCalendar = ref("Nepali")
@@ -384,23 +426,11 @@ const socket = inject("$socket")
 const __ = inject("$translate")
 const router = useRouter()
 
-const showAbsentSheet = ref(false)
-const absentDate = ref(null)
-const absentSheetButtons = computed(() => [
-	{
-		text: __("Attendance Request"),
-		data: { action: "attendance_request" },
-	},
-	{
-		text: __("Leave Application"),
-		data: { action: "leave_application" },
-	},
-	{
-		text: __("Cancel"),
-		role: "cancel",
-		data: { action: "cancel" },
-	},
-])
+const showDaySheet = ref(false)
+const selectedDay = ref(null)
+const showSandwichDialog = ref(false)
+const sandwichInfo = ref(null)
+const pendingLeaveRange = ref(null)
 
 const monthRange = computed(() => {
 	if (activeCalendar.value === "Nepali") {
@@ -466,46 +496,58 @@ watch(monthRange, () => {
 
 function onCalendarDaySelect({ date, late, early, status }) {
 	if (!date) return
-	// Prefer Early Exit when both markers are present
-	if (early) {
-		router.push({
-			name: "EarlyExitApplicationFormView",
-			query: { attendance_date: date, prefill: "1" },
-		})
-		return
+	selectedDay.value = {
+		date,
+		late: !!late,
+		early: !!early,
+		status: status || null,
+		stamp: Date.now(),
 	}
-	if (late) {
-		router.push({
-			name: "LateEntryApplicationFormView",
-			query: { attendance_date: date, prefill: "1" },
-		})
-		return
-	}
-	if (status === "Absent") {
-		absentDate.value = date
-		showAbsentSheet.value = true
-	}
+	showDaySheet.value = true
 }
 
-function onAbsentSheetDismiss(ev) {
-	showAbsentSheet.value = false
-	const action = ev?.detail?.data?.action
-	const date = absentDate.value
-	absentDate.value = null
-	if (!date || !action || action === "cancel") return
-	if (action === "attendance_request") {
-		router.push({
-			name: "AttendanceRequestFormView",
-			query: { from_date: date, to_date: date, prefill: "1" },
+function onDaySheetDismiss() {
+	showDaySheet.value = false
+	selectedDay.value = null
+}
+
+async function onCreateLeave({ from_date, to_date, half_day }) {
+	if (!from_date || !to_date) return
+	showDaySheet.value = false
+	pendingLeaveRange.value = { from_date, to_date, half_day: half_day ? 1 : 0 }
+
+	let response = null
+	try {
+		response = await call("nepal_hrms.api.attendance_calendar.check_leave_sandwich", {
+			from_date,
+			to_date,
 		})
+	} catch (error) {
+		console.warn("Leave sandwich precheck failed", error)
+	}
+	if (response?.enabled && response?.violation && !response?.escape) {
+		sandwichInfo.value = response
+		showSandwichDialog.value = true
 		return
 	}
-	if (action === "leave_application") {
-		router.push({
-			name: "LeaveApplicationFormView",
-			query: { from_date: date, to_date: date, prefill: "1" },
-		})
+	proceedWithLeave()
+}
+
+function proceedWithLeave() {
+	showSandwichDialog.value = false
+	const range = pendingLeaveRange.value
+	if (!range) return
+	const query = {
+		prefill: "1",
+		from_date: range.from_date,
+		to_date: range.to_date,
 	}
+	if (range.half_day) {
+		query.half_day = "1"
+		query.half_day_date = range.from_date
+	}
+	pendingLeaveRange.value = null
+	router.push({ name: "LeaveApplicationFormView", query })
 }
 
 const recentCheckins = createListResource({

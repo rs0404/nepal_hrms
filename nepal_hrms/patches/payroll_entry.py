@@ -1,12 +1,18 @@
 import frappe
 from nepal_hrms.utils import evaluate_tax_formula
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 def execute(doc, method):
     if doc.payroll_entry:
         update_tax_and_submit(doc)
 
 def update_tax_and_submit(doc):
+    # Modern Nepal Payroll structures use HRMS's annual TDS projection. Running
+    # the legacy fixed-component calculation as well would produce a second,
+    # incompatible tax result after the slip has already been calculated.
+    if any(cint(d.variable_based_on_taxable_salary) for d in doc.deductions):
+        return
+
     selected_earning_components = [
         "Basic Salary", "Other Allowance", "Grade Amount", "Blog Allowance", "Earning Adjustment",
         "Overtime", "Gratuity", "Provident Fund Employer", "Employer's Contribution SSF"

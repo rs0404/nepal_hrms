@@ -110,12 +110,7 @@ def approve_ooo_checkins(employee, attendance_date):
 	Marks OOO check-ins approved, recalculates working hours (Normal + OOO),
 	clears OOO hold, and submits/updates Attendance.
 	"""
-	user = frappe.session.user
-	employee_doc = frappe.get_doc("Employee", employee)
-
-	leave_approver = employee_doc.leave_approver
-	if user != leave_approver and user != "Administrator" and "HR Manager" not in frappe.get_roles(user):
-		frappe.throw(_("Only the Leave Approver, HR Manager, or Administrator can approve OOO check-ins."))
+	_assert_is_leave_approver(employee)
 
 	attendance_date = getdate(attendance_date)
 	checkin_meta = frappe.get_meta("Employee Checkin")
@@ -287,11 +282,7 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 	if not reason or not str(reason).strip():
 		frappe.throw(_("A rejection reason is required."))
 
-	user = frappe.session.user
-	employee_doc = frappe.get_doc("Employee", employee)
-	leave_approver = employee_doc.leave_approver
-	if user != leave_approver and user != "Administrator" and "HR Manager" not in frappe.get_roles(user):
-		frappe.throw(_("Only the Leave Approver, HR Manager, or Administrator can reject OOO check-ins."))
+	_assert_is_leave_approver(employee)
 
 	attendance_date = getdate(attendance_date)
 	reason = str(reason).strip()
@@ -446,109 +437,403 @@ def get_ooo_status(employee):
 
 @frappe.whitelist()
 def get_pending_ooo_approvals():
-    """
-    For Leave Approvers / HR: pending OOO approvals (hold + unapproved check-ins).
-    Leave Approvers see their reportees; HR Manager / System Manager see all.
-    """
-    user = frappe.session.user
-    roles = set(frappe.get_roles(user))
-    is_hr = bool(roles & {"HR Manager", "System Manager"}) or user == "Administrator"
+	"""OOO board for PWA: pending + approved reportees, plus own OOO.
 
-    if is_hr:
-        employees = frappe.get_all(
-            "Employee",
-            filters={"status": "Active"},
-            fields=["name", "employee_name"],
-        )
-    else:
-        employees = frappe.get_all(
-            "Employee",
-            filters={"leave_approver": user, "status": "Active"},
-            fields=["name", "employee_name"],
-        )
+	Pending/approved lists only include employees where the current user is
+	set as Leave Approver. Approve/Reject is leave-approver-only.
+	"""
+	from frappe.utils import add_days
 
-    if not employees:
-        return []
+	user = frappe.session.user
+	my_emp = frappe.db.get_value("Employee", {"user_id": user}, ["name", "employee_name"], as_dict=True)
 
-    employee_map = {e.name: e.employee_name for e in employees}
-    employee_ids = list(employee_map.keys())
+	# Only reportees of this leave approver (not all HR employees)
+	reportees = frappe.get_all(
+		"Employee",
+		filters={"leave_approver": user, "status": "Active"},
+		fields=["name", "employee_name"],
+	)
+	# Case-insensitive fallback if leave_approver stored with different casing
+	if not reportees and user:
+		all_active = frappe.get_all(
+			"Employee",
+			filters={"status": "Active", "leave_approver": ["is", "set"]},
+			fields=["name", "employee_name", "leave_approver"],
+		)
+		reportees = [
+			{"name": e.name, "employee_name": e.employee_name}
+			for e in all_active
+			if str(e.leave_approver or "").lower() == user.lower()
+		]
 
-    # Get from Attendance records on hold
-    pending_attendance = frappe.get_all("Attendance", filters={
-        "employee": ["in", employee_ids],
-        "custom_ooo_hold": 1,
-        "docstatus": 0,
-    }, fields=["name", "employee", "employee_name", "attendance_date", "working_hours"])
+	employee_map = {e["name"]: e["employee_name"] for e in reportees}
+	reportee_ids = list(employee_map.keys())
 
-    # Find any unapproved OOO check-ins (exclude rejected)
-    checkin_filters = {
-        "employee": ["in", employee_ids],
-        "custom_attendance_type": "OOO Work",
-        "custom_is_approved": 0,
-        "docstatus": 0
-    }
-    if frappe.get_meta("Employee Checkin").has_field("custom_ooo_rejected"):
-        checkin_filters["custom_ooo_rejected"] = 0
+	from_date = add_days(today(), -60)
 
-    unapproved_checkins = frappe.get_all("Employee Checkin", filters=checkin_filters, fields=["employee", "time"])
+	pending, approved = [], []
+	if reportee_ids:
+		days = _collect_ooo_days(reportee_ids, employee_map, from_date=from_date)
+		for item in days:
+			if item["approval_status"] == "Pending":
+				pending.append(item)
+			elif item["approval_status"] == "Approved":
+				approved.append(item)
 
-    # Group unapproved check-ins by employee and date
-    pending_from_checkins = {}
-    for c in unapproved_checkins:
-        date = getdate(c.time)
-        key = (c.employee, date)
-        if key not in pending_from_checkins:
-            pending_from_checkins[key] = {
-                "employee": c.employee,
-                "employee_name": employee_map.get(c.employee),
-                "attendance_date": date,
-                "working_hours": 0.0,
-            }
+	mine = []
+	if my_emp:
+		mine = _collect_ooo_days(
+			[my_emp.name],
+			{my_emp.name: my_emp.employee_name},
+			from_date=from_date,
+			include_rejected=True,
+		)
 
-    # Calculate preliminary working hours for the unapproved check-ins on those dates
-    for (emp, date), item in pending_from_checkins.items():
-        day_checkins = frappe.get_all("Employee Checkin", filters={
-            "employee": emp,
-            "time": ["between", [f"{date} 00:00:00", f"{date} 23:59:59"]],
-            "docstatus": ["<", 2]
-        }, fields=["time", "log_type", "custom_attendance_type"], order_by="time asc")
+	# Newest first; cap each section
+	def _sort_cap(rows, limit=20):
+		rows.sort(key=lambda r: r["attendance_date"], reverse=True)
+		return rows[:limit]
 
-        total_seconds = 0
-        last_in_time = None
-        for c in day_checkins:
-            if c.log_type == "IN":
-                last_in_time = c.time
-            elif c.log_type == "OUT" and last_in_time:
-                total_seconds += (c.time - last_in_time).total_seconds()
-                last_in_time = None
-        item["working_hours"] = round(total_seconds / 3600.0, 2)
+	return {
+		"pending": _sort_cap(pending),
+		"approved": _sort_cap(approved),
+		"mine": _sort_cap(mine),
+	}
 
-    # Merge pending lists (avoiding duplicates)
-    merged_pending = []
-    seen = set()
 
-    for p in pending_attendance:
-        key = (p.employee, getdate(p.attendance_date))
-        seen.add(key)
-        merged_pending.append({
-            "name": p.name,
-            "employee": p.employee,
-            "employee_name": p.employee_name,
-            "attendance_date": str(p.attendance_date),
-            "working_hours": round(p.working_hours or 0.0, 2)
-        })
+def _collect_ooo_days(employee_ids, employee_map, from_date=None, include_rejected=False):
+	"""Group OOO check-ins into one row per employee+date with approval_status."""
+	from frappe.utils import add_days
 
-    for key, item in pending_from_checkins.items():
-        if key not in seen:
-            merged_pending.append({
-                "name": None,
-                "employee": item["employee"],
-                "employee_name": item["employee_name"],
-                "attendance_date": str(item["attendance_date"]),
-                "working_hours": item["working_hours"]
-            })
+	if not employee_ids:
+		return []
 
-    return merged_pending
+	from_date = getdate(from_date or add_days(today(), -60))
+	checkin_meta = frappe.get_meta("Employee Checkin")
+	has_rejected = checkin_meta.has_field("custom_ooo_rejected")
+
+	fields = [
+		"name",
+		"employee",
+		"time",
+		"log_type",
+		"custom_is_approved",
+	]
+	if has_rejected:
+		fields.append("custom_ooo_rejected")
+
+	filters = {
+		"employee": ["in", employee_ids],
+		"custom_attendance_type": "OOO Work",
+		"time": [">=", f"{from_date} 00:00:00"],
+		"docstatus": ["<", 2],
+	}
+
+	rows = frappe.get_all(
+		"Employee Checkin",
+		filters=filters,
+		fields=fields,
+		order_by="time asc",
+		limit_page_length=2000,
+	)
+
+	grouped = {}
+	for c in rows:
+		rejected = cint(getattr(c, "custom_ooo_rejected", 0)) if has_rejected else 0
+		if rejected and not include_rejected:
+			continue
+		day = getdate(c.time)
+		key = (c.employee, day)
+		bucket = grouped.setdefault(
+			key,
+			{
+				"employee": c.employee,
+				"employee_name": employee_map.get(c.employee),
+				"attendance_date": day,
+				"has_pending": False,
+				"has_approved": False,
+				"has_rejected": False,
+				"ooo_seconds": 0,
+				"_last_in": None,
+			},
+		)
+		if rejected:
+			bucket["has_rejected"] = True
+		elif cint(c.custom_is_approved):
+			bucket["has_approved"] = True
+		else:
+			bucket["has_pending"] = True
+
+		if c.log_type == "IN":
+			bucket["_last_in"] = c.time
+		elif c.log_type == "OUT" and bucket["_last_in"]:
+			bucket["ooo_seconds"] += (c.time - bucket["_last_in"]).total_seconds()
+			bucket["_last_in"] = None
+
+	# Attendance names for display
+	attendance_map = {}
+	if grouped:
+		att_rows = frappe.get_all(
+			"Attendance",
+			filters={
+				"employee": ["in", employee_ids],
+				"attendance_date": ["in", list({d for _, d in grouped.keys()})],
+				"docstatus": ["<", 2],
+			},
+			fields=["name", "employee", "attendance_date", "working_hours"],
+		)
+		for a in att_rows:
+			attendance_map[(a.employee, getdate(a.attendance_date))] = a
+
+	result = []
+	for key, bucket in grouped.items():
+		if bucket["has_pending"]:
+			status = "Pending"
+		elif bucket["has_approved"]:
+			status = "Approved"
+		elif bucket["has_rejected"]:
+			status = "Rejected"
+		else:
+			continue
+
+		att = attendance_map.get(key)
+		ooo_hours = round(bucket["ooo_seconds"] / 3600.0, 2)
+		result.append(
+			{
+				"name": (att.name if att else None) or f"OOO-{bucket['employee']}-{bucket['attendance_date']}",
+				"employee": bucket["employee"],
+				"employee_name": bucket["employee_name"],
+				"attendance_date": str(bucket["attendance_date"]),
+				"working_hours": ooo_hours
+				if ooo_hours
+				else round(float(att.working_hours or 0), 2)
+				if att
+				else 0.0,
+				"approval_status": status,
+				"can_approve": status == "Pending",
+			}
+		)
+	return result
+
+
+@frappe.whitelist()
+def get_ooo_approval_details(employee, attendance_date):
+	"""Attendance + all day check-ins for an OOO approval detail sheet."""
+	if not employee or not attendance_date:
+		frappe.throw(_("Employee and attendance date are required."))
+
+	_assert_can_view_ooo_day(employee)
+
+	attendance_date = getdate(attendance_date)
+	employee_name = frappe.db.get_value("Employee", employee, "employee_name") or employee
+	day_start = f"{attendance_date} 00:00:00"
+	day_end = f"{attendance_date} 23:59:59"
+
+	att_fields = [
+		"name",
+		"status",
+		"docstatus",
+		"in_time",
+		"out_time",
+		"working_hours",
+		"shift",
+		"late_entry",
+		"early_exit",
+	]
+	att_meta = frappe.get_meta("Attendance")
+	for f in ("custom_ooo_hold", "custom_ooo_hours", "custom_has_ooo_logs"):
+		if att_meta.has_field(f):
+			att_fields.append(f)
+
+	attendance_row = frappe.db.get_value(
+		"Attendance",
+		{
+			"employee": employee,
+			"attendance_date": attendance_date,
+			"docstatus": ["<", 2],
+		},
+		att_fields,
+		as_dict=True,
+	)
+
+	checkin_fields = [
+		"name",
+		"time",
+		"log_type",
+		"custom_attendance_type",
+		"custom_reason",
+		"custom_is_approved",
+		"device_id",
+		"latitude",
+		"longitude",
+	]
+	checkin_meta = frappe.get_meta("Employee Checkin")
+	if checkin_meta.has_field("custom_ooo_rejected"):
+		checkin_fields.append("custom_ooo_rejected")
+
+	raw_checkins = frappe.get_all(
+		"Employee Checkin",
+		filters={
+			"employee": employee,
+			"time": ["between", [day_start, day_end]],
+			"docstatus": ["<", 2],
+		},
+		fields=checkin_fields,
+		order_by="time asc",
+	)
+
+	checkins = []
+	ooo_checkins = []
+	ooo_seconds = 0
+	last_ooo_in = None
+
+	for c in raw_checkins:
+		att_type = (c.custom_attendance_type or "Normal").strip() or "Normal"
+		is_ooo = att_type == "OOO Work"
+		rejected = cint(getattr(c, "custom_ooo_rejected", 0))
+		entry = {
+			"name": c.name,
+			"time": str(c.time),
+			"log_type": c.log_type,
+			"attendance_type": att_type,
+			"reason": c.custom_reason or "",
+			"is_approved": cint(c.custom_is_approved),
+			"is_rejected": rejected,
+			"is_ooo": is_ooo,
+			"device_id": c.device_id or "",
+			"has_location": bool(c.latitude and c.longitude),
+		}
+		checkins.append(entry)
+
+		if is_ooo and not rejected:
+			ooo_checkins.append(entry)
+			if c.log_type == "IN":
+				last_ooo_in = get_datetime(c.time)
+			elif c.log_type == "OUT" and last_ooo_in:
+				ooo_seconds += (get_datetime(c.time) - last_ooo_in).total_seconds()
+				last_ooo_in = None
+
+	attendance = None
+	if attendance_row:
+		attendance = {
+			"name": attendance_row.name,
+			"status": attendance_row.status,
+			"docstatus": cint(attendance_row.docstatus),
+			"in_time": str(attendance_row.in_time) if attendance_row.in_time else None,
+			"out_time": str(attendance_row.out_time) if attendance_row.out_time else None,
+			"working_hours": round(float(attendance_row.working_hours or 0), 2),
+			"shift": attendance_row.shift or "",
+			"late_entry": cint(attendance_row.late_entry),
+			"early_exit": cint(attendance_row.early_exit),
+			"ooo_hold": cint(getattr(attendance_row, "custom_ooo_hold", 0)),
+			"ooo_hours": round(float(getattr(attendance_row, "custom_ooo_hours", 0) or 0), 2),
+		}
+
+	first_in = next((c for c in checkins if c["log_type"] == "IN"), None)
+	last_out = next((c for c in reversed(checkins) if c["log_type"] == "OUT"), None)
+
+	pending_count = len([c for c in ooo_checkins if not c["is_approved"]])
+	can_approve = _is_leave_approver_for(employee) and pending_count > 0
+	emp_user = frappe.db.get_value("Employee", employee, "user_id")
+	is_own = bool(emp_user and emp_user == frappe.session.user)
+
+	if pending_count:
+		approval_status = "Pending"
+	elif any(c["is_approved"] for c in ooo_checkins):
+		approval_status = "Approved"
+	elif any(c["is_rejected"] for c in checkins if c["is_ooo"]):
+		approval_status = "Rejected"
+	else:
+		approval_status = "Pending"
+
+	return {
+		"employee": employee,
+		"employee_name": employee_name,
+		"attendance_date": str(attendance_date),
+		"attendance": attendance,
+		"working_hours": (attendance or {}).get("working_hours")
+		or round(ooo_seconds / 3600.0, 2),
+		"ooo_hours": round(ooo_seconds / 3600.0, 2),
+		"first_in": first_in["time"] if first_in else None,
+		"last_out": last_out["time"] if last_out else None,
+		"checkins": checkins,
+		"ooo_checkins": ooo_checkins,
+		"pending_count": pending_count,
+		"can_approve": can_approve,
+		"is_own": is_own,
+		"approval_status": approval_status,
+	}
+
+
+def _prevent_self_ooo_checkin_approval() -> bool:
+	"""Nepal HRMS Settings: block employees from approving their own OOO check-ins.
+
+	Default True when the field is missing so existing sites stay protected.
+	"""
+	if not frappe.db.exists("DocType", "Nepal HRMS Settings"):
+		return True
+	meta = frappe.get_meta("Nepal HRMS Settings")
+	if not meta.has_field("prevent_self_ooo_checkin_approval"):
+		return True
+	value = frappe.db.get_single_value(
+		"Nepal HRMS Settings", "prevent_self_ooo_checkin_approval"
+	)
+	return True if value is None else bool(cint(value))
+
+
+def _is_own_employee(employee: str) -> bool:
+	emp_user = frappe.db.get_value("Employee", employee, "user_id")
+	return bool(emp_user and emp_user == frappe.session.user)
+
+
+def _is_leave_approver_for(employee: str) -> bool:
+	"""True if current user may approve OOO check-ins for this employee."""
+	user = frappe.session.user
+	if user == "Administrator":
+		return True
+
+	is_self = _is_own_employee(employee)
+	if is_self and _prevent_self_ooo_checkin_approval():
+		return False
+
+	leave_approver = frappe.db.get_value("Employee", employee, "leave_approver")
+	if leave_approver and str(leave_approver).lower() == str(user).lower():
+		return True
+
+	if is_self:
+		# prevent-self is off — allow the employee to approve their own OOO
+		return True
+
+	return False
+
+
+def _assert_is_leave_approver(employee: str):
+	if _is_leave_approver_for(employee):
+		return
+	if _is_own_employee(employee) and _prevent_self_ooo_checkin_approval():
+		frappe.throw(
+			_(
+				"You cannot approve or reject your own OOO check-ins. "
+				"Your Leave Approver must do it."
+			),
+			frappe.PermissionError,
+		)
+	frappe.throw(
+		_("Only the Leave Approver set on this Employee can approve or reject OOO check-ins."),
+		frappe.PermissionError,
+	)
+
+
+def _assert_can_view_ooo_day(employee: str):
+	"""Leave approver, the employee themself, or Administrator may view."""
+	user = frappe.session.user
+	if user == "Administrator":
+		return
+	if _is_own_employee(employee):
+		return
+	if _is_leave_approver_for(employee):
+		return
+	frappe.throw(_("Not permitted to view OOO details for this employee."), frappe.PermissionError)
 
 
 def validate_ooo_checkin(doc, method):

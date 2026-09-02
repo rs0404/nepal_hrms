@@ -98,9 +98,9 @@ def _shared_components(scheme):
 		 "variable_based_on_taxable_salary": 1, "exempted_from_income_tax": 0,
 		 "purpose": "TDS Payable",
 		 "description": "Income tax withheld, computed from the Income Tax Slab."},
-		{"name": "CIT", "type": "Deduction", "formula": None, "abbr": "cit",
+		{"name": "CIT", "type": "Deduction", "formula": "cit_contribution", "abbr": "cit",
 		 "purpose": "CIT Payable",
-		 "description": "Citizen Investment Trust. Counts toward the retirement contribution ceiling."},
+		 "description": "Citizen Investment Trust. Amount comes from the employee's effective-dated CIT election and counts toward the retirement contribution ceiling."},
 		{"name": "Insurance", "type": "Deduction", "formula": None, "abbr": "insurance",
 		 "purpose": "Insurance Payable",
 		 "description": "Life/health premium. Deductible only up to the statutory cap."},
@@ -318,6 +318,7 @@ def _ensure_tax_slab(company, currency, effective_from):
 	doc.company = company
 	doc.currency = currency
 	doc.effective_from = effective_from
+	doc.allow_tax_exemption = 1
 	doc.set("slabs", [])
 	for r in rows:
 		doc.append("slabs", {

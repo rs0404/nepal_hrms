@@ -2,6 +2,47 @@
 	<div class="flex flex-col w-full gap-3">
 		<div class="bg-white rounded-lg p-2 shadow-sm border border-gray-100">
 			<div ref="calendarContainer"></div>
+
+			<div
+				class="flex items-center justify-between gap-2 px-2 pt-2 pb-1 border-t border-gray-100"
+			>
+				<template v-if="!selectMode">
+					<span class="text-[11px] text-gray-400">{{ __("Tap a day for details") }}</span>
+					<button
+						type="button"
+						class="text-[11px] font-semibold text-blue-600 py-1"
+						@click="startSelectMode"
+					>
+						{{ __("Select days for leave") }}
+					</button>
+				</template>
+				<template v-else>
+					<span class="text-[11px] text-gray-500">
+						{{
+							selectedCount
+								? __("{0} day(s) selected — tap more future days", [selectedCount])
+								: __("Tap future working days to select")
+						}}
+					</span>
+					<div class="flex items-center gap-3 shrink-0">
+						<button
+							type="button"
+							class="text-[11px] font-semibold text-gray-500 py-1"
+							@click="cancelSelectMode"
+						>
+							{{ __("Cancel") }}
+						</button>
+						<button
+							type="button"
+							class="text-[11px] font-semibold py-1"
+							:class="selectedCount ? 'text-blue-600' : 'text-gray-300 pointer-events-none'"
+							@click="applyLeaveSelection"
+						>
+							{{ __("Apply for Leave") }}
+						</button>
+					</div>
+				</template>
+			</div>
 		</div>
 
 		<!-- Status summary — visible month only -->
@@ -62,15 +103,19 @@
 import { onMounted, onBeforeUnmount, ref, inject, watch, computed, nextTick } from "vue"
 import { createResource } from "frappe-ui"
 
-const emit = defineEmits(["select-day"])
+const emit = defineEmits(["select-day", "create-leave"])
 
 const __ = inject("$translate")
 const dayjs = inject("$dayjs")
 const calendarContainer = ref(null)
+const todayStr = dayjs().format("YYYY-MM-DD")
 const visibleRange = ref({
 	from_date: dayjs().subtract(20, "day").format("YYYY-MM-DD"),
 	to_date: dayjs().add(15, "day").format("YYYY-MM-DD"),
 })
+const selectMode = ref(false)
+const selectedDates = ref(new Set())
+const selectedCount = computed(() => selectedDates.value.size)
 
 const STATUS_FILL = {
 	Present: { backgroundColor: "#dcfce7", boxShadow: "inset 0 0 0 1.5px #4ade80" },
@@ -96,6 +141,7 @@ const attendanceEvents = createResource({
 	},
 	onSuccess() {
 		paintAttendanceDays()
+		syncLeaveSelection()
 	},
 })
 
@@ -135,14 +181,60 @@ const summary = computed(() => {
 
 const hasSummary = computed(() => Object.keys(summary.value).length > 0)
 
+const isDaySelectable = (ad) => {
+	if (!ad || ad <= todayStr) return false
+	const status = dayStatus(attendanceEvents.data?.[ad])
+	return !["Holiday", "Weekly Off", "On Leave", "Leave Pending"].includes(status)
+}
+
+function startSelectMode() {
+	selectMode.value = true
+}
+
+function cancelSelectMode() {
+	selectMode.value = false
+	selectedDates.value = new Set()
+	syncLeaveSelection()
+}
+
+function toggleDaySelection(ad) {
+	const next = new Set(selectedDates.value)
+	if (next.has(ad)) next.delete(ad)
+	else next.add(ad)
+	selectedDates.value = next
+	syncLeaveSelection()
+}
+
+function applyLeaveSelection() {
+	if (!selectedDates.value.size) return
+	const sorted = [...selectedDates.value].sort()
+	emit("create-leave", { from_date: sorted[0], to_date: sorted[sorted.length - 1] })
+	cancelSelectMode()
+}
+
+function syncLeaveSelection() {
+	const root = calendarContainer.value
+	if (!root) return
+	root.querySelectorAll(".days-grid .day[data-ad]").forEach((button) => {
+		const date = button.getAttribute("data-ad")
+		button.classList.toggle("leave-selected", selectedDates.value.has(date))
+	})
+}
+
 const handleMonthChange = (range) => {
 	if (!range?.from_date || !range?.to_date) return
 	visibleRange.value = {
 		from_date: range.from_date,
 		to_date: range.to_date,
 	}
-	// Re-paint after React re-renders the month grid
-	requestAnimationFrame(() => paintAttendanceDays())
+	requestAnimationFrame(() => {
+		paintAttendanceDays()
+		syncLeaveSelection()
+	})
+	setTimeout(() => {
+		paintAttendanceDays()
+		syncLeaveSelection()
+	}, 80)
 }
 
 function clearDayPaint(btn) {
@@ -214,6 +306,7 @@ function paintAttendanceDays() {
 			btn.appendChild(wrap)
 		}
 	})
+	syncLeaveSelection()
 }
 
 const renderCalendar = async () => {
@@ -225,10 +318,13 @@ const renderCalendar = async () => {
 		onSelect: (nepaliDate) => {
 			if (!nepaliDate) return
 			const ad = nepaliDate.format({ format: "YYYY-MM-DD", calendar: "AD" })
+			if (selectMode.value) {
+				if (isDaySelectable(ad)) toggleDaySelection(ad)
+				return
+			}
 			const info = attendanceEvents.data?.[ad]
 			const m = dayMarkers(info)
 			const status = dayStatus(info)
-			if (!m.late && !m.early && status !== "Absent") return
 			emit("select-day", {
 				date: ad,
 				late: m.late,
@@ -265,6 +361,12 @@ watch(
 <style scoped>
 :deep(.calendar-wrapper) {
 	@apply w-full border-none shadow-none max-w-none;
+}
+
+:deep(.days-grid .day.leave-selected) {
+	outline: 2px solid #2563eb;
+	outline-offset: 1px;
+	border-radius: 0.5rem;
 }
 
 .status-swatch {

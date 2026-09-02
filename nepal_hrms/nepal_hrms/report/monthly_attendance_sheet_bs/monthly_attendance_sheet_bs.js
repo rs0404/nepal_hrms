@@ -298,9 +298,8 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 		return `<div style="height: 68px; display: flex; align-items: center;">${value}</div>`;
 	},
 	"get_datatable_options": function (options) {
-		const freeze = new Set(["employee_name", "summary"]);
 		(options.columns || []).forEach((col) => {
-			if (freeze.has(col.fieldname) || freeze.has(col.id)) {
+			if (is_sheet_bs_frozen_column(col)) {
 				col.sticky = true;
 			}
 		});
@@ -309,7 +308,59 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 			cellHeight: 72,
 		});
 	},
+	after_datatable_render: function (datatable) {
+		bind_sheet_bs_frozen_columns(datatable);
+	},
 };
+
+const SHEET_BS_FROZEN_COLUMNS = ["_rowIndex", "employee_name", "summary"];
+
+function is_sheet_bs_frozen_column(col) {
+	if (!col) return false;
+	return SHEET_BS_FROZEN_COLUMNS.includes(col.id) || SHEET_BS_FROZEN_COLUMNS.includes(col.fieldname);
+}
+
+function bind_sheet_bs_frozen_columns(datatable) {
+	if (!datatable || !datatable.bodyScrollable) return;
+
+	const paint = () => {
+		const scrollLeft = datatable.bodyScrollable.scrollLeft || 0;
+		const cols = (datatable.getColumns() || []).filter(is_sheet_bs_frozen_column);
+		const lastIndex = cols.length ? cols[cols.length - 1].colIndex : null;
+		const frozenIndexes = new Set(cols.map((c) => c.colIndex));
+		const offset = scrollLeft ? `translateX(${scrollLeft}px)` : "";
+
+		datatable.wrapper.querySelectorAll(".dt-cell--sheet-bs-frozen").forEach((cell) => {
+			const colIndex = parseInt(cell.dataset.colIndex, 10);
+			if (!frozenIndexes.has(colIndex)) {
+				cell.classList.remove("dt-cell--sheet-bs-frozen", "dt-cell--sheet-bs-frozen-last");
+				cell.style.transform = "";
+			}
+		});
+
+		cols.forEach((col) => {
+			datatable.wrapper.querySelectorAll(`.dt-cell--col-${col.colIndex}`).forEach((cell) => {
+				// Header/filter cells already stay put via datatable sticky-top compensation.
+				if (cell.classList.contains("dt-cell--sticky-top")) return;
+				cell.classList.add("dt-cell--sheet-bs-frozen");
+				cell.classList.toggle("dt-cell--sheet-bs-frozen-last", col.colIndex === lastIndex);
+				cell.style.transform = offset;
+			});
+		});
+	};
+
+	if (!datatable.__sheet_bs_frozen_bound) {
+		datatable.__sheet_bs_frozen_bound = true;
+		datatable.bodyScrollable.addEventListener("scroll", paint, { passive: true });
+		const restore = datatable.bodyRenderer.restoreState.bind(datatable.bodyRenderer);
+		datatable.bodyRenderer.restoreState = function () {
+			restore();
+			paint();
+		};
+	}
+
+	paint();
+}
 
 // ============================================================================
 // TIME BAR RENDERER

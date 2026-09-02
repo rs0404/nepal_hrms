@@ -27,6 +27,9 @@
   },
   {
    "role": "Attendance Report Viewer"
+  },
+  {
+   "role": "Employee"
   }
  ],
  "timeout": 0

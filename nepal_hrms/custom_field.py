@@ -17,6 +17,11 @@ def create_custom_fields():
 			{"fieldname": "nepali_start_date", "label": "Nepali Start Date", "fieldtype": "Data", "insert_after": "start_date", "allow_on_submit": 1},
 			{"fieldname": "nepali_end_date", "label": "Nepali End Date", "fieldtype": "Data", "insert_after": "end_date", "allow_on_submit": 1},
 			{"fieldname": "taxable_salary", "label": "Taxable Salary", "fieldtype": "Currency", "insert_after": "total_deduction", "allow_on_submit": 1},
+			{"fieldname": "custom_cit_contribution_reference", "label": "CIT Contribution Election", "fieldtype": "Link", "options": "Employee CIT Contribution", "insert_after": "taxable_salary", "read_only": 1, "allow_on_submit": 1, "no_copy": 1},
+			{"fieldname": "custom_cit_contribution_amount", "label": "Monthly CIT Contribution", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_cit_contribution_reference", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_assessable_employment_income", "label": "Annual Assessable Employment Income", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_cit_contribution_amount", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_total_retirement_contribution", "label": "Projected Approved Retirement Contributions", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_assessable_employment_income", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_allowed_retirement_deduction", "label": "Allowed Retirement Deduction", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_total_retirement_contribution", "read_only": 1, "allow_on_submit": 1},
 			{"fieldname": "custom_tax_breakup_html", "label": "Detailed Tax Calculation", "fieldtype": "HTML", "insert_after": "income_tax_calculation_breakup_section"},
 			{"fieldname": "custom_tax_calculation_data", "label": "Tax Calculation Data", "fieldtype": "Long Text", "insert_after": "custom_tax_breakup_html", "hidden": 1, "allow_on_submit": 1},
 			# Divisor snapshot: written on first calculation so a later Nepal Payroll
@@ -27,9 +32,9 @@ def create_custom_fields():
 		"Employee Checkin": [
 			{"fieldname": "custom_attendance_type", "label": "Attendance Type", "fieldtype": "Select", "options": "Normal\nOOO Work", "default": "Normal", "insert_after": "log_type", "in_list_view": 1, "allow_on_submit": 1},
 			{"fieldname": "custom_reason", "label": "OOO Reason", "fieldtype": "Small Text", "insert_after": "custom_attendance_type", "depends_on": "eval:doc.custom_attendance_type == 'OOO Work'", "allow_on_submit": 1},
-			{"fieldname": "custom_is_approved", "label": "Is Approved", "fieldtype": "Check", "insert_after": "custom_reason", "default": 0, "allow_on_submit": 1, "description": "Set by Leave Approver to approve OOO Work check-ins"},
-			{"fieldname": "custom_ooo_rejected", "label": "OOO Rejected", "fieldtype": "Check", "insert_after": "custom_is_approved", "default": 0, "allow_on_submit": 1, "description": "Set by Leave Approver when OOO Work check-ins are rejected"},
-			{"fieldname": "custom_ooo_rejection_reason", "label": "OOO Rejection Reason", "fieldtype": "Small Text", "insert_after": "custom_ooo_rejected", "depends_on": "eval:doc.custom_ooo_rejected", "allow_on_submit": 1},
+			{"fieldname": "custom_is_approved", "label": "Is Approved", "fieldtype": "Check", "insert_after": "custom_reason", "default": 0, "permlevel": 1, "allow_on_submit": 1, "description": "Set by Leave Approver to approve OOO Work check-ins"},
+			{"fieldname": "custom_ooo_rejected", "label": "OOO Rejected", "fieldtype": "Check", "insert_after": "custom_is_approved", "default": 0, "permlevel": 1, "allow_on_submit": 1, "description": "Set by Leave Approver when OOO Work check-ins are rejected"},
+			{"fieldname": "custom_ooo_rejection_reason", "label": "OOO Rejection Reason", "fieldtype": "Small Text", "insert_after": "custom_ooo_rejected", "depends_on": "eval:doc.custom_ooo_rejected", "permlevel": 1, "allow_on_submit": 1},
 		],
 		"Attendance": [
 			{"fieldname": "nepali_date", "label": "Nepali Date", "fieldtype": "Data", "insert_after": "attendance_date", "allow_on_submit": 1},
@@ -144,6 +149,39 @@ def create_custom_fields():
 				"in_standard_filter": 1,
 				"allow_on_submit": 1,
 			},
+			{
+				"fieldname": "custom_rejection_reason",
+				"label": "Rejection Reason",
+				"fieldtype": "Small Text",
+				"insert_after": "status",
+				"depends_on": "eval:doc.status=='Rejected'",
+				"mandatory_depends_on": "eval:doc.status=='Rejected'",
+				"allow_on_submit": 1,
+			},
+		],
+		"Late Entry Application": [
+			{
+				"fieldname": "custom_rejection_reason",
+				"label": "Rejection Reason",
+				"fieldtype": "Small Text",
+				"insert_after": "status",
+				"depends_on": "eval:doc.status=='Rejected'",
+				"mandatory_depends_on": "eval:doc.status=='Rejected'",
+				"allow_on_submit": 1,
+			},
+		],
+		"Early Exit Application": [
+			{
+				"fieldname": "custom_rejection_reason",
+				"label": "Rejection Reason",
+				"fieldtype": "Small Text",
+				"insert_after": "status",
+				"depends_on": "eval:doc.status=='Rejected'",
+				"mandatory_depends_on": "eval:doc.status=='Rejected'",
+				"allow_on_submit": 1,
+			},
+		],
+		"Out of Office Application": [
 			{
 				"fieldname": "custom_rejection_reason",
 				"label": "Rejection Reason",

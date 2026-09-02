@@ -4,9 +4,19 @@
 """Rich attendance calendar payload for bshrms (status + leave / late / early markers)."""
 
 import frappe
-from frappe.utils import add_days, cint, date_diff, getdate
+from frappe.utils import add_days, cint, date_diff, getdate, get_first_day, today
 
 from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
+
+
+def _current_bs_month_start_ad(ad=None):
+	"""First AD date of the BS month containing `ad` (default: today)."""
+	import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
+
+	nepali_date._ensure_loaded()
+	day = getdate(ad or today())
+	bs = nepali_date.ad_to_bs(day)
+	return nepali_date.bs_to_ad(bs["year"], bs["month"], 1)
 
 
 @frappe.whitelist()
@@ -20,11 +30,10 @@ def get_leave_application_counts(employee=None, from_date=None, to_date=None):
 	if not employee:
 		frappe.throw(_("Employee not found"))
 
-	roles = frappe.get_roles()
-	if not ({"HR Manager", "HR User", "System Manager"} & set(roles)):
-		session_emp = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
-		if employee != session_emp:
-			frappe.throw(_("Not permitted"), frappe.PermissionError)
+	from nepal_hrms.api.pwa_access import resolve_calendar_employee
+
+	if resolve_calendar_employee(employee) != employee:
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	start = getdate(from_date) if from_date else get_first_day(getdate(today()))
 	end = getdate(to_date) if to_date else get_last_day(getdate(today()))
@@ -74,28 +83,144 @@ def get_leave_application_counts(employee=None, from_date=None, to_date=None):
 
 
 @frappe.whitelist()
-def get_attendance_calendar_details(from_date: str, to_date: str) -> dict:
+def get_attendance_request_counts(employee=None, from_date=None, to_date=None):
+	"""Approved / rejected / pending Attendance Request counts overlapping a date range."""
+	from frappe import _
+	from frappe.utils import date_diff, get_first_day, get_last_day, getdate, today
+
+	from nepal_hrms.api.pwa_access import resolve_calendar_employee
+
+	employee = resolve_calendar_employee(employee)
+	if not employee:
+		frappe.throw(_("Employee not found"))
+
+	start = getdate(from_date) if from_date else get_first_day(getdate(today()))
+	end = getdate(to_date) if to_date else get_last_day(getdate(today()))
+
+	fields = ["name", "docstatus", "from_date", "to_date"]
+	if frappe.get_meta("Attendance Request").has_field("status"):
+		fields.append("status")
+
+	rows = frappe.get_all(
+		"Attendance Request",
+		filters={
+			"employee": employee,
+			"docstatus": ["<", 2],
+			"from_date": ["<=", end],
+			"to_date": [">=", start],
+		},
+		fields=fields,
+	)
+
+	approved = rejected = pending = 0
+	days = 0
+	for r in rows:
+		status = (getattr(r, "status", None) or "").strip()
+		if status == "Rejected":
+			rejected += 1
+			continue
+		if r.docstatus == 1 or status == "Approved":
+			approved += 1
+			overlap_start = max(getdate(r.from_date), start)
+			overlap_end = min(getdate(r.to_date), end)
+			days += date_diff(overlap_end, overlap_start) + 1
+			continue
+		pending += 1
+
+	return {
+		"total": approved + rejected + pending,
+		"approved": approved,
+		"rejected": rejected,
+		"pending": pending,
+		"days": days,
+		"from_date": str(start),
+		"to_date": str(end),
+	}
+
+
+
+
+@frappe.whitelist()
+def get_attendance_hours_summary(employee=None, from_date=None, to_date=None):
+	"""Worked vs target hours for the PWA attendance tab (same rules as Monthly Attendance Sheet BS)."""
+	from frappe import _
+	from frappe.utils import get_first_day, get_last_day, getdate, today
+
+	from nepal_hrms.api.pwa_access import resolve_calendar_employee
+	from nepal_hrms.nepal_hrms.report.monthly_attendance_sheet_bs.monthly_attendance_sheet_bs import (
+		get_attendance_and_leaves,
+		get_data,
+	)
+
+	employee = resolve_calendar_employee(employee)
+	if not employee:
+		frappe.throw(_("Employee not found"))
+
+	company = frappe.db.get_value("Employee", employee, "company")
+	if not company:
+		frappe.throw(_("Company not found for employee"))
+
+	start = getdate(from_date) if from_date else get_first_day(getdate(today()))
+	end = getdate(to_date) if to_date else get_last_day(getdate(today()))
+	filters = frappe._dict({"company": company, "employee": employee})
+	att_data, leave_types = get_attendance_and_leaves(filters, start, end)
+	rows = get_data(filters, start, end, att_data, leave_types)
+	summary = (rows[0].get("summary") if rows else None) or "0:00 / 0:00"
+	parts = [p.strip() for p in str(summary).split("/")]
+	worked_label = parts[0] if parts else "0:00"
+	target_label = parts[1] if len(parts) > 1 else "0:00"
+	return {
+		"summary": summary,
+		"worked_label": worked_label,
+		"target_label": target_label,
+		"from_date": str(start),
+		"to_date": str(end),
+	}
+
+
+@frappe.whitelist()
+def get_attendance_calendar_details(from_date: str, to_date: str, employee: str = None) -> dict:
 	"""
-	Return per-day calendar details for the logged-in employee.
+	Return per-day calendar details for the logged-in employee (or another
+	employee when the user has the view-others-calendar permission).
 
 	Shape:
 	  {
 	    "YYYY-MM-DD": {
-	      "status": "Present" | "Absent" | ... | "Holiday",
+	      "status": "Present" | "Absent" | "On Leave" | "Leave Pending" | "Leave Rejected" | ...,
 	      "leave": 0|1,
 	      "late": 0|1,   # minor late day (occurrence)
 	      "early": 0|1,  # minor early day (occurrence)
 	      "leave_type": str | None,
+	      "leave_app_status": "Approved" | "Pending" | "Rejected" | None,
+	      "leave_application": str | None,
 	    },
 	    ...
 	  }
 	"""
-	employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+	from nepal_hrms.api.pwa_access import (
+		can_view_past_attendance,
+		resolve_calendar_employee,
+	)
+
+	employee = resolve_calendar_employee(employee)
 	if not employee:
 		return {}
 
 	from_date = getdate(from_date)
 	to_date = getdate(to_date)
+
+	# Own calendar: past months are always allowed.
+	# Others' calendar: past months need the settings role.
+	# Clamp to the current *BS* month start (not AD), so Shrawan days that
+	# fall in the previous English month are not dropped.
+	session_employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+	if employee != session_employee and not can_view_past_attendance():
+		month_start = _current_bs_month_start_ad()
+		if from_date < month_start:
+			from_date = month_start
+		if to_date < from_date:
+			return {}
 
 	attendance_rows = frappe.get_all(
 		"Attendance",
@@ -122,44 +247,85 @@ def get_attendance_calendar_details(from_date: str, to_date: str) -> dict:
 		d = getdate(row.attendance_date)
 		att_by_date[d] = {
 			"status": row.status,
-			"leave": 1 if (row.status == "On Leave" or row.leave_type) else 0,
+			"leave": 1 if row.status == "On Leave" else 0,
 			"late": cint(row.custom_cnr_late_in_pool) if has_late else 0,
 			"early": cint(row.custom_cnr_early_in_pool) if has_early else 0,
+			"ooo_required": 0,
 			"leave_type": row.leave_type or None,
+			"leave_app_status": None,
+			"leave_application": None,
 		}
 
-	# Approved leave applications covering the range (even if attendance not yet On Leave)
+	# Leave applications covering the range (Pending / Approved / Rejected)
+	# Priority when multiple apps cover a day: Approved > Pending > Rejected
+	_LEAVE_STATUS_RANK = {"Approved": 3, "Pending": 2, "Rejected": 1}
+
+	def _normalize_leave_app_status(status, docstatus):
+		if status == "Approved" or (cint(docstatus) == 1 and status not in ("Rejected", "Cancelled")):
+			return "Approved"
+		if status == "Rejected":
+			return "Rejected"
+		# Draft / Open / etc. → Pending
+		return "Pending"
+
 	leave_apps = frappe.get_all(
 		"Leave Application",
 		filters={
 			"employee": employee,
-			"docstatus": 1,
-			"status": "Approved",
+			"docstatus": ["<", 2],
+			"status": ["!=", "Cancelled"],
 			"from_date": ["<=", to_date],
 			"to_date": [">=", from_date],
 		},
-		fields=["from_date", "to_date", "leave_type", "half_day", "half_day_date"],
+		fields=["name", "status", "docstatus", "from_date", "to_date", "leave_type"],
 	)
 	for app in leave_apps:
+		app_status = _normalize_leave_app_status(app.status, app.docstatus)
+		rank = _LEAVE_STATUS_RANK[app_status]
 		cur = max(getdate(app.from_date), from_date)
 		end = min(getdate(app.to_date), to_date)
 		while cur <= end:
 			info = att_by_date.setdefault(
 				cur,
 				{
-					"status": "On Leave",
-					"leave": 1,
+					"status": None,
+					"leave": 0,
 					"late": 0,
 					"early": 0,
-					"leave_type": app.leave_type,
+					"ooo_required": 0,
+					"leave_type": None,
+					"leave_app_status": None,
+					"leave_application": None,
 				},
 			)
-			info["leave"] = 1
-			if not info.get("leave_type"):
-				info["leave_type"] = app.leave_type
-			if info.get("status") in (None, "Holiday"):
-				info["status"] = "On Leave"
-			# Half-day leave on that date still marks leave indicator
+			prev_rank = _LEAVE_STATUS_RANK.get(info.get("leave_app_status") or "", 0)
+			has_attendance = info.get("status") not in (
+				None,
+				"Holiday",
+				"Weekly Off",
+				"Leave Pending",
+				"Leave Rejected",
+			)
+			# Rejected leave must not overlay Present / Absent / On Leave days
+			if app_status == "Rejected" and has_attendance:
+				cur = add_days(cur, 1)
+				continue
+			if rank >= prev_rank:
+				info["leave_app_status"] = app_status
+				info["leave_application"] = app.name
+				if not info.get("leave_type"):
+					info["leave_type"] = app.leave_type
+
+				if app_status == "Approved":
+					info["leave"] = 1
+					info["status"] = "On Leave"
+				elif app_status == "Pending":
+					info["leave"] = 1
+					# Don't override Present/Absent/On Leave; use Leave Pending when empty/holiday
+					if info.get("status") in (None, "Holiday", "Weekly Off"):
+						info["status"] = "Leave Pending"
+				elif app_status == "Rejected":
+					info["status"] = "Leave Rejected"
 			cur = add_days(cur, 1)
 
 	holidays = set()
@@ -209,7 +375,10 @@ def get_attendance_calendar_details(from_date: str, to_date: str) -> dict:
 					"leave": 0,
 					"late": 0,
 					"early": 0,
+					"ooo_required": 0,
 					"leave_type": None,
+					"leave_app_status": None,
+					"leave_application": None,
 				}
 				# Prefer Weekly Off when the holiday list marks it
 				if use_scoped:
@@ -222,7 +391,334 @@ def get_attendance_calendar_details(from_date: str, to_date: str) -> dict:
 				events[date_str] = info
 		date = add_days(date, 1)
 
+	# Mid-day OUT→IN gaps beyond grace → Out of Office form required (calendar marker)
+	from nepal_hrms.custom_code.attendance_policy import (
+		get_hr_settings,
+		max_out_in_gap_mins,
+	)
+
+	grace_mins = cint(getattr(get_hr_settings(), "late_early_grace_mins", None) or 15)
+	all_checkins = frappe.get_all(
+		"Employee Checkin",
+		filters={
+			"employee": employee,
+			"time": [
+				"between",
+				[f"{from_date} 00:00:00", f"{to_date} 23:59:59"],
+			],
+		},
+		fields=["time", "log_type"],
+		order_by="time asc",
+	)
+	checkins_by_date = {}
+	for c in all_checkins:
+		d = getdate(c.time)
+		checkins_by_date.setdefault(d, []).append(c)
+
+	ooo_app_dates = set()
+	for app in frappe.get_all(
+		"Out of Office Application",
+		filters={
+			"employee": employee,
+			"docstatus": ["<", 2],
+			"status": ["not in", ["Cancelled", "Rejected"]],
+			"attendance_date": ["between", [from_date, to_date]],
+		},
+		fields=["attendance_date", "status"],
+	):
+		# Any Draft/Approved OOO filing covers the day
+		ooo_app_dates.add(getdate(app.attendance_date))
+
+	for d, day_checkins in checkins_by_date.items():
+		if d in ooo_app_dates:
+			continue
+		if max_out_in_gap_mins(day_checkins) <= grace_mins:
+			continue
+		date_str = d.strftime("%Y-%m-%d")
+		info = events.get(date_str) or att_by_date.get(d)
+		if not info:
+			info = {
+				"status": None,
+				"leave": 0,
+				"late": 0,
+				"early": 0,
+				"ooo_required": 0,
+				"leave_type": None,
+				"leave_app_status": None,
+				"leave_application": None,
+			}
+			events[date_str] = info
+		info["ooo_required"] = 1
+
 	return events
+
+
+@frappe.whitelist()
+def get_attendance_day_details(date: str, employee: str = None) -> dict:
+	"""
+	Full single-day detail for the bshrms calendar day sheet:
+	attendance record, all check-ins/outs, flags, related applications
+	and the form actions still available for that day.
+	"""
+	from frappe import _
+	from nepal_hrms.api.pwa_access import resolve_calendar_employee
+
+	employee = resolve_calendar_employee(employee)
+	if not employee:
+		frappe.throw(_("Employee not found"))
+
+	day = getdate(date)
+	day_str = day.strftime("%Y-%m-%d")
+
+	meta = frappe.get_meta("Attendance")
+	att_fields = [
+		"name",
+		"status",
+		"in_time",
+		"out_time",
+		"working_hours",
+		"shift",
+		"leave_type",
+		"attendance_request",
+		"leave_application",
+	]
+	for f in (
+		"late_entry",
+		"early_exit",
+		"custom_cnr_late_in_pool",
+		"custom_cnr_early_in_pool",
+		"custom_late_mins",
+		"custom_early_mins",
+	):
+		if meta.has_field(f):
+			att_fields.append(f)
+
+	attendance = frappe.db.get_value(
+		"Attendance",
+		{"employee": employee, "attendance_date": day, "docstatus": ["<", 2]},
+		att_fields,
+		as_dict=True,
+	)
+
+	checkins = frappe.get_all(
+		"Employee Checkin",
+		filters={
+			"employee": employee,
+			"time": ["between", [f"{day_str} 00:00:00", f"{day_str} 23:59:59"]],
+		},
+		fields=["name", "time", "log_type", "custom_attendance_type", "custom_reason"],
+		order_by="time asc",
+	)
+
+	# Holiday fallback when there is no attendance record
+	status = attendance.status if attendance else None
+	if not status:
+		try:
+			from nepal_hrms.custom_code.attendance_holiday import holiday_info
+
+			hi = holiday_info(employee, day)
+			if hi.is_holiday:
+				status = "Weekly Off" if hi.weekly_off else "Holiday"
+		except Exception:
+			pass
+
+	# Late/early minutes from check-in vs shift (not the Attendance "marked late" flag alone)
+	from nepal_hrms.custom_code.attendance_policy import (
+		classify_delay,
+		compute_late_early_minutes,
+		get_hr_settings,
+		max_out_in_gap_mins,
+	)
+
+	in_time = None
+	out_time = None
+	if attendance and attendance.get("in_time"):
+		in_time = attendance.in_time
+	else:
+		for c in checkins:
+			if (c.log_type or "").upper() == "IN":
+				in_time = c.time
+				break
+		if not in_time and checkins:
+			in_time = checkins[0].time
+
+	if attendance and attendance.get("out_time"):
+		out_time = attendance.out_time
+	else:
+		for c in reversed(checkins):
+			if (c.log_type or "").upper() == "OUT":
+				out_time = c.time
+				break
+
+	shift = attendance.shift if attendance else None
+	late_mins, early_mins = compute_late_early_minutes(
+		employee, day, in_time=in_time, out_time=out_time, shift=shift
+	)
+	# Prefer stored minutes when already computed on Attendance
+	if attendance and cint(attendance.get("custom_late_mins") or 0):
+		late_mins = cint(attendance.custom_late_mins)
+	if attendance and cint(attendance.get("custom_early_mins") or 0):
+		early_mins = cint(attendance.custom_early_mins)
+
+	settings = get_hr_settings()
+	grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
+	max_delay_mins = cint(getattr(settings, "late_early_max_delay_mins", None) or 60)
+	late_kind = classify_delay(late_mins, grace_mins, max_delay_mins)  # None | minor | major
+	early_kind = classify_delay(early_mins, grace_mins, max_delay_mins)
+
+	# Flags for UI chips: beyond grace counts as late/early
+	late = late_kind in ("minor", "major")
+	early = early_kind in ("minor", "major")
+	leave = bool(status == "On Leave" or (attendance and attendance.leave_type))
+
+	related = get_attendance_related_applications(employee=employee, attendance_date=day_str)
+	links = related.get("links", [])
+
+	# Best leave application status for this day (Approved > Pending > Rejected)
+	leave_app_status = None
+	leave_application_name = None
+	_rank = {"Approved": 3, "Pending": 2, "Rejected": 1}
+	for link in links:
+		if link.get("doctype") != "Leave Application":
+			continue
+		st = link.get("status") or ""
+		if st == "Approved":
+			norm = "Approved"
+		elif st == "Rejected":
+			norm = "Rejected"
+		elif st == "Cancelled":
+			continue
+		else:
+			norm = "Pending"
+		if _rank.get(norm, 0) > _rank.get(leave_app_status or "", 0):
+			leave_app_status = norm
+			leave_application_name = link.get("name")
+
+	if leave_app_status == "Approved":
+		leave = True
+		if status in (None, "Holiday", "Weekly Off", "Absent"):
+			status = "On Leave"
+	elif leave_app_status == "Pending" and status in (None, "Holiday", "Weekly Off"):
+		status = "Leave Pending"
+		leave = True
+	elif leave_app_status == "Rejected" and status in (None, "Holiday", "Weekly Off"):
+		status = "Leave Rejected"
+
+	# Form actions still available (no existing application of that type for the day)
+	existing_doctypes = {link["doctype"] for link in links}
+	actions = []
+
+	session_employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+	is_self = employee == session_employee
+
+	from frappe.utils import today
+
+	today_date = getdate(today())
+	is_today = day == today_date
+	has_checkins = bool(checkins)
+
+	# Late Entry: check-in past grace (minor or major). Also today with no check-in yet.
+	if (
+		is_self
+		and "Late Entry Application" not in existing_doctypes
+		and (late_kind in ("minor", "major") or (is_today and not has_checkins))
+	):
+		actions.append(
+			{
+				"doctype": "Late Entry Application",
+				"label": _("Apply Late Entry"),
+				"route_name": "LateEntryApplicationFormView",
+			}
+		)
+
+	if is_self and early_kind in ("minor", "major") and "Early Exit Application" not in existing_doctypes:
+		actions.append(
+			{
+				"doctype": "Early Exit Application",
+				"label": _("Apply Early Exit"),
+				"route_name": "EarlyExitApplicationFormView",
+			}
+		)
+
+	# Mid-day OUT→IN gap beyond grace → Out of Office Application
+	out_in_gap_mins = max_out_in_gap_mins(checkins)
+	has_ooo_app = any(
+		link.get("doctype") == "Out of Office Application"
+		and (link.get("status") or "") not in ("Cancelled", "Rejected")
+		for link in links
+	)
+	ooo_required = out_in_gap_mins > grace_mins and not has_ooo_app
+	if ooo_required and is_self:
+		actions.append(
+			{
+				"doctype": "Out of Office Application",
+				"label": _("Apply Out of Office"),
+				"route_name": "OutOfOfficeApplicationFormView",
+			}
+		)
+
+	if is_self and status == "Absent" and "Attendance Request" not in existing_doctypes:
+		actions.append(
+			{
+				"doctype": "Attendance Request",
+				"label": _("Request Attendance"),
+				"route_name": "AttendanceRequestFormView",
+			}
+		)
+
+	# Leave offers
+	leave_blocked_statuses = ("Holiday", "Weekly Off", "On Leave", "Leave Pending")
+	can_offer_leave = (
+		is_self
+		and "Leave Application" not in existing_doctypes
+		and status not in leave_blocked_statuses
+		and leave_app_status != "Approved"
+	)
+	if can_offer_leave:
+		# Beyond max allowed late → half-day leave (in addition to Late Entry)
+		if late_kind == "major":
+			actions.append(
+				{
+					"doctype": "Leave Application",
+					"label": _("Apply Half Day Leave"),
+					"route_name": "LeaveApplicationFormView",
+					"half_day": 1,
+				}
+			)
+		elif status == "Absent" or day > today_date or (is_today and not has_checkins):
+			actions.append(
+				{
+					"doctype": "Leave Application",
+					"label": _("Apply for Leave"),
+					"route_name": "LeaveApplicationFormView",
+				}
+			)
+
+	return {
+		"employee": employee,
+		"date": day_str,
+		"status": status,
+		"attendance": attendance,
+		"checkins": checkins,
+		"late_mins": late_mins,
+		"early_mins": early_mins,
+		"out_in_gap_mins": out_in_gap_mins,
+		"grace_mins": grace_mins,
+		"max_delay_mins": max_delay_mins,
+		"late_kind": late_kind,
+		"early_kind": early_kind,
+		"flags": {
+			"late": late,
+			"early": early,
+			"leave": leave,
+			"ooo_required": 1 if ooo_required else 0,
+			"leave_type": (attendance.leave_type if attendance else None),
+			"leave_app_status": leave_app_status,
+			"leave_application": leave_application_name,
+		},
+		"links": links,
+		"actions": actions,
+	}
 
 
 @frappe.whitelist()
@@ -261,11 +757,10 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 		att_request = att_row.attendance_request if att_row else None
 		leave_app = att_row.leave_application if att_row else None
 
-	roles = frappe.get_roles()
-	if not ({"HR Manager", "HR User", "System Manager"} & set(roles)):
-		session_emp = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
-		if employee != session_emp:
-			frappe.throw(_("Not permitted"), frappe.PermissionError)
+	from nepal_hrms.api.pwa_access import resolve_calendar_employee
+
+	if resolve_calendar_employee(employee) != employee:
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	day = getdate(attendance_date)
 	links = []
@@ -376,4 +871,71 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 		"attendance_request": att_request,
 		"leave_application": leave_app,
 		"links": unique,
+	}
+
+
+@frappe.whitelist()
+def check_leave_sandwich(from_date: str, to_date: str) -> dict:
+	"""
+	Non-blocking sandwich-rule precheck for the bshrms calendar leave flow.
+
+	Mirrors validate_sandwich_leave_application (which throws on submit) so the
+	app can warn the user while they are still picking dates.
+	"""
+	from frappe import _
+
+	employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+	if not employee:
+		frappe.throw(_("Employee not found"))
+
+	from nepal_hrms.custom_code.attendance_policy import get_hr_settings
+
+	settings = get_hr_settings()
+	if not settings.enable_leave_sandwich_rule:
+		return {"enabled": False, "violation": False}
+
+	from nepal_hrms.custom_code.leave_application_hooks import (
+		get_adjacent_working_day,
+		has_leave_or_absent,
+		is_holiday_or_weekend,
+	)
+	from nepal_hrms.custom_code.policy_escape import has_policy_escape
+
+	from_d = getdate(from_date)
+	to_d = getdate(to_date)
+	if to_d < from_d:
+		from_d, to_d = to_d, from_d
+
+	if has_policy_escape(employee, "escape_sandwich", from_d):
+		return {"enabled": True, "violation": False, "escape": True}
+
+	block = bool(settings.block_sandwich_leave_application)
+
+	is_prev_holiday = is_holiday_or_weekend(employee, add_days(from_d, -1))
+	is_next_holiday = is_holiday_or_weekend(employee, add_days(to_d, 1))
+
+	violation = False
+	if is_prev_holiday or is_next_holiday:
+		preceding_working_day = get_adjacent_working_day(employee, from_d, direction=-1)
+		following_working_day = get_adjacent_working_day(employee, to_d, direction=1)
+		violation = bool(
+			has_leave_or_absent(employee, preceding_working_day)
+			or has_leave_or_absent(employee, following_working_day)
+		)
+
+	message = None
+	if violation:
+		message = _(
+			"Sandwich Rule: this leave borders weekend/holiday dates and the adjacent working day already has leave or absence. The intervening weekend/holiday days will be counted as leave."
+		)
+		if block:
+			message += " " + _(
+				"This application will be rejected on submission unless you include the adjacent weekend/holiday days in a single leave request."
+			)
+
+	return {
+		"enabled": True,
+		"block": block,
+		"violation": violation,
+		"message": message,
 	}

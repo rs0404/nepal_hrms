@@ -112,6 +112,7 @@ def _has_half_day_leave(employee, attendance_date):
 				"from_date": ["<=", getdate(attendance_date)],
 				"to_date": [">=", getdate(attendance_date)],
 				"half_day": 1,
+				"half_day_date": getdate(attendance_date),
 			},
 		)
 	)
@@ -636,6 +637,44 @@ def calculate_ooo_hours_from_checkins(employee, attendance_date, approved_only=T
 			total_hours += time_diff_in_hours(c.time, last_in)
 			last_in = None
 	return flt(total_hours, 2)
+
+
+def max_out_in_gap_mins(checkins) -> int:
+	"""Return the largest gap in minutes between an OUT and the next IN."""
+	if not checkins:
+		return 0
+
+	max_gap = 0
+	last_out = None
+	for checkin in checkins:
+		log_type = (
+			getattr(checkin, "log_type", None)
+			or (checkin.get("log_type") if hasattr(checkin, "get") else None)
+			or ""
+		).upper()
+		timestamp = getattr(checkin, "time", None) or (
+			checkin.get("time") if hasattr(checkin, "get") else None
+		)
+		if not timestamp:
+			continue
+		timestamp = get_datetime(timestamp)
+		if log_type == "OUT":
+			last_out = timestamp
+		elif log_type == "IN" and last_out:
+			max_gap = max(
+				max_gap,
+				cint(round((timestamp - last_out).total_seconds() / 60.0)),
+			)
+			last_out = None
+	return max_gap
+
+
+def ooo_required_from_checkins(checkins, grace_mins=None) -> bool:
+	"""Return whether a mid-day OUT→IN gap exceeds the configured grace."""
+	if grace_mins is None:
+		settings = get_hr_settings()
+		grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
+	return max_out_in_gap_mins(checkins) > cint(grace_mins)
 
 
 def set_attendance_ooo_hours(employee, attendance_date, hours=None):

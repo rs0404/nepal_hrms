@@ -44,11 +44,19 @@ def get_cnr_applications(doctype, employee=None, for_approval=0, limit=20):
 		if team is not None:
 			filters["employee"] = ["in", team]
 	else:
-		if not employee:
-			employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
-		if not employee:
+		# Always bind to session employee for non-approval views
+		session_employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+		if not session_employee:
 			return []
-		filters.update({"employee": employee, "docstatus": ["<", 2]})
+		# Only HR/Approver can view others' applications
+		roles = set(frappe.get_roles())
+		is_hr = bool(roles & {"HR Manager", "HR User", "System Manager"})
+		if employee and employee != session_employee and not is_hr:
+			# Check if user is the employee's leave approver
+			leave_approver = frappe.db.get_value("Employee", employee, "leave_approver")
+			if leave_approver != frappe.session.user:
+				frappe.throw(_("Not permitted"), frappe.PermissionError)
+		filters.update({"employee": employee or session_employee, "docstatus": ["<", 2]})
 
 	fields = [
 		"name",
@@ -87,6 +95,20 @@ def _resolve_employee(employee=None):
 	if employee:
 		return employee
 	return frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+
+
+@frappe.whitelist()
+def get_team_employee_names():
+	"""Employee names the current user approves (leave_approver), or all active for HR.
+
+	Used by PWA list views to build a correct "Team" filter instead of
+	`employee != me`, which leaks unrelated employees into the approver queue.
+	"""
+	team = _team_employee_names()
+	if team is None:
+		# HR roles: no filter needed; signal with a wildcard the client treats as "all"
+		return {"all": True, "employees": []}
+	return {"all": False, "employees": [n for n in team if n != "__none__"]}
 
 
 @frappe.whitelist()
@@ -268,4 +290,154 @@ def get_cnr_application_counts(employee=None, from_date=None, to_date=None):
 	result["from_date"] = str(start)
 	result["to_date"] = str(end)
 	return result
+
+
+@frappe.whitelist()
+def set_cnr_application_approval(doctype, name, status, rejection_reason=None):
+	"""Approve or reject a CNR application from the PWA (with optional reason)."""
+	if doctype not in CNR_DOCTYPES:
+		frappe.throw(_("Invalid application type"))
+
+	status = (status or "").strip()
+	if status not in ("Approved", "Rejected"):
+		frappe.throw(_("Invalid status"))
+
+	doc = frappe.get_doc(doctype, name)
+	if doc.docstatus != 0:
+		frappe.throw(_("Only draft applications can be approved or rejected"))
+
+	from nepal_hrms.custom_code.application_hooks import (
+		can_approve_cnr_application as _can_approve,
+	)
+
+	if not _can_approve(doc.employee):
+		frappe.throw(
+			_("Not permitted to approve or reject this application"), frappe.PermissionError
+		)
+
+	if status == "Rejected":
+		reason = (rejection_reason or "").strip()
+		if not reason:
+			frappe.throw(_("Rejection Reason is required"))
+		doc.status = "Rejected"
+		if doc.meta.has_field("custom_rejection_reason"):
+			doc.custom_rejection_reason = reason
+		doc.save()
+		return {"name": doc.name, "status": doc.status, "docstatus": doc.docstatus}
+
+	doc.status = "Approved"
+	if doc.meta.has_field("custom_rejection_reason"):
+		doc.custom_rejection_reason = None
+	doc.save()
+
+	# Approval is final in the PWA flow — submit immediately so attendance
+	# syncs (on_submit) and the document leaves Draft state right away.
+	doc.submit()
+	return {"name": doc.name, "status": doc.status, "docstatus": doc.docstatus}
+
+
+def _check_cnr_comment_access(doc):
+	"""Applicant, their leave approver, and HR may read/post comments."""
+	user = frappe.session.user
+	roles = set(frappe.get_roles(user))
+	if roles & {"HR Manager", "HR User", "System Manager"} or user == "Administrator":
+		return
+	emp_user = frappe.db.get_value("Employee", doc.employee, "user_id")
+	if emp_user == user:
+		return
+	leave_approver = frappe.db.get_value("Employee", doc.employee, "leave_approver")
+	if leave_approver == user:
+		return
+	frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def get_cnr_comments(doctype, name):
+	"""List comments on a CNR application for the PWA timeline."""
+	if doctype not in CNR_DOCTYPES:
+		frappe.throw(_("Invalid application type"))
+
+	doc = frappe.get_doc(doctype, name)
+	_check_cnr_comment_access(doc)
+
+	comments = frappe.get_all(
+		"Comment",
+		filters={
+			"reference_doctype": doctype,
+			"reference_name": name,
+			"comment_type": "Comment",
+		},
+		fields=["name", "comment_by", "comment_email", "content", "creation"],
+		order_by="creation asc",
+	)
+	for c in comments:
+		c["user_image"] = frappe.db.get_value("User", c.comment_email, "user_image")
+		c["full_name"] = frappe.db.get_value("User", c.comment_email, "full_name")
+	return comments
+
+
+@frappe.whitelist()
+def add_cnr_comment(doctype, name, content):
+	"""Add a comment to a CNR application. @mentions notify users natively."""
+	if doctype not in CNR_DOCTYPES:
+		frappe.throw(_("Invalid application type"))
+
+	content = (content or "").strip()
+	if not content:
+		frappe.throw(_("Comment cannot be empty"))
+
+	doc = frappe.get_doc(doctype, name)
+	_check_cnr_comment_access(doc)
+
+	comment = frappe.get_doc(
+		{
+			"doctype": "Comment",
+			"comment_type": "Comment",
+			"reference_doctype": doctype,
+			"reference_name": name,
+			"comment_email": frappe.session.user,
+			"comment_by": frappe.utils.get_fullname(frappe.session.user),
+			"content": content,
+		}
+	)
+	comment.insert(ignore_permissions=True)
+	return {"name": comment.name, "creation": comment.creation}
+
+
+@frappe.whitelist()
+def get_cnr_mentionable_users(doctype, name):
+	"""Users relevant to an application: the applicant, their approver, and HR users."""
+	if doctype not in CNR_DOCTYPES:
+		frappe.throw(_("Invalid application type"))
+
+	doc = frappe.get_doc(doctype, name)
+	_check_cnr_comment_access(doc)
+
+	user_ids = set()
+	emp_user = frappe.db.get_value("Employee", doc.employee, "user_id")
+	if emp_user:
+		user_ids.add(emp_user)
+	approver = frappe.db.get_value("Employee", doc.employee, "leave_approver")
+	if approver:
+		user_ids.add(approver)
+
+	# HR roles so employees can tag HR too
+	for role in ("HR Manager", "HR User"):
+		for row in frappe.get_all("Has Role", filters={"role": role}, pluck="parent"):
+			user_ids.add(row)
+
+	user_ids.discard("Administrator")
+	user_ids.discard(frappe.session.user)
+
+	users = []
+	for uid in sorted(user_ids):
+		if not frappe.db.get_value("User", uid, "enabled"):
+			continue
+		users.append(
+			{
+				"email": uid,
+				"full_name": frappe.db.get_value("User", uid, "full_name") or uid,
+			}
+		)
+	return users
 

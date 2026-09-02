@@ -2,6 +2,46 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on("Nepal HRMS Settings", {
+	setup(frm) {
+		// Accounts are posted against a specific company, so a row's account list is
+		// only meaningful once that row names one. Group accounts can't take entries.
+		frm.set_query("account", "payroll_accounts", (doc, cdt, cdn) => {
+			const row = locals[cdt][cdn];
+			const filters = { is_group: 0 };
+			if (row.company) filters.company = row.company;
+			return { filters: filters };
+		});
+
+		// Scheduled runs: same per-row company scoping, plus the account-shape filters
+		// stock Payroll Entry applies, so a scheduled row can only hold values a manual
+		// entry would have accepted.
+		const scheduled_row_query = (extra) => (doc, cdt, cdn) => {
+			const row = locals[cdt][cdn];
+			const filters = Object.assign({ is_group: 0 }, extra);
+			if (row.company) filters.company = row.company;
+			return { filters: filters };
+		};
+
+		frm.set_query("cost_center", "scheduled_payroll_runs", scheduled_row_query());
+		frm.set_query(
+			"payroll_payable_account",
+			"scheduled_payroll_runs",
+			scheduled_row_query({ root_type: "Liability" })
+		);
+		frm.set_query(
+			"payment_account",
+			"scheduled_payroll_runs",
+			scheduled_row_query({ account_type: ["in", ["Bank", "Cash"]] })
+		);
+
+		frm.set_query("salary_structure", "scheduled_payroll_runs", (doc, cdt, cdn) => {
+			const row = locals[cdt][cdn];
+			const filters = { docstatus: 1, is_active: "Yes" };
+			if (row.company) filters.company = row.company;
+			return { filters: filters };
+		});
+	},
+
 	run_payroll_setup(frm) {
 		if (frm.is_dirty()) {
 			frappe.msgprint({
@@ -104,5 +144,32 @@ frappe.ui.form.on("Nepal HRMS Settings", {
 			<tbody>${rows(log.tax_slabs, ["name", "action", "source"])}</tbody></table>`;
 
 		frappe.msgprint({ title: __("Nepal Payroll Setup"), message: html, wide: true });
+	},
+});
+
+
+frappe.ui.form.on("Nepal Payroll Account", {
+	company(frm, cdt, cdn) {
+		// The account that was picked belongs to the previous company. Drop it rather
+		// than leave a cross-company mapping that only fails later, during setup.
+		const row = locals[cdt][cdn];
+		if (row.account) frappe.model.set_value(cdt, cdn, "account", null);
+	},
+});
+
+frappe.ui.form.on("Nepal Scheduled Payroll", {
+	company(frm, cdt, cdn) {
+		// Every other link on the row is company-scoped, so none of them survive a
+		// company change. Clearing beats carrying a stale cross-company reference into
+		// an unattended payroll run.
+		const row = locals[cdt][cdn];
+		for (const field of [
+			"salary_structure",
+			"cost_center",
+			"payroll_payable_account",
+			"payment_account",
+		]) {
+			if (row[field]) frappe.model.set_value(cdt, cdn, field, null);
+		}
 	},
 });

@@ -9,6 +9,18 @@ export function formatNepaliDate(adDate) {
 	}
 }
 
+/** Calendar-day label relative to today. */
+export function formatDaysFromToday(adDate) {
+	if (!adDate) return ""
+	const target = new Date(`${String(adDate).slice(0, 10)}T12:00:00`)
+	if (Number.isNaN(target.getTime())) return ""
+	const now = new Date()
+	const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+	const diff = Math.round((target.getTime() - today.getTime()) / 86400000)
+	if (diff >= 0) return `after ${diff} days`
+	return `${Math.abs(diff)} days ago`
+}
+
 export function formatNepaliPeriod(fromDate, toDate) {
 	if (!fromDate) return ""
 	const fromBS = formatNepaliDate(fromDate)

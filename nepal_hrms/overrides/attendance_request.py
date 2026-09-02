@@ -15,20 +15,41 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import format_date, get_link_to_form, getdate
+from frappe.utils import cint, format_date, get_link_to_form, getdate
 
 from hrms.hr.doctype.attendance.attendance import has_overlapping_timings
 from hrms.hr.doctype.attendance_request.attendance_request import AttendanceRequest
 
 
+def _prevent_self_attendance_request_approval() -> bool:
+	if not frappe.db.exists("DocType", "Nepal HRMS Settings"):
+		return True
+	meta = frappe.get_meta("Nepal HRMS Settings")
+	if not meta.has_field("prevent_self_attendance_request_approval"):
+		return True
+	value = frappe.db.get_single_value(
+		"Nepal HRMS Settings", "prevent_self_attendance_request_approval"
+	)
+	return True if value is None else bool(cint(value))
+
+
+def _is_own_attendance_request(employee: str) -> bool:
+	emp_user = frappe.db.get_value("Employee", employee, "user_id")
+	return bool(emp_user and emp_user == frappe.session.user)
+
+
 def _can_approve_attendance_request(employee: str) -> bool:
-	"""Leave Approver of the employee, or HR / System Manager."""
+	"""Leave Approver or HR/System Manager; self follows the configured policy."""
+	if _prevent_self_attendance_request_approval() and _is_own_attendance_request(employee):
+		return False
 	user = frappe.session.user
 	roles = set(frappe.get_roles(user))
 	if roles & {"HR Manager", "HR User", "System Manager", "Administrator"}:
 		return True
 	approver = frappe.db.get_value("Employee", employee, "leave_approver")
-	return bool(approver and approver == user)
+	if approver and str(approver).lower() == str(user).lower():
+		return True
+	return _is_own_attendance_request(employee) and not _prevent_self_attendance_request_approval()
 
 
 class CustomAttendanceRequest(AttendanceRequest):
@@ -40,10 +61,26 @@ class CustomAttendanceRequest(AttendanceRequest):
 			frappe.throw(_("Rejection Reason is required when status is Rejected"))
 		if self.status != "Rejected":
 			self.custom_rejection_reason = None
+		if (
+			self.status == "Approved"
+			and _prevent_self_attendance_request_approval()
+			and _is_own_attendance_request(self.employee)
+		):
+			frappe.throw(_("Self-approval for Attendance Requests is not allowed"))
 
 	def before_submit(self):
 		if self.status == "Rejected":
 			frappe.throw(_("Cannot submit a Rejected Attendance Request"))
+		if (
+			_prevent_self_attendance_request_approval()
+			and _is_own_attendance_request(self.employee)
+		):
+			frappe.throw(
+				_(
+					"You cannot submit your own Attendance Request. "
+					"Your Leave Approver (or HR) must approve and submit it."
+				)
+			)
 		# Submitting an Open request implies approval
 		if self.status in (None, "", "Open"):
 			self.status = "Approved"

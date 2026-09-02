@@ -25,11 +25,24 @@ def _ensure_company(doc):
 		doc.company = frappe.db.get_value("Employee", doc.employee, "company")
 
 
+def _prevent_self_cnr_application_approval() -> bool:
+	"""Default to blocking self-approval, including before settings are migrated."""
+	if not frappe.db.exists("DocType", "Nepal HRMS Settings"):
+		return True
+	meta = frappe.get_meta("Nepal HRMS Settings")
+	if not meta.has_field("prevent_self_cnr_application_approval"):
+		return True
+	value = frappe.db.get_single_value(
+		"Nepal HRMS Settings", "prevent_self_cnr_application_approval"
+	)
+	return True if value is None else bool(cint(value))
+
+
 def can_approve_cnr_application(employee: str) -> bool:
 	"""True if current user may Approve / Reject / Submit a CNR application for employee.
 
-	The employee themself can never approve their own application.
-	Leave Approver, HR Manager, System Manager, and Administrator may.
+	Self-approval follows Nepal HRMS Settings. Leave Approver, HR Manager/User,
+	System Manager, and Administrator may approve other employees.
 	"""
 	user = frappe.session.user
 	if user == "Administrator":
@@ -38,11 +51,15 @@ def can_approve_cnr_application(employee: str) -> bool:
 		return False
 
 	emp_user = frappe.db.get_value("Employee", employee, "user_id")
-	if emp_user and emp_user == user:
+	is_self = bool(emp_user and emp_user == user)
+	if is_self and _prevent_self_cnr_application_approval():
 		return False
 
 	leave_approver = frappe.db.get_value("Employee", employee, "leave_approver")
-	if leave_approver and leave_approver == user:
+	if leave_approver and str(leave_approver).lower() == str(user).lower():
+		return True
+
+	if is_self:
 		return True
 
 	roles = set(frappe.get_roles(user))
@@ -57,6 +74,11 @@ def validate_cnr_approval_authority(doc, method=None):
 		return
 	if doc.status not in ("Approved", "Rejected"):
 		return
+	if doc.status == "Rejected" and doc.meta.has_field("custom_rejection_reason"):
+		if not (doc.custom_rejection_reason or "").strip():
+			frappe.throw(_("Rejection Reason is required"))
+	elif doc.meta.has_field("custom_rejection_reason"):
+		doc.custom_rejection_reason = None
 	if can_approve_cnr_application(doc.employee):
 		return
 

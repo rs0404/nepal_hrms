@@ -3,4 +3,6 @@
 
 [post_model_sync]
 nepal_hrms.patches.v1.reassign_hr_module
+nepal_hrms.patches.v1.migrate_pwa_policy_settings
 nepal_hrms.patches.v1.migrate_salary_to_ssa
+nepal_hrms.patches.v1.setup_flexible_cit_tax

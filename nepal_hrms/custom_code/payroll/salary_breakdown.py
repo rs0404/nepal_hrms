@@ -170,6 +170,17 @@ def sync_salary_breakdown(doc, method=None):
 
 
 ALLOWANCE_PREFIX = "nsa_"
+# Canonical formula key used by setup.py / salary_component.py for every
+# "Other Allowance - {Salary|Wages}" earning row. Assignment child rows may
+# carry a different abbr (legacy "Other Allowance" is other_allowance_6;
+# the variant component is other_allowance_wages), so those amounts must
+# also be aliased here or eval raises NameError.
+OTHER_ALLOWANCE_FORMULA_KEY = f"{ALLOWANCE_PREFIX}other_allowance"
+
+
+def _is_other_allowance_component(name):
+	name = (name or "").strip()
+	return name == OTHER_ALLOWANCE_COMPONENT or name.startswith("Other Allowance - ")
 
 
 def get_allowance_map(salary_structure_assignment):
@@ -185,7 +196,7 @@ def get_allowance_map(salary_structure_assignment):
 	provided for the sum.
 	"""
 	if not salary_structure_assignment:
-		return {}
+		return {OTHER_ALLOWANCE_FORMULA_KEY: 0.0, "total_other_allowances": 0.0}
 	try:
 		rows = frappe.get_all(
 			"Nepal Salary Allowance",
@@ -194,7 +205,7 @@ def get_allowance_map(salary_structure_assignment):
 		)
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "Nepal salary allowance lookup failed")
-		return {}
+		return {OTHER_ALLOWANCE_FORMULA_KEY: 0.0, "total_other_allowances": 0.0}
 
 	out = {}
 	total = 0.0
@@ -203,8 +214,12 @@ def get_allowance_map(salary_structure_assignment):
 		if not key:
 			continue
 		key = f"{ALLOWANCE_PREFIX}{key}"
-		out[key] = flt(out.get(key, 0)) + flt(r.amount)
-		total += flt(r.amount)
+		amount = flt(r.amount)
+		out[key] = flt(out.get(key, 0)) + amount
+		total += amount
+		if _is_other_allowance_component(r.salary_component):
+			out[OTHER_ALLOWANCE_FORMULA_KEY] = flt(out.get(OTHER_ALLOWANCE_FORMULA_KEY, 0)) + amount
+	out.setdefault(OTHER_ALLOWANCE_FORMULA_KEY, 0.0)
 	out["total_other_allowances"] = flt(total, 2)
 	return out
 

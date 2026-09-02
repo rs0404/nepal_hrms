@@ -108,7 +108,9 @@
     height: 72px !important;
 }
 
-/* Keep Employee Name + Summary (worked hours) visible while scrolling days */
+/* Keep Employee Name + Summary visible while scrolling days.
+   Body rows are position:absolute (HyperList), so native sticky fails there;
+   JS translates .dt-cell--sheet-bs-frozen with scrollLeft. */
 .datatable:has(.attendance-cell-container) .dt-cell.dt-cell--sticky {
     z-index: 6;
     background-color: var(--fg-color, var(--dt-cell-bg, #fff));
@@ -119,8 +121,29 @@
     background-color: var(--subtle-fg, var(--dt-header-cell-bg, var(--fg-color, #fff)));
 }
 
-.datatable:has(.attendance-cell-container) .dt-cell.dt-cell--sticky .dt-cell__content {
+.datatable:has(.attendance-cell-container) .dt-cell.dt-cell--sticky .dt-cell__content,
+.datatable:has(.attendance-cell-container) .dt-cell--sheet-bs-frozen .dt-cell__content {
     background-color: inherit;
+}
+
+.datatable:has(.attendance-cell-container) .dt-cell--sheet-bs-frozen {
+    z-index: 7 !important;
+    background-color: var(--fg-color, var(--dt-cell-bg, #fff)) !important;
+}
+
+.datatable:has(.attendance-cell-container) .dt-row--highlight .dt-cell--sheet-bs-frozen {
+    background-color: var(--dt-selection-highlight-color, var(--highlight-color, #fffce7)) !important;
+}
+
+.datatable:has(.attendance-cell-container) .dt-cell--sheet-bs-frozen-last::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -1px;
+    width: 8px;
+    height: 100%;
+    pointer-events: none;
+    box-shadow: 4px 0 6px -4px rgba(15, 23, 42, 0.28);
 }
 
 .attendance-bar:hover {

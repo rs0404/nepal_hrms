@@ -23,6 +23,44 @@ def _has_half_day_leave(employee, attendance_date):
     )
 
 
+def _get_paid_leave_days(employee, start_date, end_date):
+    """Approved non-LWP leave days inside this payroll period."""
+    from hrms.hr.doctype.leave_application.leave_application import get_number_of_leave_days
+
+    leaves = frappe.get_all(
+        "Leave Application",
+        filters={
+            "employee": employee,
+            "docstatus": 1,
+            "status": "Approved",
+            "from_date": ["<=", end_date],
+            "to_date": [">=", start_date],
+        },
+        fields=["leave_type", "from_date", "to_date", "half_day", "half_day_date"],
+    )
+    paid_days = 0.0
+    for leave in leaves:
+        if cint(frappe.db.get_value("Leave Type", leave.leave_type, "is_lwp")):
+            continue
+        clipped_from = max(getdate(leave.from_date), getdate(start_date))
+        clipped_to = min(getdate(leave.to_date), getdate(end_date))
+        half_day_date = (
+            leave.half_day_date
+            if leave.half_day_date
+            and clipped_from <= getdate(leave.half_day_date) <= clipped_to
+            else None
+        )
+        paid_days += get_number_of_leave_days(
+            employee,
+            leave.leave_type,
+            clipped_from,
+            clipped_to,
+            half_day=1 if half_day_date else 0,
+            half_day_date=half_day_date,
+        )
+    return flt(paid_days)
+
+
 def _classify_late_or_early(mins, app, employee, att_date, grace, max_delay):
     """
     C&R rules:
@@ -92,7 +130,9 @@ def compute_nepal_hr_variables(doc, data):
     period_escapes = get_policy_escapes_for_period(employee, start_date, end_date)
 
     # 1. Late Entry & Early Exit Penalty Calculation
-    if getattr(settings, "enable_late_early_penalty", 0):
+    # get_singles_dict returns Check/Int fields as strings ("0"/"1"), so truthiness
+    # and numeric compares must go through cint().
+    if cint(getattr(settings, "enable_late_early_penalty", 0)):
         initial_grace = cint(settings.initial_grace_occurrences or 2)
         subsequent_step = cint(settings.subsequent_grace_step_occurrences or 2)
         grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
@@ -188,7 +228,7 @@ def compute_nepal_hr_variables(doc, data):
                 return flt(major_count), flt(minor_penalty)
             return flt(major_count + minor_penalty), 0.0
 
-        if getattr(settings, "combine_late_and_early_pool", 0):
+        if cint(getattr(settings, "combine_late_and_early_pool", 0)):
             combined_minor = minor_late_count + minor_early_count
             combined_major = major_late_count + major_early_count
             hd, fd = _split_pool_penalty(combined_minor, combined_major)
@@ -302,9 +342,9 @@ def compute_nepal_hr_variables(doc, data):
     basic_daily = flt(basic_remuneration) / working_days if working_days else 0.0
     gross_daily = flt(total_fixed) / working_days if working_days else 0.0
 
-    threshold_lwp = getattr(settings, "continuous_lwp_threshold_days", 5) or 5
+    threshold_lwp = cint(getattr(settings, "continuous_lwp_threshold_days", 5) or 5)
     if (
-        getattr(settings, "enable_continuous_lwp_gross_deduction", 0)
+        cint(getattr(settings, "enable_continuous_lwp_gross_deduction", 0))
         and max_continuous_lwp >= threshold_lwp
         and not cint(period_escapes.escape_continuous_lwp_gross)
     ):
@@ -318,12 +358,23 @@ def compute_nepal_hr_variables(doc, data):
         unapproved_absent_rate = basic_daily
     else:
         unapproved_absent_rate = gross_daily
-    # Late/early/OOO half-days use basic; escalated pool full-days use gross (absent rate)
-    late_deduction_rate = basic_daily
+    # Each late/early/OOO penalty count represents half a day.
+    late_deduction_rate = basic_daily * 0.5
 
     # Fold escalated full-day pool penalties into unapproved absent days (gross)
     escalated_full_days = flt(late_entry_full_days) + flt(early_exit_full_days)
     unapproved_absent_days = flt(unapproved_absent_days) + escalated_full_days
+    paid_leave_days = _get_paid_leave_days(employee, start_date, end_date)
+    half_day_penalties = flt(
+        late_entry_half_days + early_exit_half_days + out_of_office_half_days
+    )
+    half_day_deduction = flt(half_day_penalties * late_deduction_rate, 2)
+    lwp_deduction_amount = flt(lwp_days * lwp_deduction_rate, 2)
+    absent_deduction_amount = flt(unapproved_absent_days * unapproved_absent_rate, 2)
+    leave_late_deduction_total = flt(
+        half_day_deduction + lwp_deduction_amount + absent_deduction_amount,
+        2,
+    )
 
     data["late_entry_half_days"] = late_entry_half_days
     data["early_exit_half_days"] = early_exit_half_days
@@ -336,6 +387,34 @@ def compute_nepal_hr_variables(doc, data):
     data["unapproved_absent_rate"] = unapproved_absent_rate
     data["late_deduction_rate"] = late_deduction_rate
     data["is_continuous_lwp_gross"] = is_continuous_lwp_gross
+    visible_values = {
+        "custom_paid_leave_days": paid_leave_days,
+        "custom_late_entry_half_days": late_entry_half_days,
+        "custom_early_exit_half_days": early_exit_half_days,
+        "custom_out_of_office_half_days": out_of_office_half_days,
+        "custom_unapproved_absent_days": unapproved_absent_days,
+        "custom_late_entry_full_days": late_entry_full_days,
+        "custom_early_exit_full_days": early_exit_full_days,
+        "custom_late_deduction_rate": flt(late_deduction_rate, 2),
+        "custom_lwp_deduction_rate": flt(lwp_deduction_rate, 2),
+        "custom_unapproved_absent_rate": flt(unapproved_absent_rate, 2),
+        "custom_lwp_deduction_amount": lwp_deduction_amount,
+        "custom_leave_late_deduction_total": leave_late_deduction_total,
+        "custom_is_continuous_lwp_gross": is_continuous_lwp_gross,
+    }
+    for fieldname, value in visible_values.items():
+        if doc.meta.has_field(fieldname):
+            doc.set(fieldname, value)
+    if doc.meta.has_field("custom_attendance_breakdown_data"):
+        doc.custom_attendance_breakdown_data = frappe.as_json(
+            {
+                **visible_values,
+                "half_day_deduction_amount": half_day_deduction,
+                "unapproved_absent_deduction_amount": absent_deduction_amount,
+                "daily_divisor": flt(working_days),
+                "daily_divisor_basis": divisor_basis,
+            }
+        )
     doc._nepal_hr_vars = {
         "late_entry_half_days": late_entry_half_days,
         "early_exit_half_days": early_exit_half_days,
@@ -351,6 +430,18 @@ def compute_nepal_hr_variables(doc, data):
     }
 
 class CustomSalarySlip(SalarySlip):
+    def _inject_cit_contribution(self, data):
+        """Expose the effective CIT election to formulas and snapshot this period."""
+        from nepal_hrms.custom_code.payroll.retirement_tax import get_cit_contribution
+
+        period_start = getdate(data.get("start_date") or self.start_date)
+        election = get_cit_contribution(self.employee, period_start)
+        data["cit_contribution"] = flt(election.monthly_amount)
+
+        if period_start == getdate(self.start_date):
+            self.custom_cit_contribution_reference = election.name
+            self.custom_cit_contribution_amount = flt(election.monthly_amount)
+
     def _inject_salary_allowances(self, data):
         """Expose Nepal Salary Allowance rows to formulas as nsa_<abbr>.
 
@@ -370,9 +461,11 @@ class CustomSalarySlip(SalarySlip):
                 )
                 self._nepal_allowance_map = {}
         data.update(self._nepal_allowance_map)
+        data.setdefault("nsa_other_allowance", 0)
 
     def eval_condition_and_formula(self, struct_row, data):
         self._inject_salary_allowances(data)
+        self._inject_cit_contribution(data)
         if not hasattr(self, "_nepal_hr_variables_loaded"):
             compute_nepal_hr_variables(self, data)
             self._nepal_hr_variables_loaded = True
@@ -380,7 +473,31 @@ class CustomSalarySlip(SalarySlip):
             for k, v in getattr(self, "_nepal_hr_vars", {}).items():
                 data.setdefault(k, v)
 
+        # Existing submitted Nepal structures may still have a blank formula on
+        # their CIT row. Resolve it here as well as configuring new structures.
+        if struct_row.salary_component == "CIT":
+            return flt(data.get("cit_contribution"))
+
         return super().eval_condition_and_formula(struct_row, data)
+
+    def compute_taxable_earnings_for_year(self):
+        super().compute_taxable_earnings_for_year()
+
+        from nepal_hrms.custom_code.payroll.retirement_tax import (
+            apply_retirement_cap_to_taxable_earnings,
+        )
+
+        apply_retirement_cap_to_taxable_earnings(self)
+
+    def compute_annual_deductions_before_tax_calculation(self):
+        stock_deductions = super().compute_annual_deductions_before_tax_calculation()
+
+        if not getattr(self, "tax_slab", None) or not self.tax_slab.allow_tax_exemption:
+            return stock_deductions
+
+        from nepal_hrms.custom_code.payroll.retirement_tax import capped_annual_deductions
+
+        return capped_annual_deductions(self, stock_deductions)
 
     def on_submit(self):
         if self.net_pay < 0:
@@ -400,17 +517,48 @@ class CustomSalarySlip(SalarySlip):
 
     def compute_income_tax_breakup(self):
         super().compute_income_tax_breakup()
-        
+
         if not hasattr(self, "remaining_sub_periods"):
             return
 
-        annual_taxable = self.get("annual_taxable_amount", 0)
-        total_tax = self.get("total_structured_tax_amount", 0)
-        tax_deducted = self.get("income_tax_deducted_till_date", 0)
-        remaining_tax = total_tax - tax_deducted
+        retirement = getattr(self, "_nepal_retirement_tax", frappe._dict())
+        assessable = flt(retirement.get("assessable_employment_income"))
+        contributions = flt(retirement.get("actual_contributions"))
+        one_third_limit = flt(retirement.get("one_third_limit"))
+        annual_limit = flt(retirement.get("annual_limit"))
+        allowed_retirement = flt(retirement.get("allowed_deduction"))
+        annual_taxable = flt(self.get("annual_taxable_amount", 0))
+        total_tax = flt(self.get("total_structured_tax_amount", 0))
+        tax_deducted = flt(self.get("income_tax_deducted_till_date", 0))
+        remaining_tax = flt(max(total_tax - tax_deducted, 0), 2)
         remaining_months = self.remaining_sub_periods
-        current_tax = self.get("current_month_income_tax", 0)
-        
+        current_tax = flt(self.get("current_month_income_tax", 0))
+
+        self.custom_assessable_employment_income = assessable
+        self.custom_total_retirement_contribution = contributions
+        self.custom_allowed_retirement_deduction = allowed_retirement
+
+        rows = [
+            ("Annual Assessable Employment Income", assessable, None),
+            ("Projected SSF / PF / Gratuity / CIT", contributions, None),
+            ("One-third of Assessable Income", one_third_limit, None),
+            ("Annual Retirement Ceiling", annual_limit, None),
+            ("Allowed Retirement Deduction", allowed_retirement, "min(actual, one-third, NPR 500,000)"),
+            ("Annual Taxable Amount", annual_taxable, None),
+            ("Total Annual Tax (Projected)", total_tax, None),
+            ("Tax Deducted Till Date", tax_deducted, None),
+            ("Remaining Tax to Deduct", remaining_tax, "annual tax minus tax already deducted"),
+        ]
+        detail_rows = "".join(
+            (
+                "<tr>"
+                f"<td><b>{label}</b>{f'<br><small>{note}</small>' if note else ''}</td>"
+                f"<td style=\"text-align: right;\">{frappe.utils.fmt_money(amount)}</td>"
+                "</tr>"
+            )
+            for label, amount, note in rows
+        )
+
         html = f"""
         <table class="table table-bordered">
             <thead>
@@ -419,35 +567,34 @@ class CustomSalarySlip(SalarySlip):
                 </tr>
             </thead>
             <tbody>
+                {detail_rows}
                 <tr>
-                    <td><b>Annual Taxable Amount</b></td>
-                    <td style="text-align: right;">{frappe.utils.fmt_money(annual_taxable)}</td>
-                </tr>
-                <tr>
-                    <td><b>Total Annual Tax (Projected)</b></td>
-                    <td style="text-align: right;">{frappe.utils.fmt_money(total_tax)}</td>
-                </tr>
-                <tr>
-                    <td><b>Tax Deducted Till Date</b></td>
-                    <td style="text-align: right;">{frappe.utils.fmt_money(tax_deducted)}</td>
-                </tr>
-                <tr style="background-color: var(--bg-light-gray);">
-                    <td><b>Remaining Tax to Deduct</b><br><small>(Total Annual Tax - Tax Deducted)</small></td>
-                    <td style="text-align: right;"><b>{frappe.utils.fmt_money(remaining_tax)}</b></td>
-                </tr>
-                <tr>
-                    <td><b>Remaining Sub Periods</b><br><small>(Months remaining in fiscal year)</small></td>
+                    <td><b>Remaining Sub Periods</b><br><small>Months remaining in fiscal year</small></td>
                     <td style="text-align: right;">{remaining_months}</td>
                 </tr>
                 <tr style="background-color: var(--bg-light-gray);">
-                    <td><b>Current Month Income Tax</b><br><small>(Remaining Tax / Remaining Sub Periods)</small></td>
+                    <td><b>Current Month Income Tax</b><br><small>Remaining tax divided over remaining periods</small></td>
                     <td style="text-align: right; color: var(--text-color);"><b>{frappe.utils.fmt_money(current_tax)}</b></td>
                 </tr>
             </tbody>
         </table>
         """
         self.custom_tax_breakup_html = html
-        self.custom_tax_calculation_data = html
+        self.custom_tax_calculation_data = frappe.as_json(
+            {
+                "cit_election": self.get("custom_cit_contribution_reference"),
+                "monthly_cit": flt(self.get("custom_cit_contribution_amount")),
+                "assessable_employment_income": assessable,
+                "projected_retirement_contributions": contributions,
+                "one_third_limit": one_third_limit,
+                "annual_retirement_limit": annual_limit,
+                "allowed_retirement_deduction": allowed_retirement,
+                "annual_taxable_amount": annual_taxable,
+                "projected_annual_tax": total_tax,
+                "tax_deducted_till_date": tax_deducted,
+                "current_month_tax": current_tax,
+            }
+        )
 
 from hrms.payroll.doctype.payroll_entry.payroll_entry import PayrollEntry
 from hrms.payroll.doctype.payroll_entry.payroll_entry import (

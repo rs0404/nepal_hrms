@@ -1,0 +1,149 @@
+.calendar-wrapper .days-grid .day[class*="status-"] {
+	background-color: transparent !important;
+	box-shadow: none !important;
+	position: relative;
+	z-index: 0;
+}
+
+.calendar-wrapper .days-grid .day[class*="status-"]::before {
+	content: "";
+	position: absolute;
+	inset: 3px;
+	border-radius: 0.45rem;
+	z-index: -1;
+	pointer-events: none;
+	transition: filter 0.15s ease;
+}
+
+.calendar-wrapper .days-grid .day.status-present::before {
+	background-color: #dcfce7;
+	box-shadow: inset 0 0 0 1.5px #4ade80;
+}
+
+.calendar-wrapper .days-grid .day.status-work-from-home::before {
+	background-color: #ccfbf1;
+	box-shadow: inset 0 0 0 1.5px #2dd4bf;
+}
+
+.calendar-wrapper .days-grid .day.status-half-day::before {
+	background-color: #fef9c3;
+	box-shadow: inset 0 0 0 1.5px #facc15;
+}
+
+.calendar-wrapper .days-grid .day.status-absent::before {
+	background-color: #fee2e2;
+	box-shadow: inset 0 0 0 1.5px #f87171;
+}
+
+.calendar-wrapper .days-grid .day.status-on-leave::before {
+	background-color: #93c5fd;
+	box-shadow: inset 0 0 0 2px #2563eb;
+}
+
+.calendar-wrapper .days-grid .day.status-leave-pending::before {
+	background-color: #fff7ed;
+	box-shadow: inset 0 0 0 2px #f59e0b;
+	background-image: repeating-linear-gradient(
+		-45deg,
+		transparent,
+		transparent 3px,
+		rgba(245, 158, 11, 0.12) 3px,
+		rgba(245, 158, 11, 0.12) 6px
+	);
+}
+
+.calendar-wrapper .days-grid .day.status-leave-rejected::before {
+	background-color: #ffe4e6;
+	box-shadow: inset 0 0 0 1.5px #fb7185;
+}
+
+.calendar-wrapper .days-grid .day.status-holiday::before,
+.calendar-wrapper .days-grid .day.status-weekly-off::before {
+	background-color: #e9d5ff;
+	box-shadow: inset 0 0 0 1.5px #c084fc;
+}
+
+.calendar-wrapper .days-grid .day[class*="status-"]:hover::before {
+	filter: brightness(0.97);
+}
+
+.calendar-wrapper .days-grid .day[class*="status-"].selected {
+	outline: 2px solid var(--color-selected) !important;
+	outline-offset: -2px;
+}
+
+.calendar-wrapper .days-grid .day[class*="status-"].today {
+	border: 2px solid var(--color-selected) !important;
+}
+
+.calendar-wrapper .days-grid .day .day-markers {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	display: flex;
+	gap: 3px;
+	align-items: center;
+	pointer-events: none;
+	z-index: 2;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker {
+	display: block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.leave,
+.calendar-wrapper .days-grid .day .day-markers .marker.ooo {
+	width: auto;
+	min-width: 12px;
+	height: 12px;
+	padding: 0 3px;
+	border-radius: 3px;
+	color: #fff;
+	font-size: 8px;
+	font-weight: 700;
+	font-style: normal;
+	line-height: 12px;
+	text-align: center;
+	box-shadow: none;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.leave {
+	background-color: #1d4ed8;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.leave::before {
+	content: "L";
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.leave.pending {
+	background-color: #d97706;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.leave.rejected {
+	background-color: #e11d48;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.late {
+	background-color: #ea580c;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.early {
+	background-color: #7c3aed;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.ooo {
+	background-color: #0f766e;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.ooo::before {
+	content: "O";
+}
+
+.calendar-wrapper .days-grid .day.has-markers .ad {
+	bottom: 0.28rem;
+}

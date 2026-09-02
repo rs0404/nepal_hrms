@@ -5,11 +5,11 @@ import frappe
 
 
 def get_data(data=None):
-	"""Extend Employee connections with Attendance Policy Escape."""
+	"""Extend Employee connections with Nepal HRMS policy and payroll records."""
 	data = frappe._dict(data or {})
 	data.fieldname = data.fieldname or "employee"
 
-	extra_items = ["Attendance Policy Escape"]
+	extra_items = ["Attendance Policy Escape", "Employee CIT Contribution"]
 
 	transactions = list(data.transactions or [])
 	if not transactions:
