@@ -9,6 +9,7 @@
 				<template v-if="!selectMode">
 					<span class="text-[11px] text-gray-400">{{ __("Tap a day for details") }}</span>
 					<button
+						v-if="isSelf"
 						type="button"
 						class="text-[11px] font-semibold text-blue-600 py-1"
 						@click="startSelectMode"
@@ -105,8 +106,16 @@ import { createResource } from "frappe-ui"
 
 const emit = defineEmits(["select-day", "create-leave"])
 
+const props = defineProps({
+	employee: { type: String, default: null },
+})
+
 const __ = inject("$translate")
 const dayjs = inject("$dayjs")
+const sessionEmployee = inject("$employee")
+const isSelf = computed(
+	() => !props.employee || props.employee === sessionEmployee.data?.name
+)
 const calendarContainer = ref(null)
 const todayStr = dayjs().format("YYYY-MM-DD")
 const visibleRange = ref({
@@ -133,17 +142,26 @@ const attendanceEvents = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_calendar_details",
 	auto: true,
 	makeParams() {
-		// Keep range modest so holiday resolution stays fast/reliable
-		return {
+		const params = {
 			from_date: dayjs().subtract(6, "month").startOf("month").format("YYYY-MM-DD"),
 			to_date: dayjs().add(3, "month").endOf("month").format("YYYY-MM-DD"),
 		}
+		if (props.employee) params.employee = props.employee
+		return params
 	},
 	onSuccess() {
 		paintAttendanceDays()
 		syncLeaveSelection()
 	},
 })
+
+watch(
+	() => props.employee,
+	() => {
+		cancelSelectMode()
+		attendanceEvents.reload()
+	}
+)
 
 const dayStatus = (info) => {
 	if (!info) return null
@@ -363,10 +381,35 @@ watch(
 	@apply w-full border-none shadow-none max-w-none;
 }
 
+:deep(.days-grid) {
+	gap: 2px;
+}
+
+:deep(.days-grid .day) {
+	overflow: visible;
+	padding: 5px 2px 10px;
+}
+
+:deep(.days-grid .day .ad) {
+	left: auto;
+	right: 7px;
+	bottom: 5px;
+	transform: none;
+	font-size: 0.58rem;
+	opacity: 0.65;
+}
+
 :deep(.days-grid .day.leave-selected) {
-	outline: 2px solid #2563eb;
-	outline-offset: 1px;
-	border-radius: 0.5rem;
+	outline: none;
+}
+
+:deep(.days-grid .day.leave-selected::before) {
+	content: "";
+	position: absolute;
+	inset: 2px;
+	border-radius: 0.4rem;
+	z-index: -1;
+	box-shadow: inset 0 0 0 2px #2563eb;
 }
 
 .status-swatch {

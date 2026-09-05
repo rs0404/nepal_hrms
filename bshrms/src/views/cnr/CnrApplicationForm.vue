@@ -50,7 +50,14 @@ const doctype = computed(() => {
 	return "Late Entry Application"
 })
 
-const application = ref({})
+const application = ref({
+	employee: employee.data?.name,
+	employee_name: employee.data?.employee_name,
+	company: employee.data?.company,
+	department: employee.data?.department,
+	status: "Draft",
+	posting_date: dayjs().format("YYYY-MM-DD"),
+})
 
 const HIDDEN_ON_CREATE = [
 	"employee",
@@ -61,23 +68,21 @@ const HIDDEN_ON_CREATE = [
 	"naming_series",
 	"department",
 	"amended_from",
+	"custom_rejection_reason",
 ]
 
-const PREFILL_READONLY = [
-	"posting_date",
-	"attendance_date",
-	"late_entry_time",
-	"early_exit_time",
-	"type_of_work",
-]
+const PREFILL_READONLY = ["posting_date", "attendance_date"]
 
 const formFields = createResource({
 	url: "hrms.api.get_doctype_fields",
 	makeParams: () => ({ doctype: doctype.value }),
 	auto: true,
 	transform(data) {
-		if (props.id) return data
-		let fields = data.filter((field) => !HIDDEN_ON_CREATE.includes(field.fieldname))
+		let fields = data.filter((field) => {
+			if (field.fieldname === "status") return false
+			if (!props.id && HIDDEN_ON_CREATE.includes(field.fieldname)) return false
+			return true
+		})
 		if (prefillMode.value) {
 			fields = fields.map((field) => {
 				if (PREFILL_READONLY.includes(field.fieldname)) {
@@ -110,10 +115,13 @@ async function applyPrefillFromQuery() {
 	application.value = {
 		...application.value,
 		employee: employee.data?.name,
+		employee_name: employee.data?.employee_name,
+		company: employee.data?.company,
+		department: employee.data?.department,
 		status: "Draft",
 		posting_date: dayjs().format("YYYY-MM-DD"),
 		attendance_date: String(q.attendance_date),
-		type_of_work: "Personal Work",
+		type_of_work: application.value.type_of_work || "Personal Work",
 	}
 
 	try {
@@ -151,6 +159,8 @@ onMounted(() => {
 
 function validateForm() {
 	application.value.employee = employee.data.name
+	if (employee.data?.company) application.value.company = employee.data.company
+	if (employee.data?.department) application.value.department = employee.data.department
 	if (!application.value.status) application.value.status = "Draft"
 	if (!application.value.posting_date) {
 		application.value.posting_date = dayjs().format("YYYY-MM-DD")

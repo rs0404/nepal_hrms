@@ -34,17 +34,26 @@ const doctype = computed(() => {
 
 const pageTitle = computed(() => __("{0} History", [__(doctype.value)]))
 
-const LIST_FIELDS = [
-	"name",
-	"employee",
-	"employee_name",
-	"attendance_date",
-	"type_of_work",
-	"status",
-	"reason",
-	"docstatus",
-	"total_hours",
-]
+const LIST_FIELDS = computed(() => {
+	const fields = [
+		"name",
+		"employee",
+		"employee_name",
+		"attendance_date",
+		"type_of_work",
+		"status",
+		"reason",
+		"docstatus",
+	]
+	if (doctype.value === "Out of Office Application") {
+		fields.push("total_hours")
+	} else if (doctype.value === "Late Entry Application") {
+		fields.push("late_entry_time")
+	} else if (doctype.value === "Early Exit Application") {
+		fields.push("early_exit_time")
+	}
+	return fields
+})
 
 const FILTER_CONFIG = computed(() => [
 	{ fieldname: "attendance_date", fieldtype: "Date", label: __("Attendance Date") },
@@ -52,7 +61,11 @@ const FILTER_CONFIG = computed(() => [
 		fieldname: "status",
 		fieldtype: "Select",
 		label: __("Status"),
-		options: "Draft\nApproved\nRejected",
+		options: [
+			{ label: __("Waiting for Approval"), value: "Draft" },
+			{ label: __("Approved"), value: "Approved" },
+			{ label: __("Rejected"), value: "Rejected" },
+		],
 	},
 	{
 		fieldname: "type_of_work",

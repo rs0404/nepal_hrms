@@ -16,18 +16,50 @@ def create_custom_fields():
 		"Salary Slip": [
 			{"fieldname": "nepali_start_date", "label": "Nepali Start Date", "fieldtype": "Data", "insert_after": "start_date", "allow_on_submit": 1},
 			{"fieldname": "nepali_end_date", "label": "Nepali End Date", "fieldtype": "Data", "insert_after": "end_date", "allow_on_submit": 1},
-			{"fieldname": "taxable_salary", "label": "Taxable Salary", "fieldtype": "Currency", "insert_after": "total_deduction", "allow_on_submit": 1},
-			{"fieldname": "custom_cit_contribution_reference", "label": "CIT Contribution Election", "fieldtype": "Link", "options": "Employee CIT Contribution", "insert_after": "taxable_salary", "read_only": 1, "allow_on_submit": 1, "no_copy": 1},
+			{"fieldname": "taxable_salary", "label": "Taxable Salary", "fieldtype": "Currency", "insert_after": "total_deduction", "hidden": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_annual_tax_projection_section", "label": "Annual Tax and Retirement Projection", "fieldtype": "Section Break", "insert_after": "base_total_deduction", "description": "Current-period TDS = (Projected Annual TDS - TDS Already Paid) / Remaining Payroll Periods. Retirement deductions are limited by Nepal's statutory cap."},
+			{"fieldname": "custom_projected_annual_tds", "label": "Projected Annual TDS", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_annual_tax_projection_section", "read_only": 1, "allow_on_submit": 1, "description": "Estimated income tax for the full fiscal year after projected earnings and allowed deductions."},
+			{"fieldname": "custom_tds_paid_till_date", "label": "TDS Already Paid", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_projected_annual_tds", "read_only": 1, "allow_on_submit": 1, "description": "TDS deducted on earlier submitted Salary Slips in this fiscal year, including any opening balance."},
+			{"fieldname": "custom_remaining_payroll_periods", "label": "Remaining Payroll Periods", "fieldtype": "Float", "insert_after": "custom_tds_paid_till_date", "read_only": 1, "allow_on_submit": 1, "description": "Payroll periods still remaining in the fiscal year, including this Salary Slip."},
+			{"fieldname": "custom_current_period_tds", "label": "Current Period TDS", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_remaining_payroll_periods", "read_only": 1, "allow_on_submit": 1, "description": "TDS allocated to this Salary Slip after spreading the unpaid annual tax over the remaining periods."},
+			{"fieldname": "custom_annual_tax_projection_col", "label": "", "fieldtype": "Column Break", "insert_after": "custom_current_period_tds"},
+			{"fieldname": "custom_assessable_employment_income", "label": "Annual Assessable Employment Income", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_annual_tax_projection_col", "read_only": 1, "allow_on_submit": 1, "description": "Projected taxable employment earnings before retirement deductions."},
+			{"fieldname": "custom_one_third_assessable_income", "label": "One-Third of Assessable Income", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_assessable_employment_income", "read_only": 1, "allow_on_submit": 1, "description": "One-third of annual assessable employment income; one of the statutory retirement-deduction limits."},
+			{"fieldname": "custom_total_retirement_contribution", "label": "Projected Retirement Contributions", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_one_third_assessable_income", "read_only": 1, "allow_on_submit": 1, "description": "Projected annual SSF, PF, gratuity and CIT contributions before applying the statutory cap."},
+			{"fieldname": "custom_annual_retirement_limit", "label": "Annual Retirement Ceiling", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_total_retirement_contribution", "read_only": 1, "allow_on_submit": 1, "description": "Maximum statutory retirement deduction, currently NPR 500,000."},
+			{"fieldname": "custom_allowed_retirement_deduction", "label": "Allowed Retirement Deduction", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_annual_retirement_limit", "read_only": 1, "allow_on_submit": 1, "description": "Lowest of projected contributions, one-third of assessable income and the annual retirement ceiling."},
+			{"fieldname": "custom_annual_taxable_deductions", "label": "Annual Taxable Deductions", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_allowed_retirement_deduction", "read_only": 1, "allow_on_submit": 1, "description": "Total annual deductions applied before income tax is calculated, including the capped retirement deduction."},
+			{"fieldname": "custom_cit_contribution_reference", "label": "CIT Contribution Election", "fieldtype": "Link", "options": "Employee CIT Contribution", "insert_after": "custom_annual_taxable_deductions", "read_only": 1, "allow_on_submit": 1, "no_copy": 1},
 			{"fieldname": "custom_cit_contribution_amount", "label": "Monthly CIT Contribution", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_cit_contribution_reference", "read_only": 1, "allow_on_submit": 1},
-			{"fieldname": "custom_assessable_employment_income", "label": "Annual Assessable Employment Income", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_cit_contribution_amount", "read_only": 1, "allow_on_submit": 1},
-			{"fieldname": "custom_total_retirement_contribution", "label": "Projected Approved Retirement Contributions", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_assessable_employment_income", "read_only": 1, "allow_on_submit": 1},
-			{"fieldname": "custom_allowed_retirement_deduction", "label": "Allowed Retirement Deduction", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_total_retirement_contribution", "read_only": 1, "allow_on_submit": 1},
-			{"fieldname": "custom_tax_breakup_html", "label": "Detailed Tax Calculation", "fieldtype": "HTML", "insert_after": "income_tax_calculation_breakup_section"},
+			{"fieldname": "custom_tax_breakup_html", "label": "Detailed Tax Calculation", "fieldtype": "HTML", "insert_after": "income_tax_calculation_breakup_section", "hidden": 1},
 			{"fieldname": "custom_tax_calculation_data", "label": "Tax Calculation Data", "fieldtype": "Long Text", "insert_after": "custom_tax_breakup_html", "hidden": 1, "allow_on_submit": 1},
 			# Divisor snapshot: written on first calculation so a later Nepal Payroll
 			# Period Override cannot restate pay that has already been computed.
 			{"fieldname": "custom_daily_divisor_used", "label": "Daily Rate Divisor Used", "fieldtype": "Float", "insert_after": "total_working_days", "read_only": 1, "description": "Days this slip was divided by for per-day deductions. Frozen at first calculation."},
 			{"fieldname": "custom_daily_divisor_basis", "label": "Daily Rate Basis Used", "fieldtype": "Data", "insert_after": "custom_daily_divisor_used", "read_only": 1},
+			{"fieldname": "custom_attendance_breakdown_section", "label": "", "fieldtype": "Section Break", "insert_after": "payment_days_calculation_help"},
+			{"fieldname": "custom_attendance_counts_heading", "label": "Attendance Deduction Breakdown", "fieldtype": "Heading", "insert_after": "custom_attendance_breakdown_section"},
+			{"fieldname": "custom_paid_leave_days", "label": "Paid Leave Days", "fieldtype": "Float", "insert_after": "custom_attendance_counts_heading", "read_only": 1, "allow_on_submit": 1, "description": "Approved paid leave (non-LWP) in this payroll period"},
+			{"fieldname": "custom_late_entry_half_days", "label": "Late Entry Half Days", "fieldtype": "Float", "insert_after": "custom_paid_leave_days", "read_only": 1, "allow_on_submit": 1, "description": "Half-day penalties from major late arrivals or the late occurrence pool."},
+			{"fieldname": "custom_late_entry_full_days", "label": "Late Entry Full Days", "fieldtype": "Float", "insert_after": "custom_late_entry_half_days", "read_only": 1, "allow_on_submit": 1, "description": "Late occurrence-pool penalties escalated to full-day deductions after the configured threshold."},
+			{"fieldname": "custom_early_exit_half_days", "label": "Early Exit Half Days", "fieldtype": "Float", "insert_after": "custom_late_entry_full_days", "read_only": 1, "allow_on_submit": 1, "description": "Half-day penalties from major early exits or the early-exit occurrence pool."},
+			{"fieldname": "custom_early_exit_full_days", "label": "Early Exit Full Days", "fieldtype": "Float", "insert_after": "custom_early_exit_half_days", "read_only": 1, "allow_on_submit": 1, "description": "Early-exit occurrence-pool penalties escalated to full-day deductions after the configured threshold."},
+			{"fieldname": "custom_out_of_office_half_days", "label": "Out of Office Half Days", "fieldtype": "Float", "insert_after": "custom_early_exit_full_days", "read_only": 1, "allow_on_submit": 1, "description": "Half-day penalties for personal out-of-office time above the allowed limit."},
+			{"fieldname": "custom_unapproved_absent_days", "label": "Unapproved Absent Days", "fieldtype": "Float", "insert_after": "custom_out_of_office_half_days", "read_only": 1, "allow_on_submit": 1, "description": "Unapproved absences plus escalated late-entry and early-exit full-day penalties."},
+			{"fieldname": "custom_attendance_counts_col", "label": "", "fieldtype": "Column Break", "insert_after": "custom_unapproved_absent_days"},
+			{"fieldname": "custom_deduction_rates_section", "label": "Deduction Rates", "fieldtype": "Heading", "insert_after": "custom_attendance_counts_col"},
+			{"fieldname": "custom_late_deduction_rate", "label": "Late/Early/OOO Half-Day Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_deduction_rates_section", "read_only": 1, "allow_on_submit": 1, "description": "Half of the configured Half-Day Deduction Base daily rate."},
+			{"fieldname": "custom_lwp_deduction_rate", "label": "LWP Daily Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_late_deduction_rate", "read_only": 1, "allow_on_submit": 1, "description": "Configured LWP Deduction Base daily rate, or Gross when the continuous-LWP threshold applies."},
+			{"fieldname": "custom_unapproved_absent_rate", "label": "Unapproved Absence Daily Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_lwp_deduction_rate", "read_only": 1, "allow_on_submit": 1, "description": "Daily rate from the configured Unapproved Absence Deduction Base."},
+			{"fieldname": "custom_is_continuous_lwp_gross", "label": "Continuous LWP Uses Gross Rate", "fieldtype": "Check", "insert_after": "custom_unapproved_absent_rate", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_deduction_amounts_section", "label": "", "fieldtype": "Column Break", "insert_after": "custom_is_continuous_lwp_gross"},
+			{"fieldname": "custom_deduction_amounts_heading", "label": "Actual Deduction Amounts", "fieldtype": "Heading", "insert_after": "custom_deduction_amounts_section"},
+			{"fieldname": "custom_late_deduction_amount", "label": "Late/Early/OOO Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_deduction_amounts_heading", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_lwp_deduction_amount", "label": "LWP Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_late_deduction_amount", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_unapproved_absent_deduction_amount", "label": "Unapproved Absence Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_lwp_deduction_amount", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_leave_late_deduction_total", "label": "Total Attendance Deduction", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_unapproved_absent_deduction_amount", "read_only": 1, "allow_on_submit": 1, "description": "Late/early/OOO, LWP and unapproved absence deductions combined"},
+			{"fieldname": "custom_attendance_breakdown_html", "label": "Attendance Deduction Explanation", "fieldtype": "HTML", "insert_after": "custom_leave_late_deduction_total"},
+			{"fieldname": "custom_attendance_breakdown_data", "label": "Attendance Deduction Data", "fieldtype": "Long Text", "insert_after": "custom_attendance_breakdown_html", "hidden": 1, "allow_on_submit": 1},
 		],
 		"Employee Checkin": [
 			{"fieldname": "custom_attendance_type", "label": "Attendance Type", "fieldtype": "Select", "options": "Normal\nOOO Work", "default": "Normal", "insert_after": "log_type", "in_list_view": 1, "allow_on_submit": 1},
@@ -241,7 +273,11 @@ def create_custom_fields():
 
 	for doctype_name, fields in custom_fields.items():
 		for field in fields:
-			if not frappe.db.exists("Custom Field", {"dt": doctype_name, "fieldname": field["fieldname"]}):
+			existing_name = frappe.db.get_value(
+				"Custom Field",
+				{"dt": doctype_name, "fieldname": field["fieldname"]},
+			)
+			if not existing_name:
 				custom_field = frappe.get_doc({
 					"doctype": "Custom Field",
 					"dt": doctype_name,
@@ -251,11 +287,33 @@ def create_custom_fields():
 				custom_field.save()
 				created_fields.append({"dt": doctype_name, "fieldname": field["fieldname"]})
 			else:
+				updatable_keys = {
+					"label",
+					"fieldtype",
+					"options",
+					"insert_after",
+					"description",
+					"read_only",
+					"hidden",
+					"allow_on_submit",
+					"collapsible",
+					"depends_on",
+					"mandatory_depends_on",
+					"default",
+					"permlevel",
+					"in_list_view",
+					"in_standard_filter",
+				}
+				updates = {
+					key: value
+					for key, value in field.items()
+					if key in updatable_keys
+				}
+				updates["module"] = "Nepal HRMS"
 				frappe.db.set_value(
 					"Custom Field",
-					{"dt": doctype_name, "fieldname": field["fieldname"]},
-					"module",
-					"Nepal HRMS",
+					existing_name,
+					updates,
 					update_modified=False,
 				)
 

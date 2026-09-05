@@ -112,7 +112,21 @@ export const pendingOOOApprovals = createResource({
 	auto: true,
 	cache: "nepal_hrms:pending_ooo_approvals",
 	transform(data) {
-		return data.map((log) => {
+		const pending = Array.isArray(data) ? data : data?.pending || []
+		return pending.map((log) => {
+			log.doctype = "OOO Approval"
+			return log
+		})
+	},
+})
+
+export const approvedOOOApprovals = createResource({
+	url: "nepal_hrms.api.ooo_attendance.get_pending_ooo_approvals",
+	auto: true,
+	cache: "nepal_hrms:approved_ooo_approvals",
+	transform(data) {
+		const approved = Array.isArray(data) ? [] : data?.approved || []
+		return approved.map((log) => {
 			log.doctype = "OOO Approval"
 			return log
 		})

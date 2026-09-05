@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.utils import cint, get_datetime, getdate, now_datetime, today
+from hrms.hr.utils import get_distance_between_coordinates
 
 
 @frappe.whitelist()
@@ -617,6 +618,119 @@ def _collect_ooo_days(employee_ids, employee_map, from_date=None, include_reject
 
 
 @frappe.whitelist()
+def update_pending_ooo_checkin_times(employee, attendance_date, checkins):
+	"""Correct pending OOO IN/OUT timestamps before approval.
+
+	Only the employee's configured Leave Approver (or Administrator) can edit,
+	and records cannot be moved to another calendar day.
+	"""
+	if not employee or not attendance_date:
+		frappe.throw(_("Employee and attendance date are required."))
+
+	_assert_is_leave_approver(employee)
+	attendance_date = getdate(attendance_date)
+	if isinstance(checkins, str):
+		checkins = frappe.parse_json(checkins)
+	if not isinstance(checkins, list) or not checkins:
+		frappe.throw(_("At least one check-in time is required."))
+
+	names = [row.get("name") for row in checkins if isinstance(row, dict) and row.get("name")]
+	if len(names) != len(checkins) or len(set(names)) != len(names):
+		frappe.throw(_("Invalid or duplicate check-in records."))
+
+	meta = frappe.get_meta("Employee Checkin")
+	filters = {
+		"name": ["in", names],
+		"employee": employee,
+		"custom_attendance_type": "OOO Work",
+		"custom_is_approved": 0,
+		"docstatus": ["<", 2],
+	}
+	if meta.has_field("custom_ooo_rejected"):
+		filters["custom_ooo_rejected"] = 0
+
+	existing = frappe.get_all(
+		"Employee Checkin",
+		filters=filters,
+		fields=["name", "time", "log_type"],
+	)
+	existing_by_name = {row.name: row for row in existing}
+	if set(existing_by_name) != set(names):
+		frappe.throw(
+			_("One or more check-ins are no longer pending or do not belong to this employee."),
+			frappe.PermissionError,
+		)
+
+	updates = []
+	for row in checkins:
+		name = row["name"]
+		new_time = get_datetime(row.get("time"))
+		if getdate(new_time) != attendance_date:
+			frappe.throw(_("OOO check-in times must remain on {0}.").format(attendance_date))
+		old_time = get_datetime(existing_by_name[name].time)
+		if new_time != old_time:
+			updates.append((name, old_time, new_time))
+
+	# Validate each complete OOO session after applying the proposed times.
+	proposed = {name: new_time for name, _old_time, new_time in updates}
+	day_rows = frappe.get_all(
+		"Employee Checkin",
+		filters={
+			"employee": employee,
+			"custom_attendance_type": "OOO Work",
+			"time": [
+				"between",
+				[f"{attendance_date} 00:00:00", f"{attendance_date} 23:59:59"],
+			],
+			"docstatus": ["<", 2],
+		},
+		fields=["name", "time", "log_type"],
+	)
+	for row in day_rows:
+		row.time = proposed.get(row.name, get_datetime(row.time))
+	day_rows.sort(key=lambda row: row.time)
+	open_in = None
+	for row in day_rows:
+		if row.log_type == "IN":
+			open_in = row
+		elif row.log_type == "OUT" and open_in:
+			if row.time <= open_in.time:
+				frappe.throw(_("OOO check-out must be later than its check-in."))
+			open_in = None
+
+	for name, old_time, new_time in updates:
+		frappe.db.set_value(
+			"Employee Checkin",
+			name,
+			"time",
+			new_time,
+			update_modified=True,
+		)
+		try:
+			frappe.get_doc("Employee Checkin", name).add_comment(
+				"Edit",
+				_("OOO time corrected by {0}: {1} → {2}").format(
+					frappe.session.user, old_time, new_time
+				),
+			)
+		except Exception:
+			frappe.logger("nepal_hrms.ooo").info(
+				"OOO time corrected by %s: %s %s -> %s",
+				frappe.session.user,
+				name,
+				old_time,
+				new_time,
+			)
+
+	frappe.db.commit()
+	return {
+		"updated": len(updates),
+		"employee": employee,
+		"attendance_date": str(attendance_date),
+	}
+
+
+@frappe.whitelist()
 def get_ooo_approval_details(employee, attendance_date):
 	"""Attendance + all day check-ins for an OOO approval detail sheet."""
 	if not employee or not attendance_date:
@@ -682,6 +796,43 @@ def get_ooo_approval_details(employee, attendance_date):
 		order_by="time asc",
 	)
 
+	assignment_filters = {
+		"employee": employee,
+		"start_date": ["<=", attendance_date],
+		"shift_location": ["is", "set"],
+		"docstatus": 1,
+		"status": "Active",
+	}
+	if attendance_row and attendance_row.shift:
+		assignment_filters["shift_type"] = attendance_row.shift
+	shift_assignment = frappe.get_all(
+		"Shift Assignment",
+		filters=assignment_filters,
+		or_filters=[
+			["end_date", ">=", attendance_date],
+			["end_date", "is", "not set"],
+		],
+		fields=["shift_location"],
+		order_by="start_date desc",
+		limit_page_length=1,
+	)
+	shift_location = None
+	if shift_assignment:
+		location = frappe.db.get_value(
+			"Shift Location",
+			shift_assignment[0].shift_location,
+			["name", "location_name", "latitude", "longitude", "checkin_radius"],
+			as_dict=True,
+		)
+		if location and location.latitude is not None and location.longitude is not None:
+			shift_location = {
+				"name": location.name,
+				"location_name": location.location_name,
+				"latitude": float(location.latitude),
+				"longitude": float(location.longitude),
+				"checkin_radius": cint(location.checkin_radius),
+			}
+
 	checkins = []
 	ooo_checkins = []
 	ooo_seconds = 0
@@ -702,7 +853,24 @@ def get_ooo_approval_details(employee, attendance_date):
 			"is_ooo": is_ooo,
 			"device_id": c.device_id or "",
 			"has_location": bool(c.latitude and c.longitude),
+			"latitude": float(c.latitude) if c.latitude is not None else None,
+			"longitude": float(c.longitude) if c.longitude is not None else None,
 		}
+		if (
+			shift_location
+			and entry["latitude"] is not None
+			and entry["longitude"] is not None
+		):
+			entry["distance_from_shift_location_m"] = round(
+				get_distance_between_coordinates(
+					shift_location["latitude"],
+					shift_location["longitude"],
+					entry["latitude"],
+					entry["longitude"],
+				)
+			)
+		else:
+			entry["distance_from_shift_location_m"] = None
 		checkins.append(entry)
 
 		if is_ooo and not rejected:
@@ -746,6 +914,29 @@ def get_ooo_approval_details(employee, attendance_date):
 	else:
 		approval_status = "Pending"
 
+	path_logs = frappe.get_all(
+		"Employee Path Log",
+		filters={
+			"employee": employee,
+			"timestamp": ["between", [day_start, day_end]],
+		},
+		fields=["name", "checkin_reference", "timestamp", "latitude", "longitude", "accuracy"],
+		order_by="timestamp asc",
+		limit_page_length=2000,
+	)
+	path_points = [
+		{
+			"name": row.name,
+			"checkin_reference": row.checkin_reference,
+			"timestamp": str(row.timestamp),
+			"latitude": float(row.latitude),
+			"longitude": float(row.longitude),
+			"accuracy": float(row.accuracy or 0),
+		}
+		for row in path_logs
+	]
+	employee_user = frappe.db.get_value("Employee", employee, "user_id")
+
 	return {
 		"employee": employee,
 		"employee_name": employee_name,
@@ -758,11 +949,90 @@ def get_ooo_approval_details(employee, attendance_date):
 		"last_out": last_out["time"] if last_out else None,
 		"checkins": checkins,
 		"ooo_checkins": ooo_checkins,
+		"shift_location": shift_location,
 		"pending_count": pending_count,
 		"can_approve": can_approve,
 		"is_own": is_own,
 		"approval_status": approval_status,
+		"path_points": path_points,
+		"employee_user": employee_user,
 	}
+
+
+def _get_ooo_attendance_for_comment(employee, attendance_date):
+	_assert_can_view_ooo_day(employee)
+	name = frappe.db.get_value(
+		"Attendance",
+		{
+			"employee": employee,
+			"attendance_date": getdate(attendance_date),
+			"docstatus": ["<", 2],
+		},
+	)
+	if not name:
+		frappe.throw(_("No Attendance record exists for this employee and date."))
+	return name
+
+
+@frappe.whitelist()
+def get_ooo_attendance_comments(employee, attendance_date):
+	"""Return Attendance comments visible from the OOO review sheet."""
+	attendance = _get_ooo_attendance_for_comment(employee, attendance_date)
+	comments = frappe.get_all(
+		"Comment",
+		filters={
+			"reference_doctype": "Attendance",
+			"reference_name": attendance,
+			"comment_type": "Comment",
+		},
+		fields=["name", "comment_by", "comment_email", "content", "creation"],
+		order_by="creation asc",
+	)
+	for comment in comments:
+		comment["full_name"] = (
+			frappe.db.get_value("User", comment.comment_email, "full_name")
+			or comment.comment_by
+			or comment.comment_email
+		)
+	return {"attendance": attendance, "comments": comments}
+
+
+@frappe.whitelist()
+def add_ooo_attendance_comment(employee, attendance_date, content, mention_employee=1):
+	"""Add a plain-text Attendance comment and optionally mention the employee."""
+	from frappe.utils import escape_html
+
+	attendance = _get_ooo_attendance_for_comment(employee, attendance_date)
+	content = (content or "").strip()
+	if not content:
+		frappe.throw(_("Comment cannot be empty."))
+
+	safe_content = escape_html(content).replace("\n", "<br>")
+	if cint(mention_employee):
+		employee_user = frappe.db.get_value("Employee", employee, "user_id")
+		if employee_user:
+			full_name = frappe.db.get_value("User", employee_user, "full_name") or employee_user
+			safe_user = escape_html(employee_user)
+			safe_name = escape_html(full_name)
+			mention = (
+				f'<span class="mention" data-id="{safe_user}" data-value="{safe_name}" '
+				f'data-denotation-char="@">@{safe_name}</span>'
+			)
+			safe_content = f"{mention} {safe_content}"
+
+	comment = frappe.get_doc(
+		{
+			"doctype": "Comment",
+			"comment_type": "Comment",
+			"reference_doctype": "Attendance",
+			"reference_name": attendance,
+			"comment_email": frappe.session.user,
+			"comment_by": frappe.utils.get_fullname(frappe.session.user),
+			"content": safe_content,
+		}
+	)
+	comment.insert(ignore_permissions=True)
+	return {"name": comment.name, "attendance": attendance, "creation": comment.creation}
 
 
 def _prevent_self_ooo_checkin_approval() -> bool:

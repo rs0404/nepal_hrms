@@ -27,7 +27,7 @@
 					/>
 					<Badge
 						v-if="status"
-						:label="__(status, null, doctype)"
+						:label="__(displayStatus, null, doctype)"
 						:theme="statusColor"
 						class="whitespace-nowrap text-[8px]"
 					/>
@@ -102,7 +102,7 @@
 									:documentList="field.documentList"
 									:readOnly="isFieldReadOnly(field)"
 									:reqd="Boolean(field.reqd)"
-									:hidden="Boolean(field.hidden)"
+									:hidden="isFieldHidden(field)"
 									:errorMessage="field.error_message"
 									:minDate="field.minDate"
 									:maxDate="field.maxDate"
@@ -144,7 +144,7 @@
 						:documentList="field.documentList"
 						:readOnly="isFieldReadOnly(field)"
 						:reqd="Boolean(field.reqd)"
-						:hidden="Boolean(field.hidden)"
+						:hidden="isFieldHidden(field)"
 						:errorMessage="field.error_message"
 						:minDate="field.minDate"
 						:maxDate="field.maxDate"
@@ -173,7 +173,7 @@
 			<!-- custom form button eg: Download button in salary slips -->
 			<div
 				v-if="!showFormButton"
-				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-0 w-full drop-shadow-xl z-40 border-t rounded-t-lg"
+				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-[var(--ion-tab-bar-height,3.5rem)] w-full drop-shadow-xl z-50 border-t rounded-t-lg"
 			>
 				<slot name="formButton"></slot>
 			</div>
@@ -189,7 +189,7 @@
 			<!-- save/submit/cancel -->
 			<div
 				v-else-if="isFormDirty || (!workflow?.hasWorkflow && formButton)"
-				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-0 w-full drop-shadow-xl z-40 border-t rounded-t-lg"
+				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-[var(--ion-tab-bar-height,3.5rem)] w-full drop-shadow-xl z-50 border-t rounded-t-lg"
 			>
 				<ErrorMessage
 					class="mb-2"
@@ -203,7 +203,7 @@
 				<Button
 					class="w-full rounded py-5 text-base disabled:bg-gray-700 disabled:text-white"
 					:class="formButton === 'Cancel' ? 'shadow' : ''"
-					@click="formButton === 'Save' ? saveForm() : submitOrCancelForm()"
+					@click="isSaveAction ? saveForm() : submitOrCancelForm()"
 					:variant="formButton === 'Cancel' ? 'subtle' : 'solid'"
 					:loading="
 						docList.insert.loading || documentResource?.setValue?.loading
@@ -318,7 +318,7 @@
 			<p>
 				{{
 					__(
-						"You have submitted this {0}. Please wait for your Leave Approver to approve it. Until then it will remain in Draft — that means it is awaiting approval, not that it failed to submit.",
+						"You have submitted this {0}. It is now waiting for your Leave Approver to approve it.",
 						[__(props.doctype)]
 					)
 				}}
@@ -405,6 +405,12 @@ const props = defineProps({
 const emit = defineEmits(["validateForm", "update:modelValue"])
 const router = useRouter()
 
+const CNR_DOCTYPES = [
+	"Late Entry Application",
+	"Early Exit Application",
+	"Out of Office Application",
+]
+
 const __ = inject("$translate")
 
 let activeTab = ref(props.tabs?.[0].name)
@@ -441,6 +447,13 @@ const status = computed(() => {
 	return formModel.value.status || formModel.value.approval_status
 })
 
+const displayStatus = computed(() => {
+	if (CNR_DOCTYPES.includes(props.doctype) && status.value === "Draft") {
+		return "Waiting for Approval"
+	}
+	return status.value
+})
+
 watch(
 	() => formModel.value,
 	() => {
@@ -459,6 +472,10 @@ watch(
 	() => status.value,
 	async (value) => {
 		if (!value) return
+		if (CNR_DOCTYPES.includes(props.doctype) && value === "Draft") {
+			statusColor.value = "orange"
+			return
+		}
 		statusColor.value = await guessStatusColor(props.doctype, status.value)
 	},
 	{ immediate: true }
@@ -633,12 +650,6 @@ const permittedWriteFields = createResource({
 	params: { doctype: props.doctype },
 })
 
-const CNR_DOCTYPES = [
-	"Late Entry Application",
-	"Early Exit Application",
-	"Out of Office Application",
-]
-
 const canApproveCnr = createResource({
 	url: "nepal_hrms.api.cnr_applications.can_approve_cnr_application",
 	makeParams: () => ({ employee: formModel.value?.employee }),
@@ -669,6 +680,10 @@ const formButton = computed(() => {
 		return "Save"
 	}
 })
+
+const isSaveAction = computed(() =>
+	["Save", "Submit Application"].includes(formButton.value)
+)
 
 function showDeleteButton() {
 	return props.id && formModel.value.docstatus !== 1 && hasPermission("delete")
@@ -715,6 +730,14 @@ function isFieldReadOnly(field) {
 		|| isFormReadOnly.value
 		|| (props.id && !permittedWriteFields.data?.includes(field.fieldname))
 	)
+}
+
+function isFieldHidden(field) {
+	if (Boolean(field.hidden)) return true
+	if (field.fieldname === "custom_rejection_reason") {
+		return formModel.value?.status !== "Rejected"
+	}
+	return false
 }
 
 function handleDocInsert() {

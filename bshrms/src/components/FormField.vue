@@ -138,7 +138,18 @@
 			/>
 		</div>
 
-		<!-- Time -->
+		<!-- Time (Frappe Time is HH:MM:SS; native input uses HH:MM or HH:MM:SS) -->
+		<input
+			v-else-if="props.fieldtype === 'Time'"
+			type="time"
+			step="1"
+			class="form-input block w-full border-gray-400 rounded disabled:bg-gray-50 disabled:text-gray-700"
+			:value="timeInputValue"
+			:disabled="isReadOnly"
+			:placeholder="__('Select {0}', [props.label])"
+			@input="onTimeInput"
+		/>
+
 		<!-- Datetime -->
 		<DateTimePicker
 			v-else-if="props.fieldtype === 'Datetime'"
@@ -212,6 +223,28 @@ const isReadOnly = computed(() => {
 	return Boolean(props.readOnly)
 })
 
+const timeInputValue = computed(() => toTimeInputValue(props.modelValue))
+
+function toTimeInputValue(val) {
+	if (val === null || val === undefined || val === "") return ""
+	const s = String(val)
+	const match = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/)
+	if (!match) return ""
+	const hours = String(match[1]).padStart(2, "0")
+	const minutes = match[2]
+	const seconds = match[3] || "00"
+	return `${hours}:${minutes}:${seconds}`
+}
+
+function onTimeInput(event) {
+	const raw = event?.target?.value || ""
+	if (!raw) {
+		emit("update:modelValue", "")
+		return
+	}
+	emit("update:modelValue", raw.length === 5 ? `${raw}:00` : raw)
+}
+
 const selectionList = computed(() => {
 	if (props.fieldtype === "Link" && props.documentList) {
 		return props.documentList
@@ -240,7 +273,7 @@ function setDefaultValue() {
 		} else {
 			emit("update:modelValue", props.default)
 		}
-	} else {
+	} else if (props.fieldtype !== "Time") {
 		props.fieldtype === "Check" ? emit("update:modelValue", false) : emit("update:modelValue", "")
 	}
 }

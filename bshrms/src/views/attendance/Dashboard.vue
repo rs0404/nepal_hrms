@@ -1,46 +1,100 @@
 <template>
 	<BaseLayout pageTitle="Attendance">
 		<template #header-extra>
-			<div
-				class="inline-flex rounded-md border border-gray-200 bg-gray-50 overflow-hidden text-[11px] font-semibold ml-1"
-				role="group"
-				:aria-label="__('Calendar type')"
-			>
-				<button
-					type="button"
-					class="px-2 py-0.5 transition-colors"
-					:class="
-						activeCalendar === 'Nepali'
-							? 'bg-gray-900 text-white'
-							: 'text-gray-500'
-					"
-					@click="activeCalendar = 'Nepali'"
+			<div class="flex items-center gap-1 ml-1">
+				<div
+					v-if="showLiveToggle"
+					class="inline-flex rounded-md border border-gray-200 bg-gray-50 overflow-hidden text-[11px] font-semibold"
+					role="group"
+					:aria-label="__('Attendance view')"
 				>
-					{{ __("BS") }}
-				</button>
-				<button
-					type="button"
-					class="px-2 py-0.5 transition-colors border-l border-gray-200"
-					:class="
-						activeCalendar === 'English'
-							? 'bg-gray-900 text-white'
-							: 'text-gray-500'
-					"
-					@click="activeCalendar = 'English'"
+					<button
+						type="button"
+						class="px-2 py-0.5 transition-colors"
+						:class="
+							attendanceView === 'calendar'
+								? 'bg-gray-900 text-white'
+								: 'text-gray-500'
+						"
+						@click="attendanceView = 'calendar'"
+					>
+						{{ __("Cal") }}
+					</button>
+					<button
+						type="button"
+						class="px-2 py-0.5 transition-colors border-l border-gray-200"
+						:class="
+							attendanceView === 'live'
+								? 'bg-gray-900 text-white'
+								: 'text-gray-500'
+						"
+						@click="attendanceView = 'live'"
+					>
+						{{ __("Live") }}
+					</button>
+				</div>
+				<div
+					v-if="attendanceView === 'calendar'"
+					class="inline-flex rounded-md border border-gray-200 bg-gray-50 overflow-hidden text-[11px] font-semibold"
+					role="group"
+					:aria-label="__('Calendar type')"
 				>
-					{{ __("AD") }}
-				</button>
+					<button
+						type="button"
+						class="px-2 py-0.5 transition-colors"
+						:class="
+							activeCalendar === 'Nepali'
+								? 'bg-gray-900 text-white'
+								: 'text-gray-500'
+						"
+						@click="activeCalendar = 'Nepali'"
+					>
+						{{ __("BS") }}
+					</button>
+					<button
+						type="button"
+						class="px-2 py-0.5 transition-colors border-l border-gray-200"
+						:class="
+							activeCalendar === 'English'
+								? 'bg-gray-900 text-white'
+								: 'text-gray-500'
+						"
+						@click="activeCalendar = 'English'"
+					>
+						{{ __("AD") }}
+					</button>
+				</div>
 			</div>
 		</template>
 		<template #body>
-			<div class="flex flex-col mt-4 mb-7 p-4 gap-5">
+			<div class="flex flex-col mt-4 mb-7 p-4 gap-3">
+				<LiveAttendanceBoard
+					v-if="attendanceView === 'live'"
+					:leaveBoardOnly="leaveBoardOnly"
+					:canViewPast="!!pwaAccess.data?.can_view_past_attendance"
+				/>
+
+				<template v-else>
+				<Autocomplete
+					v-if="canViewOthers"
+					class="w-full"
+					:placeholder="__('Search employee')"
+					v-model="selectedEmployeeOption"
+					:options="employeeOptions"
+					@update:query="onEmployeeQuery"
+				/>
+
 				<AttendanceCalendar
 					v-if="activeCalendar === 'English'"
+					:key="'ad-' + calendarEmployee"
+					:employee="calendarEmployee"
 					@select-day="onCalendarDaySelect"
 					@create-leave="onCreateLeave"
 				/>
 				<NepaliAttendanceCalendar
 					v-else
+					:key="'bs-' + calendarEmployee"
+					:employee="calendarEmployee"
 					@select-day="onCalendarDaySelect"
 					@create-leave="onCreateLeave"
 				/>
@@ -56,6 +110,7 @@
 						:key="selectedDay.stamp"
 						:date="selectedDay.date"
 						:fallbackStatus="selectedDay.status"
+						:employee="calendarEmployee"
 						@create-leave="onCreateLeave"
 					/>
 				</ion-modal>
@@ -240,7 +295,7 @@
 					</div>
 				</div>
 
-				<div class="w-full grid grid-cols-2 gap-2">
+				<div class="w-full grid grid-cols-2 gap-2" v-if="isSelf">
 					<router-link
 						:to="{ name: 'AttendanceRequestFormView' }"
 						v-slot="{ navigate }"
@@ -276,7 +331,7 @@
 						</Button>
 					</router-link>
 				</div>
-				<div>
+				<div v-if="isSelf">
 					<div class="text-lg text-gray-800 font-bold">
 						{{ __("Recent Attendance Requests") }}
 					</div>
@@ -287,6 +342,7 @@
 						:listButtonRoute="__('AttendanceRequestListView')"
 					/>
 				</div>
+				<template v-if="isSelf">
 				<div>
 					<div class="text-lg text-gray-800 font-bold">{{ __("Upcoming Shifts") }}</div>
 					<RequestList
@@ -397,6 +453,8 @@
 						{{ __("No recent logs found") }}
 					</div>
 				</div>
+				</template>
+				</template>
 			</div>
 		</template>
 	</BaseLayout>
@@ -404,7 +462,7 @@
 
 <script setup>
 import { computed, inject, markRaw, ref, onMounted, watch } from "vue"
-import { createResource, createListResource, Badge, Dialog, Button, call } from "frappe-ui"
+import { createResource, createListResource, Badge, Dialog, Button, call, Autocomplete, debounce } from "frappe-ui"
 import { useRouter } from "vue-router"
 import { IonModal } from "@ionic/vue"
 
@@ -417,14 +475,79 @@ import RequestList from "@/components/RequestList.vue"
 import AttendanceCalendar from "@/components/AttendanceCalendar.vue"
 import NepaliAttendanceCalendar from "@/components/NepaliAttendanceCalendar.vue"
 import AttendanceDaySheet from "@/components/AttendanceDaySheet.vue"
+import LiveAttendanceBoard from "@/components/LiveAttendanceBoard.vue"
 import { getBsMonthAdRange } from "@/utils/nepali_date"
+import { pwaAccess } from "@/data/pwa_access"
 
 const activeCalendar = ref("Nepali")
+const attendanceView = ref("calendar")
 const employee = inject("$employee")
 const dayjs = inject("$dayjs")
 const socket = inject("$socket")
 const __ = inject("$translate")
 const router = useRouter()
+
+const calendarEmployee = ref(employee.data?.name)
+const employeeQuery = ref("")
+const selectedEmployeeOption = ref(
+	employee.data
+		? {
+				label: `${employee.data.employee_name} (${__("Me")})`,
+				value: employee.data.name,
+		  }
+		: null
+)
+
+const canViewOthers = computed(() => !!pwaAccess.data?.can_view_others_calendar)
+const showLiveToggle = computed(
+	() => !!pwaAccess.data?.can_view_live_board || !!pwaAccess.data?.can_view_leave_board
+)
+const leaveBoardOnly = computed(
+	() => !pwaAccess.data?.can_view_live_board && !!pwaAccess.data?.can_view_leave_board
+)
+const isSelf = computed(
+	() => !calendarEmployee.value || calendarEmployee.value === employee.data?.name
+)
+
+const viewableEmployees = createResource({
+	url: "nepal_hrms.api.pwa_access.get_calendar_viewable_employees",
+	makeParams: () => ({ search_text: employeeQuery.value || undefined }),
+})
+
+const employeeOptions = computed(() => {
+	const meValue = employee.data?.name
+	const meLabel = employee.data?.employee_name
+		? `${employee.data.employee_name} (${__("Me")})`
+		: __("Me")
+	const rows = viewableEmployees.data || []
+	const options = rows.map((r) => ({
+		label: r.value === meValue ? meLabel : r.label,
+		value: r.value,
+	}))
+	if (meValue && !options.some((o) => o.value === meValue)) {
+		options.unshift({ label: meLabel, value: meValue })
+	}
+	return options
+})
+
+const onEmployeeQuery = debounce((query) => {
+	employeeQuery.value = query || ""
+	if (canViewOthers.value) viewableEmployees.reload()
+}, 300)
+
+watch(
+	() => pwaAccess.data?.can_view_others_calendar,
+	(ok) => {
+		if (ok) viewableEmployees.reload()
+	},
+	{ immediate: true }
+)
+
+watch(selectedEmployeeOption, (opt) => {
+	const value =
+		opt && typeof opt === "object" && opt.value !== undefined ? opt.value : opt
+	if (value) calendarEmployee.value = value
+})
 
 const showDaySheet = ref(false)
 const selectedDay = ref(null)
@@ -446,14 +569,14 @@ const monthRange = computed(() => {
 const poolSummary = createResource({
 	url: "nepal_hrms.api.cnr_applications.get_late_early_pool_summary",
 	makeParams: () => ({
-		employee: employee.data?.name,
+		employee: calendarEmployee.value,
 		from_date: monthRange.value.from_date,
 		to_date: monthRange.value.to_date,
 	}),
 	auto: true,
 	cache: [
 		"hrms:late-early-pool",
-		() => employee.data?.name,
+		() => calendarEmployee.value,
 		() => monthRange.value.from_date,
 	],
 })
@@ -461,14 +584,14 @@ const poolSummary = createResource({
 const appCounts = createResource({
 	url: "nepal_hrms.api.cnr_applications.get_cnr_application_counts",
 	makeParams: () => ({
-		employee: employee.data?.name,
+		employee: calendarEmployee.value,
 		from_date: monthRange.value.from_date,
 		to_date: monthRange.value.to_date,
 	}),
 	auto: true,
 	cache: [
 		"nepal_hrms:cnr-app-counts",
-		() => employee.data?.name,
+		() => calendarEmployee.value,
 		() => monthRange.value.from_date,
 	],
 })
@@ -476,19 +599,25 @@ const appCounts = createResource({
 const leaveCounts = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_leave_application_counts",
 	makeParams: () => ({
-		employee: employee.data?.name,
+		employee: calendarEmployee.value,
 		from_date: monthRange.value.from_date,
 		to_date: monthRange.value.to_date,
 	}),
 	auto: true,
 	cache: [
 		"nepal_hrms:leave-app-counts",
-		() => employee.data?.name,
+		() => calendarEmployee.value,
 		() => monthRange.value.from_date,
 	],
 })
 
 watch(monthRange, () => {
+	poolSummary.reload()
+	appCounts.reload()
+	leaveCounts.reload()
+})
+
+watch(calendarEmployee, () => {
 	poolSummary.reload()
 	appCounts.reload()
 	leaveCounts.reload()

@@ -1,10 +1,32 @@
 import frappe, traceback
 from frappe import _
-from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip
+from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip, get_salary_component_data
 from hrms.payroll.doctype.salary_slip.salary_slip import make_loan_repayment_entry
 from frappe.utils import cint, flt, getdate, add_days
 from typing import Optional
 from frappe.model.document import Document
+
+
+DEFAULT_BASIC_BASE = "Basic Remuneration (SSF/PF Base)"
+GROSS_BASE = "Total Fixed Remuneration (Gross)"
+
+
+def _get_attendance_deduction_base(
+    selection, basic_salary, dearness_allowance, grade, basic_remuneration, total_fixed
+):
+    """Resolve a human-readable settings choice to a monthly deduction base."""
+    amounts = {
+        "Basic Salary Only": basic_salary,
+        "Basic Salary + Grade": basic_salary + grade,
+        "Basic Salary + Dearness Allowance": basic_salary + dearness_allowance,
+        "Basic Salary + Grade + Dearness Allowance": (
+            basic_salary + grade + dearness_allowance
+        ),
+        DEFAULT_BASIC_BASE: basic_remuneration,
+        GROSS_BASE: total_fixed,
+    }
+    return flt(amounts.get(selection, basic_remuneration))
+
 
 def _has_half_day_leave(employee, attendance_date):
     """True if an approved half-day leave covers this date (major delay excused by leave)."""
@@ -320,6 +342,38 @@ def compute_nepal_hr_variables(doc, data):
         percent = flt(settings.get("default_basic_percent") or 60)
         basic_remuneration = flt(ssa_base * percent / 100.0, 2)
 
+    basic_salary = flt(data.get("custom_basic_salary")) or basic_remuneration
+    dearness_allowance = flt(data.get("custom_dearness_allowance"))
+    grade = flt(data.get("custom_grade_amount"))
+    half_day_base_name = settings.get("half_day_deduction_base") or DEFAULT_BASIC_BASE
+    lwp_base_name = settings.get("lwp_deduction_base") or DEFAULT_BASIC_BASE
+    absent_base_name = settings.get("unapproved_absence_deduction_base") or GROSS_BASE
+
+    half_day_monthly_base = _get_attendance_deduction_base(
+        half_day_base_name,
+        basic_salary,
+        dearness_allowance,
+        grade,
+        basic_remuneration,
+        total_fixed,
+    )
+    lwp_monthly_base = _get_attendance_deduction_base(
+        lwp_base_name,
+        basic_salary,
+        dearness_allowance,
+        grade,
+        basic_remuneration,
+        total_fixed,
+    )
+    absent_monthly_base = _get_attendance_deduction_base(
+        absent_base_name,
+        basic_salary,
+        dearness_allowance,
+        grade,
+        basic_remuneration,
+        total_fixed,
+    )
+
     # Snapshot the divisor onto the slip the first time it is calculated. A later
     # Nepal Payroll Period Override must not restate pay that already exists, so
     # a slip that carries a snapshot keeps using it.
@@ -341,6 +395,9 @@ def compute_nepal_hr_variables(doc, data):
 
     basic_daily = flt(basic_remuneration) / working_days if working_days else 0.0
     gross_daily = flt(total_fixed) / working_days if working_days else 0.0
+    half_day_base_daily = flt(half_day_monthly_base) / working_days if working_days else 0.0
+    configured_lwp_daily = flt(lwp_monthly_base) / working_days if working_days else 0.0
+    configured_absent_daily = flt(absent_monthly_base) / working_days if working_days else 0.0
 
     threshold_lwp = cint(getattr(settings, "continuous_lwp_threshold_days", 5) or 5)
     if (
@@ -351,15 +408,15 @@ def compute_nepal_hr_variables(doc, data):
         is_continuous_lwp_gross = 1
         lwp_deduction_rate = gross_daily
     else:
-        lwp_deduction_rate = basic_daily
+        lwp_deduction_rate = configured_lwp_daily
 
-    # Unapproved absence uses gross; escape → basic (parallel to LWP escape)
-    if cint(period_escapes.escape_absent_gross):
+    # The escape only relaxes a configured gross absence rate.
+    if cint(period_escapes.escape_absent_gross) and absent_base_name == GROSS_BASE:
         unapproved_absent_rate = basic_daily
     else:
-        unapproved_absent_rate = gross_daily
+        unapproved_absent_rate = configured_absent_daily
     # Each late/early/OOO penalty count represents half a day.
-    late_deduction_rate = basic_daily * 0.5
+    late_deduction_rate = half_day_base_daily * 0.5
 
     # Fold escalated full-day pool penalties into unapproved absent days (gross)
     escalated_full_days = flt(late_entry_full_days) + flt(early_exit_full_days)
@@ -387,6 +444,9 @@ def compute_nepal_hr_variables(doc, data):
     data["unapproved_absent_rate"] = unapproved_absent_rate
     data["late_deduction_rate"] = late_deduction_rate
     data["is_continuous_lwp_gross"] = is_continuous_lwp_gross
+    data["half_day_deduction_base"] = half_day_base_name
+    data["lwp_deduction_base"] = lwp_base_name
+    data["unapproved_absence_deduction_base"] = absent_base_name
     visible_values = {
         "custom_paid_leave_days": paid_leave_days,
         "custom_late_entry_half_days": late_entry_half_days,
@@ -398,7 +458,9 @@ def compute_nepal_hr_variables(doc, data):
         "custom_late_deduction_rate": flt(late_deduction_rate, 2),
         "custom_lwp_deduction_rate": flt(lwp_deduction_rate, 2),
         "custom_unapproved_absent_rate": flt(unapproved_absent_rate, 2),
+        "custom_late_deduction_amount": half_day_deduction,
         "custom_lwp_deduction_amount": lwp_deduction_amount,
+        "custom_unapproved_absent_deduction_amount": absent_deduction_amount,
         "custom_leave_late_deduction_total": leave_late_deduction_total,
         "custom_is_continuous_lwp_gross": is_continuous_lwp_gross,
     }
@@ -413,6 +475,9 @@ def compute_nepal_hr_variables(doc, data):
                 "unapproved_absent_deduction_amount": absent_deduction_amount,
                 "daily_divisor": flt(working_days),
                 "daily_divisor_basis": divisor_basis,
+                "half_day_deduction_base": half_day_base_name,
+                "lwp_deduction_base": lwp_base_name,
+                "unapproved_absence_deduction_base": absent_base_name,
             }
         )
     doc._nepal_hr_vars = {
@@ -430,6 +495,55 @@ def compute_nepal_hr_variables(doc, data):
     }
 
 class CustomSalarySlip(SalarySlip):
+    def add_structure_components(self, component_type):
+        super().add_structure_components(component_type)
+        if component_type == "earnings" and (self.salary_structure or "").startswith("Nepal Payroll - "):
+            self._add_assignment_allowance_earnings()
+
+    def _add_assignment_allowance_earnings(self):
+        """Replace aggregate structure rows with one earning per SSA allowance row."""
+        from nepal_hrms.custom_code.payroll.salary_breakdown import get_allowance_rows
+
+        # Submitted structures created before this change can remain cached during
+        # a worker's lifetime. Never pay their aggregate rows as well as the new
+        # component-wise rows.
+        self.set(
+            "earnings",
+            [
+                row
+                for row in self.earnings
+                if not (
+                    (row.salary_component or "").startswith("Other Allowance - ")
+                    or (row.salary_component or "").startswith("Miscellaneous Allowance - ")
+                )
+            ],
+        )
+
+        assignment = getattr(self, "_salary_structure_assignment", None) or {}
+        amounts_by_component = {}
+        for row in get_allowance_rows(assignment.get("name")):
+            if row.salary_component:
+                amounts_by_component[row.salary_component] = flt(
+                    amounts_by_component.get(row.salary_component)
+                ) + flt(row.amount)
+
+        for component, amount in amounts_by_component.items():
+            component_data = get_salary_component_data(component)
+            if not component_data:
+                frappe.throw(
+                    _("Salary Component {0} used in Other Allowances does not exist.").format(
+                        frappe.bold(component)
+                    )
+                )
+            self.update_component_row(
+                component_data,
+                amount,
+                "earnings",
+                data=self.data,
+                default_amount=amount,
+                remove_if_zero_valued=True,
+            )
+
     def _inject_cit_contribution(self, data):
         """Expose the effective CIT election to formulas and snapshot this period."""
         from nepal_hrms.custom_code.payroll.retirement_tax import get_cit_contribution
@@ -529,14 +643,24 @@ class CustomSalarySlip(SalarySlip):
         allowed_retirement = flt(retirement.get("allowed_deduction"))
         annual_taxable = flt(self.get("annual_taxable_amount", 0))
         total_tax = flt(self.get("total_structured_tax_amount", 0))
-        tax_deducted = flt(self.get("income_tax_deducted_till_date", 0))
+        tax_deducted = flt(
+            self.get("previous_total_paid_taxes", self.get("income_tax_deducted_till_date", 0))
+        )
         remaining_tax = flt(max(total_tax - tax_deducted, 0), 2)
         remaining_months = self.remaining_sub_periods
         current_tax = flt(self.get("current_month_income_tax", 0))
+        annual_deductions = flt(self.get("deductions_before_tax_calculation", 0))
 
         self.custom_assessable_employment_income = assessable
+        self.custom_one_third_assessable_income = one_third_limit
         self.custom_total_retirement_contribution = contributions
+        self.custom_annual_retirement_limit = annual_limit
         self.custom_allowed_retirement_deduction = allowed_retirement
+        self.custom_annual_taxable_deductions = annual_deductions
+        self.custom_projected_annual_tds = total_tax
+        self.custom_tds_paid_till_date = tax_deducted
+        self.custom_remaining_payroll_periods = remaining_months
+        self.custom_current_period_tds = current_tax
 
         rows = [
             ("Annual Assessable Employment Income", assessable, None),
@@ -589,6 +713,7 @@ class CustomSalarySlip(SalarySlip):
                 "one_third_limit": one_third_limit,
                 "annual_retirement_limit": annual_limit,
                 "allowed_retirement_deduction": allowed_retirement,
+                "annual_taxable_deductions": annual_deductions,
                 "annual_taxable_amount": annual_taxable,
                 "projected_annual_tax": total_tax,
                 "tax_deducted_till_date": tax_deducted,

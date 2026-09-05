@@ -159,12 +159,10 @@ def get_late_early_pool_summary(employee=None, month_date=None, from_date=None, 
 	if not employee:
 		frappe.throw(_("Employee not found"))
 
-	# Employees may only read their own summary unless HR/System Manager
-	roles = frappe.get_roles()
-	if not ({"HR Manager", "HR User", "System Manager"} & set(roles)):
-		session_emp = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
-		if employee != session_emp:
-			frappe.throw(_("Not permitted"), frappe.PermissionError)
+	from nepal_hrms.api.pwa_access import can_read_employee_attendance
+
+	if not can_read_employee_attendance(employee):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	if from_date and to_date:
 		start = getdate(from_date)
@@ -252,11 +250,10 @@ def get_cnr_application_counts(employee=None, from_date=None, to_date=None):
 	if not employee:
 		frappe.throw(_("Employee not found"))
 
-	roles = frappe.get_roles()
-	if not ({"HR Manager", "HR User", "System Manager"} & set(roles)):
-		session_emp = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
-		if employee != session_emp:
-			frappe.throw(_("Not permitted"), frappe.PermissionError)
+	from nepal_hrms.api.pwa_access import can_read_employee_attendance
+
+	if not can_read_employee_attendance(employee):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	ref = getdate(from_date or today()) if from_date else getdate(today())
 	start = getdate(from_date) if from_date else get_first_day(ref)

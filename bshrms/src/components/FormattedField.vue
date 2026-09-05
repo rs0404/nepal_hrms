@@ -13,6 +13,10 @@
 		{{ dayjs(props.value).format("D MMM YYYY") }}
 	</div>
 
+	<div v-else-if="props.fieldtype === 'Time'" class="text-gray-900 text-base">
+		{{ formatTime(props.value) }}
+	</div>
+
 	<Input
 		v-else-if="props.fieldtype === 'Check'"
 		type="checkbox"
@@ -89,10 +93,23 @@ const colorMap = {
 	Approved: "green",
 	Rejected: "red",
 	Open: "orange",
+	Draft: "orange",
+	"Waiting for Approval": "orange",
 }
 
 const getCoordinates = (value) => {
 	const [longitude, latitude] = JSON.parse(value).features[0].geometry.coordinates
 	return { longitude, latitude }
+}
+
+const formatTime = (value) => {
+	if (!value) return "-"
+	const match = String(value).match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/)
+	if (!match) return String(value)
+	const hours = Number(match[1])
+	const minutes = match[2]
+	const suffix = hours >= 12 ? "pm" : "am"
+	const hour12 = hours % 12 || 12
+	return `${hour12}:${minutes} ${suffix}`
 }
 </script>

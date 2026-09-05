@@ -183,6 +183,7 @@ import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 const props = defineProps({
 	date: { type: String, required: true },
 	fallbackStatus: { type: String, default: null },
+	employee: { type: String, default: null },
 })
 
 const __ = inject("$translate")
@@ -203,12 +204,16 @@ const statusTheme = {
 
 const dayDetails = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_day_details",
-	makeParams: () => ({ date: props.date }),
+	makeParams: () => {
+		const params = { date: props.date }
+		if (props.employee) params.employee = props.employee
+		return params
+	},
 	auto: true,
 })
 
 watch(
-	() => props.date,
+	() => [props.date, props.employee],
 	() => dayDetails.reload()
 )
 

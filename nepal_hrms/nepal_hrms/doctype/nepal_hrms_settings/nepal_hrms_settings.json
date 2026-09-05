@@ -40,6 +40,10 @@
   "payroll_section",
   "daily_rate_basis",
   "daily_rate_fixed_days",
+  "deduction_base_section",
+  "half_day_deduction_base",
+  "lwp_deduction_base",
+  "unapproved_absence_deduction_base",
   "default_basic_percent",
   "include_grade_in_ssf_base",
   "include_da_in_ssf_base",
@@ -316,6 +320,36 @@
    "default": "30",
    "depends_on": "eval: doc.daily_rate_basis === 'Fixed Days'",
    "description": "Divisor used when the basis is Fixed Days."
+  },
+  {
+   "fieldname": "deduction_base_section",
+   "fieldtype": "Section Break",
+   "label": "Attendance Deduction Components",
+   "description": "Choose which monthly salary amount is divided by the Daily Rate Basis for each attendance deduction."
+  },
+  {
+   "fieldname": "half_day_deduction_base",
+   "fieldtype": "Select",
+   "label": "Half-Day Deduction Base",
+   "default": "Basic Remuneration (SSF/PF Base)",
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)",
+   "description": "Used for late entry, early exit and out-of-office half-days. The selected daily amount is divided by two."
+  },
+  {
+   "fieldname": "lwp_deduction_base",
+   "fieldtype": "Select",
+   "label": "LWP Deduction Base",
+   "default": "Basic Remuneration (SSF/PF Base)",
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)",
+   "description": "Normal Leave Without Pay rate. The continuous-LWP rule can still change this to Gross after its threshold."
+  },
+  {
+   "fieldname": "unapproved_absence_deduction_base",
+   "fieldtype": "Select",
+   "label": "Unapproved Absence Deduction Base",
+   "default": "Total Fixed Remuneration (Gross)",
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)",
+   "description": "Used for each unapproved absent day and escalated full-day late or early-exit penalty."
   },
   {
    "fieldname": "default_basic_percent",

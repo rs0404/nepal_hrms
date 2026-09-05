@@ -502,6 +502,12 @@ const currency = computed(() => {
 
 const fieldsWithValues = computed(() => {
 	return props.fields.filter((field) => {
+		if (
+			field.fieldname === "custom_rejection_reason" &&
+			document?.doc?.status !== "Rejected"
+		) {
+			return false
+		}
 		if (field.fieldtype === "Currency") {
 			field.value = formatCurrency(
 				document.doc?.[field.fieldname],
@@ -517,6 +523,13 @@ const fieldsWithValues = computed(() => {
 			}
 			field.value =
 				document?.doc?.[field.fieldname] || props.modelValue[field.fieldname]
+			if (
+				field.fieldname === "status" &&
+				field.value === "Draft" &&
+				CNR_DOCTYPES.includes(props.modelValue.doctype)
+			) {
+				field.value = "Waiting for Approval"
+			}
 		}
 
 		return field.value

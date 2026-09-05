@@ -62,6 +62,7 @@
 				<template v-if="!selectMode">
 					<span class="text-[11px] text-gray-400">{{ __("Tap a day for details") }}</span>
 					<button
+						v-if="isSelf"
 						type="button"
 						class="text-[11px] font-semibold text-blue-600 py-1"
 						@click="startSelectMode"
@@ -135,8 +136,16 @@ import { createResource } from "frappe-ui"
 
 const emit = defineEmits(["select-day", "create-leave"])
 
+const props = defineProps({
+	employee: { type: String, default: null },
+})
+
 const dayjs = inject("$dayjs")
 const __ = inject("$translate")
+const sessionEmployee = inject("$employee")
+const isSelf = computed(
+	() => !props.employee || props.employee === sessionEmployee.data?.name
+)
 const firstOfMonth = ref(dayjs().date(1).startOf("D"))
 const todayStr = dayjs().format("YYYY-MM-DD")
 
@@ -271,14 +280,28 @@ const DAYS = [
 const calendarEvents = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_calendar_details",
 	auto: true,
-	cache: "nepal_hrms:attendance_calendar_details",
+	cache: [
+		"nepal_hrms:attendance_calendar_details",
+		() => props.employee,
+		() => firstOfMonth.value.format("YYYY-MM-DD"),
+	],
 	makeParams() {
-		return {
+		const params = {
 			from_date: firstOfMonth.value.format("YYYY-MM-DD"),
 			to_date: firstOfMonth.value.endOf("M").format("YYYY-MM-DD"),
 		}
+		if (props.employee) params.employee = props.employee
+		return params
 	},
 })
+
+watch(
+	() => props.employee,
+	() => {
+		cancelSelectMode()
+		calendarEvents.reload()
+	}
+)
 </script>
 
 <style scoped>

@@ -24,17 +24,18 @@
 						</div>
 						<div class="flex flex-row gap-2 mt-2 flex-wrap">
 							<Button
-								v-for="option in filter.options"
+								v-for="option in statusOptions(filter)"
+								:key="option.value"
 								variant="outline"
-								@click="setStatusFilter(filter.fieldname, option)"
+								@click="setStatusFilter(filter.fieldname, option.value)"
 								class="text-sm text-gray-800"
 								:class="[
-									option === filters[filter.fieldname].value
+									option.value === filters[filter.fieldname].value
 										? '!border !border-gray-800 !text-gray-900 !bg-gray-50 !font-medium'
 										: '!font-normal',
 								]"
 							>
-								{{ __(option) }}
+								{{ __(option.label) }}
 							</Button>
 						</div>
 					</div>
@@ -131,5 +132,27 @@ function setStatusFilter(fieldname, value) {
 	} else {
 		filters.value[fieldname].value = value
 	}
+}
+
+function statusOptions(filter) {
+	const raw = filter.options
+	const items = Array.isArray(raw)
+		? raw
+		: String(raw || "")
+				.split("\n")
+				.map((s) => s.trim())
+				.filter(Boolean)
+	return items.map((option) => {
+		if (option && typeof option === "object") {
+		return {
+			label: option.label || option.value,
+			value: option.value,
+		}
+	}
+	return {
+		label: option,
+		value: option,
+	}
+	})
 }
 </script>

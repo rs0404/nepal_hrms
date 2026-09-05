@@ -28,6 +28,17 @@ from frappe.utils import cint, flt
 OTHER_ALLOWANCE_COMPONENT = "Other Allowance"
 
 
+def get_default_other_allowance_component(salary_structure):
+	"""Use the Salary/Wages variant so the component has the right expense account."""
+	structure = salary_structure or ""
+	for variant in ("Wages", "Salary"):
+		if f" - {variant} - " in structure:
+			component = f"{OTHER_ALLOWANCE_COMPONENT} - {variant}"
+			if frappe.db.exists("Salary Component", component):
+				return component
+	return OTHER_ALLOWANCE_COMPONENT
+
+
 def _settings():
 	from nepal_hrms.custom_code.attendance_policy import get_hr_settings
 
@@ -88,10 +99,11 @@ def _derive_from_base(doc, settings):
 	# Park the remainder on a real component so the invariant holds and the
 	# number stays visible. If the component is missing, fold it into basic
 	# rather than silently losing it.
-	if frappe.db.exists("Salary Component", OTHER_ALLOWANCE_COMPONENT):
+	component = get_default_other_allowance_component(doc.get("salary_structure"))
+	if frappe.db.exists("Salary Component", component):
 		doc.append(
 			"custom_allowances",
-			{"salary_component": OTHER_ALLOWANCE_COMPONENT, "amount": remainder},
+			{"salary_component": component, "amount": remainder},
 		)
 	else:
 		doc.custom_basic_salary = base
@@ -183,6 +195,25 @@ def _is_other_allowance_component(name):
 	return name == OTHER_ALLOWANCE_COMPONENT or name.startswith("Other Allowance - ")
 
 
+def get_allowance_rows(salary_structure_assignment):
+	"""Return the employee's component-wise monthly allowance rows."""
+	if not salary_structure_assignment:
+		return []
+	try:
+		return frappe.get_all(
+			"Nepal Salary Allowance",
+			filters={
+				"parent": salary_structure_assignment,
+				"parenttype": "Salary Structure Assignment",
+			},
+			fields=["name", "idx", "abbr", "salary_component", "amount", "description"],
+			order_by="idx asc",
+		)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "Nepal salary allowance lookup failed")
+		return []
+
+
 def get_allowance_map(salary_structure_assignment):
 	"""{nsa_<abbr>: amount} for the child rows, for injection into formula context.
 
@@ -197,15 +228,7 @@ def get_allowance_map(salary_structure_assignment):
 	"""
 	if not salary_structure_assignment:
 		return {OTHER_ALLOWANCE_FORMULA_KEY: 0.0, "total_other_allowances": 0.0}
-	try:
-		rows = frappe.get_all(
-			"Nepal Salary Allowance",
-			filters={"parent": salary_structure_assignment, "parenttype": "Salary Structure Assignment"},
-			fields=["abbr", "salary_component", "amount"],
-		)
-	except Exception:
-		frappe.log_error(frappe.get_traceback(), "Nepal salary allowance lookup failed")
-		return {OTHER_ALLOWANCE_FORMULA_KEY: 0.0, "total_other_allowances": 0.0}
+	rows = get_allowance_rows(salary_structure_assignment)
 
 	out = {}
 	total = 0.0
@@ -257,8 +280,10 @@ def validate_allowance_rows(doc):
 		return
 
 	structure_components = _structure_earning_components(doc.get("salary_structure"))
+	dynamic_allowances = (doc.get("salary_structure") or "").startswith("Nepal Payroll - ")
 	seen = {}
 	missing_from_structure = []
+	missing_accounts = []
 
 	for row in rows:
 		if not row.salary_component:
@@ -299,8 +324,24 @@ def validate_allowance_rows(doc):
 			)
 		seen[row.abbr] = row.salary_component
 
-		if structure_components and row.salary_component not in structure_components:
+		if dynamic_allowances and doc.get("company") and not frappe.db.exists(
+			"Salary Component Account",
+			{"parent": row.salary_component, "company": doc.get("company")},
+		):
+			missing_accounts.append(row.salary_component)
+		elif structure_components and row.salary_component not in structure_components:
 			missing_from_structure.append(row.salary_component)
+
+	if missing_accounts:
+		frappe.throw(
+			_(
+				"Set a Company Account for these Salary Components before using them as allowances: {0}"
+			).format(", ".join(frappe.bold(c) for c in sorted(set(missing_accounts)))),
+			title=_("Missing Allowance Account"),
+		)
+
+	if dynamic_allowances:
+		return
 
 	if missing_from_structure:
 		# The amount still counts toward base (so deduction rates stay right) but

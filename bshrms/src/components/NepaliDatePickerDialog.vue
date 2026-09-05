@@ -1,21 +1,23 @@
 <template>
-	<Dialog v-model="show">
-		<template #body-title>
-			<h2 class="text-xl font-bold">{{ __("Select Nepali Date") }}</h2>
-		</template>
-		<template #body-content>
-			<div ref="pickerContainer" class="min-h-[350px]"></div>
-		</template>
-		<template #actions>
-			<Button variant="outline" class="w-full" @click="show = false">
-				{{ __("Cancel") }}
-			</Button>
+	<Dialog v-model="show" :options="{ size: 'sm' }">
+		<template #body>
+			<div class="px-3 pt-3 pb-2">
+				<div class="flex items-center justify-between gap-2 mb-1">
+					<h2 class="text-sm font-semibold text-gray-900">
+						{{ __("Select Nepali Date") }}
+					</h2>
+					<Button variant="ghost" class="!p-1" @click="show = false">
+						<span class="text-lg leading-none text-gray-500">×</span>
+					</Button>
+				</div>
+				<div ref="pickerContainer" class="nepali-picker-host w-full"></div>
+			</div>
 		</template>
 	</Dialog>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, inject } from "vue"
+import { ref, watch, onBeforeUnmount, inject } from "vue"
 import { Dialog, Button, createResource } from "frappe-ui"
 
 const props = defineProps({
@@ -79,3 +81,11 @@ onBeforeUnmount(() => {
 	}
 })
 </script>
+
+<style scoped>
+.nepali-picker-host :deep(.calendar-wrapper) {
+	width: 100%;
+	max-width: none;
+	box-shadow: none;
+}
+</style>

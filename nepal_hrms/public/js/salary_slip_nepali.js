@@ -1,9 +1,4 @@
 frappe.ui.form.on("Salary Slip", {
-    refresh: function(frm) {
-        if (frm.doc.custom_tax_calculation_data) {
-            frm.set_df_property("custom_tax_breakup_html", "options", frm.doc.custom_tax_calculation_data);
-        }
-    },
     employee: function (frm) {
         if (!frm.doc.employee) return;
 
