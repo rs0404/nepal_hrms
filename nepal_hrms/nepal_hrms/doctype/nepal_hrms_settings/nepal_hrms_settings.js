@@ -1,7 +1,138 @@
 // Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
 // For license information, please see license.txt
 
+(() => {
+const NH_SETTINGS_CSS = "/assets/nepal_hrms/css/nepal_hrms_settings.css";
+const NH_SKIP_HELP_TYPES = new Set([
+	"Tab Break",
+	"Section Break",
+	"Column Break",
+	"HTML",
+	"Heading",
+	"Fold",
+]);
+
+let nh_help_doc_bound = false;
+
+function nh_help_html(text) {
+	if (!text) return "";
+	return String(__(text)).replace(/\n/g, "<br>");
+}
+
+function nh_hide_popovers() {
+	$(".nh-field-help").popover("hide");
+}
+
+function nh_bind_help_button($anchor, content) {
+	if (!$anchor.length || !content) return;
+	if ($anchor.find(".nh-field-help").length) return;
+
+	const $btn = $(`<button type="button" class="btn-reset nh-field-help" aria-label="${__(
+		"Help"
+	)}">${frappe.utils.icon("help", "sm")}</button>`);
+	$anchor.append($btn);
+
+	$btn.popover({
+		trigger: "manual",
+		placement: "auto",
+		html: true,
+		sanitize: false,
+		container: "body",
+		template: `<div class="popover nh-help-popover" role="tooltip">
+			<div class="arrow"></div>
+			<div class="popover-body"></div>
+		</div>`,
+		content: () => `<div class="nh-help-body">${content}</div>`,
+	});
+
+	$btn.on("click", (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		const open = $btn.attr("aria-describedby");
+		nh_hide_popovers();
+		if (!open) $btn.popover("show");
+	});
+}
+
+function nh_help_anchor_for_field(field) {
+	if (field.df.fieldtype === "Button") {
+		const $button = field.$wrapper.find("button").first();
+		if (!$button.length) return $();
+		let $help = field.$wrapper.find(".nh-button-help");
+		if (!$help.length) {
+			$help = $('<span class="help nh-button-help"></span>');
+			$button.after($help);
+		}
+		return $help;
+	}
+
+	if (field.df.fieldtype === "Check") {
+		const $label = field.$wrapper.find(".checkbox label");
+		let $help = field.$wrapper.find(".nh-check-help");
+		if (!$help.length) {
+			$help = field.$wrapper.find("span.help").first();
+			if ($help.parent().is("label")) {
+				$help.addClass("nh-check-help").insertAfter($label);
+			} else {
+				$help = $('<span class="help nh-check-help"></span>').insertAfter($label);
+			}
+		}
+		return $help;
+	}
+
+	return field.$wrapper.find("span.help").first();
+}
+
+function nh_attach_settings_help(frm) {
+	frm.$wrapper.addClass("nh-settings-form");
+
+	Object.values(frm.fields_dict || {}).forEach((field) => {
+		if (!field?.df || !field.$wrapper) return;
+		if (NH_SKIP_HELP_TYPES.has(field.df.fieldtype)) return;
+		const content = nh_help_html(field.df.description);
+		if (!content) return;
+		nh_bind_help_button(nh_help_anchor_for_field(field), content);
+	});
+
+	(frm.layout.sections || []).forEach((section) => {
+		const content = nh_help_html(section.df?.description);
+		if (!content || !section.head?.length) return;
+		if (section.head.find(".nh-field-help").length) return;
+
+		const $help = $('<span class="help nh-section-help"></span>');
+		const $indicator = section.head.find(".collapse-indicator");
+		if ($indicator.length) {
+			$indicator.before($help);
+		} else {
+			section.head.append($help);
+		}
+		nh_bind_help_button($help, content);
+		$help.on("click", (e) => e.stopPropagation());
+	});
+
+	frm.$wrapper
+		.off("shown.bs.tab.nh-help")
+		.on("shown.bs.tab.nh-help", ".form-tabs a", nh_hide_popovers);
+
+	if (!nh_help_doc_bound) {
+		nh_help_doc_bound = true;
+		$(document).on("click.nh-settings-help", (e) => {
+			if (!$(e.target).closest(".nh-field-help, .popover.nh-help-popover").length) {
+				nh_hide_popovers();
+			}
+		});
+	}
+}
+
 frappe.ui.form.on("Nepal HRMS Settings", {
+	onload(frm) {
+		frappe.require(NH_SETTINGS_CSS);
+	},
+
+	refresh(frm) {
+		frappe.require(NH_SETTINGS_CSS, () => nh_attach_settings_help(frm));
+	},
+
 	setup(frm) {
 		// Accounts are posted against a specific company, so a row's account list is
 		// only meaningful once that row names one. Group accounts can't take entries.
@@ -173,3 +304,4 @@ frappe.ui.form.on("Nepal Scheduled Payroll", {
 		}
 	},
 });
+})();

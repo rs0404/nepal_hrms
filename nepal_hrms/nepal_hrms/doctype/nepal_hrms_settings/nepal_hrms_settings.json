@@ -5,75 +5,96 @@
  "engine": "InnoDB",
  "field_order": [
   "attendance_tab",
-  "hrms_attendance_section",
+  "display_section",
   "use_nepali_date_in_attendance",
+  "column_break_display",
   "show_working_hours_in_attendance",
+  "late_early_enable_section",
   "enable_late_early_penalty",
+  "penalty_windows_section",
   "late_early_grace_mins",
+  "column_break_penalty_windows",
   "late_early_max_delay_mins",
+  "occurrence_pool_section",
   "initial_grace_occurrences",
-  "subsequent_grace_step_occurrences",
   "combine_late_and_early_pool",
-  "enable_late_full_day_escalation",
   "late_full_day_after_occurrences",
+  "column_break_occurrence_pool",
+  "subsequent_grace_step_occurrences",
+  "enable_late_full_day_escalation",
+  "application_deadline_section",
   "enable_late_early_application_deadline",
+  "column_break_deadline",
   "late_early_application_max_days",
-  "column_break_hr_attn",
+  "sandwich_section",
   "enable_leave_sandwich_rule",
+  "column_break_sandwich",
   "block_sandwich_leave_application",
+  "ooo_section",
   "max_paid_out_of_office_hours",
+  "lwp_section",
   "enable_continuous_lwp_gross_deduction",
+  "column_break_lwp",
   "continuous_lwp_threshold_days",
   "approval_policy_section",
   "prevent_self_attendance_request_approval",
-  "prevent_self_cnr_application_approval",
   "prevent_self_ooo_checkin_approval",
-  "pwa_access_section",
+  "column_break_approval",
+  "prevent_self_cnr_application_approval",
+  "pwa_boards_section",
   "pwa_live_board_roles",
+  "column_break_pwa_boards",
   "pwa_leave_board_roles",
+  "pwa_calendar_section",
   "pwa_calendar_history_roles",
+  "column_break_pwa_calendar",
   "pwa_calendar_view_others_roles",
   "bs_allocation_section",
   "last_bs_allocation_year",
+  "column_break_bs_alloc",
   "last_bs_allocation_month",
   "payroll_tab",
   "payroll_section",
   "daily_rate_basis",
+  "column_break_payroll",
   "daily_rate_fixed_days",
   "deduction_base_section",
   "half_day_deduction_base",
-  "lwp_deduction_base",
   "unapproved_absence_deduction_base",
+  "column_break_deduction",
+  "lwp_deduction_base",
+  "contribution_section",
   "default_basic_percent",
   "include_grade_in_ssf_base",
-  "include_da_in_ssf_base",
+  "column_break_contribution",
   "overtime_rate_multiplier",
-  "column_break_payroll",
+  "include_da_in_ssf_base",
   "payroll_period_section",
   "payroll_period_basis",
-  "payroll_period_start_day",
   "column_break_period",
-  "period_override_help",
+  "payroll_period_start_day",
   "minimum_wage_section",
   "enforce_minimum_wage",
+  "minimum_wage_floors_section",
   "minimum_monthly_basic",
-  "minimum_monthly_dearness_allowance",
   "minimum_monthly_remuneration",
-  "column_break_minwage",
-  "minimum_daily_remuneration",
   "minimum_hourly_remuneration",
+  "column_break_minwage",
+  "minimum_monthly_dearness_allowance",
+  "minimum_daily_remuneration",
   "payroll_accounts_section",
   "payroll_accounts",
   "payroll_automation_section",
   "enable_scheduled_payroll",
+  "scheduled_run_options_section",
   "scheduled_payroll_run_day",
   "scheduled_payroll_action",
-  "scheduled_payroll_notify",
   "column_break_automation",
-  "scheduled_payroll_runs",
+  "scheduled_payroll_notify",
   "run_scheduled_payroll_now",
+  "scheduled_runs_section",
+  "scheduled_payroll_runs",
   "payroll_setup_section",
-  "payroll_setup_help",
   "run_payroll_setup"
  ],
  "fields": [
@@ -83,9 +104,9 @@
    "label": "HR & Attendance"
   },
   {
-   "fieldname": "hrms_attendance_section",
+   "fieldname": "display_section",
    "fieldtype": "Section Break",
-   "label": "HR & Attendance Settings"
+   "label": "Display"
   },
   {
    "default": "0",
@@ -94,10 +115,19 @@
    "label": "Use Nepali Date in Attendance"
   },
   {
+   "fieldname": "column_break_display",
+   "fieldtype": "Column Break"
+  },
+  {
    "default": "0",
    "fieldname": "show_working_hours_in_attendance",
    "fieldtype": "Check",
    "label": "Show Working Hours in Attendance"
+  },
+  {
+   "fieldname": "late_early_enable_section",
+   "fieldtype": "Section Break",
+   "label": "Late Entry & Early Exit Penalty"
   },
   {
    "default": "0",
@@ -106,12 +136,22 @@
    "label": "Enable Late Entry & Early Exit Penalty Rules"
   },
   {
+   "depends_on": "eval: doc.enable_late_early_penalty === 1",
+   "fieldname": "penalty_windows_section",
+   "fieldtype": "Section Break",
+   "label": "Penalty Windows"
+  },
+  {
    "default": "15",
    "depends_on": "eval: doc.enable_late_early_penalty === 1",
    "description": "Minutes after shift start / before shift end that are free. No application needed; no pool count and no half-day deduction within this window.",
    "fieldname": "late_early_grace_mins",
    "fieldtype": "Int",
-   "label": "Late Entry / Early Exit Grace Mins"
+   "label": "Grace Minutes"
+  },
+  {
+   "fieldname": "column_break_penalty_windows",
+   "fieldtype": "Column Break"
   },
   {
    "default": "60",
@@ -119,7 +159,13 @@
    "description": "Maximum delay still treated as a minor (pool) late/early. Between grace and this value: counts toward the monthly pool if no approved application. Beyond this value: immediate half-day (unless covered by half-day leave / Office Work).",
    "fieldname": "late_early_max_delay_mins",
    "fieldtype": "Int",
-   "label": "Late Entry / Early Exit Max Delay Mins"
+   "label": "Max Delay Minutes"
+  },
+  {
+   "depends_on": "eval: doc.enable_late_early_penalty === 1",
+   "fieldname": "occurrence_pool_section",
+   "fieldtype": "Section Break",
+   "label": "Occurrence Pool"
   },
   {
    "default": "2",
@@ -127,15 +173,7 @@
    "description": "Number of free late/early occurrences in the grace\u2192max band (no application) before the first half-day. Example: 2 means first 2 free, 3rd deducts half-day.",
    "fieldname": "initial_grace_occurrences",
    "fieldtype": "Int",
-   "label": "Initial Grace Occurrences (Before 1st Half-Day Deduction)"
-  },
-  {
-   "default": "2",
-   "depends_on": "eval: doc.enable_late_early_penalty === 1",
-   "description": "After a half-day penalty from the pool, this many further occurrences are free before the next half-day. Example: 2 means two free, then another half-day.",
-   "fieldname": "subsequent_grace_step_occurrences",
-   "fieldtype": "Int",
-   "label": "Subsequent Grace Step Occurrences (Per Additional Half-Day Deduction)"
+   "label": "Initial Grace Occurrences"
   },
   {
    "default": "0",
@@ -143,15 +181,7 @@
    "description": "If enabled, late and early pool occurrences share one combined monthly tally for half-day / full-day penalties.",
    "fieldname": "combine_late_and_early_pool",
    "fieldtype": "Check",
-   "label": "Combine Late Entry & Early Exit Occurrence Pool"
-  },
-  {
-   "default": "0",
-   "depends_on": "eval: doc.enable_late_early_penalty === 1",
-   "description": "When enabled, if the monthly unexcused late/early pool count is greater than the threshold below, occurrence penalties are deducted as full-day absent (gross) instead of half-day (basic).",
-   "fieldname": "enable_late_full_day_escalation",
-   "fieldtype": "Check",
-   "label": "Enable Full-Day Absent Escalation After Pool Threshold"
+   "label": "Combine Late & Early Occurrence Pool"
   },
   {
    "default": "5",
@@ -159,7 +189,33 @@
    "description": "If unexcused late/early pool count in the payroll month is greater than this number, deduct full-day absent instead of half-day for the occurrence penalties.",
    "fieldname": "late_full_day_after_occurrences",
    "fieldtype": "Int",
-   "label": "Full-Day Absent After More Than (Pool Occurrences)"
+   "label": "Full-Day Absent After Pool Occurrences"
+  },
+  {
+   "fieldname": "column_break_occurrence_pool",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "2",
+   "depends_on": "eval: doc.enable_late_early_penalty === 1",
+   "description": "After a half-day penalty from the pool, this many further occurrences are free before the next half-day. Example: 2 means two free, then another half-day.",
+   "fieldname": "subsequent_grace_step_occurrences",
+   "fieldtype": "Int",
+   "label": "Subsequent Grace Step Occurrences"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval: doc.enable_late_early_penalty === 1",
+   "description": "When enabled, if the monthly unexcused late/early pool count is greater than the threshold below, occurrence penalties are deducted as full-day absent (gross) instead of half-day (basic).",
+   "fieldname": "enable_late_full_day_escalation",
+   "fieldtype": "Check",
+   "label": "Enable Full-Day Absent Escalation"
+  },
+  {
+   "depends_on": "eval: doc.enable_late_early_penalty === 1",
+   "fieldname": "application_deadline_section",
+   "fieldtype": "Section Break",
+   "label": "Application Deadline"
   },
   {
    "default": "0",
@@ -167,7 +223,11 @@
    "description": "When enabled, Late Entry and Early Exit Applications must be filed within the max days below after the attendance date.",
    "fieldname": "enable_late_early_application_deadline",
    "fieldtype": "Check",
-   "label": "Enable Late / Early Application Submission Deadline"
+   "label": "Enable Application Submission Deadline"
+  },
+  {
+   "fieldname": "column_break_deadline",
+   "fieldtype": "Column Break"
   },
   {
    "default": "2",
@@ -175,17 +235,22 @@
    "description": "Max days after the attendance date to submit a Late Entry or Early Exit Application. Example: 2 means the form must be filed within 2 days of that attendance date.",
    "fieldname": "late_early_application_max_days",
    "fieldtype": "Int",
-   "label": "Max Days to Submit Late / Early Application"
+   "label": "Max Days to Submit Application"
   },
   {
-   "fieldname": "column_break_hr_attn",
-   "fieldtype": "Column Break"
+   "fieldname": "sandwich_section",
+   "fieldtype": "Section Break",
+   "label": "Leave Sandwich Rule"
   },
   {
    "default": "0",
    "fieldname": "enable_leave_sandwich_rule",
    "fieldtype": "Check",
    "label": "Enable Leave Sandwich Rule"
+  },
+  {
+   "fieldname": "column_break_sandwich",
+   "fieldtype": "Column Break"
   },
   {
    "default": "1",
@@ -195,17 +260,31 @@
    "label": "Block Leave Application on Sandwich Rule Violation"
   },
   {
+   "fieldname": "ooo_section",
+   "fieldtype": "Section Break",
+   "label": "Out of Office"
+  },
+  {
    "default": "2.0",
    "fieldname": "max_paid_out_of_office_hours",
    "fieldtype": "Float",
    "label": "Max Paid Out of Office Hours Per Day"
   },
   {
+   "fieldname": "lwp_section",
+   "fieldtype": "Section Break",
+   "label": "Continuous LWP"
+  },
+  {
    "default": "1",
    "description": "ASR policy: when an approved Leave Without Pay application length is at or above the threshold, LWP days on the salary slip are deducted using gross daily rate instead of basic.",
    "fieldname": "enable_continuous_lwp_gross_deduction",
    "fieldtype": "Check",
-   "label": "Enable Continuous LWP Gross Salary Deduction (ASR)"
+   "label": "Enable Continuous LWP Gross Deduction"
+  },
+  {
+   "fieldname": "column_break_lwp",
+   "fieldtype": "Column Break"
   },
   {
    "default": "5",
@@ -213,7 +292,7 @@
    "description": "Per Leave Application length in days (to_date \u2212 from_date + 1). If any LWP application covering the payroll period is at least this many days, LWP deduction uses gross salary.",
    "fieldname": "continuous_lwp_threshold_days",
    "fieldtype": "Int",
-   "label": "Continuous LWP Threshold Days (ASR)"
+   "label": "Continuous LWP Threshold Days"
   },
   {
    "fieldname": "approval_policy_section",
@@ -229,23 +308,27 @@
   },
   {
    "default": "1",
-   "description": "When enabled, employees cannot approve, reject, or submit their own Late Entry, Early Exit, or Out of Office Application.",
-   "fieldname": "prevent_self_cnr_application_approval",
-   "fieldtype": "Check",
-   "label": "Prevent Self-Approval of CNR Applications"
-  },
-  {
-   "default": "1",
    "description": "When enabled, employees cannot approve or reject their own OOO Work check-ins.",
    "fieldname": "prevent_self_ooo_checkin_approval",
    "fieldtype": "Check",
    "label": "Prevent Self-Approval of OOO Check-ins"
   },
   {
+   "fieldname": "column_break_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, employees cannot approve, reject, or submit their own Late Entry, Early Exit, or Out of Office Application.",
+   "fieldname": "prevent_self_cnr_application_approval",
+   "fieldtype": "Check",
+   "label": "Prevent Self-Approval of CNR Applications"
+  },
+  {
    "description": "Control which roles can use BSHRMS PWA attendance and leave-board features. Empty tables turn that feature off; Leave Board also inherits Live Attendance Board roles.",
-   "fieldname": "pwa_access_section",
+   "fieldname": "pwa_boards_section",
    "fieldtype": "Section Break",
-   "label": "PWA Access Control"
+   "label": "PWA Boards"
   },
   {
    "description": "Roles allowed to see the Live Attendance Board. Empty means nobody.",
@@ -255,11 +338,20 @@
    "options": "Nepal HRMS Role"
   },
   {
+   "fieldname": "column_break_pwa_boards",
+   "fieldtype": "Column Break"
+  },
+  {
    "description": "Roles allowed to see leave boards. Live Attendance Board roles also have access.",
    "fieldname": "pwa_leave_board_roles",
    "fieldtype": "Table",
    "label": "Leave Board Roles",
    "options": "Nepal HRMS Role"
+  },
+  {
+   "fieldname": "pwa_calendar_section",
+   "fieldtype": "Section Break",
+   "label": "PWA Calendar Access"
   },
   {
    "description": "Roles allowed to browse historical attendance for other employees. Own attendance history remains available.",
@@ -269,6 +361,10 @@
    "options": "Nepal HRMS Role"
   },
   {
+   "fieldname": "column_break_pwa_calendar",
+   "fieldtype": "Column Break"
+  },
+  {
    "description": "Roles allowed to view other employees' attendance calendars.",
    "fieldname": "pwa_calendar_view_others_roles",
    "fieldtype": "Table",
@@ -276,17 +372,21 @@
    "options": "Nepal HRMS Role"
   },
   {
+   "collapsible": 1,
    "fieldname": "bs_allocation_section",
    "fieldtype": "Section Break",
-   "label": "BS Leave Allocation State",
-   "collapsible": 1
+   "label": "BS Leave Allocation State"
   },
   {
+   "description": "Watermark for the monthly BS leave allocation job. Do not confuse with the current BS date held in Nepal Compliance Settings.",
    "fieldname": "last_bs_allocation_year",
    "fieldtype": "Int",
    "label": "Last BS Allocation Year",
-   "read_only": 1,
-   "description": "Watermark for the monthly BS leave allocation job. Do not confuse with the current BS date held in Nepal Compliance Settings."
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_bs_alloc",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "last_bs_allocation_month",
@@ -302,178 +402,191 @@
   {
    "fieldname": "payroll_section",
    "fieldtype": "Section Break",
-   "label": "Salary Breakdown",
-   "description": "How the Salary Structure Assignment breakdown converts to pay. Base always equals Basic + Dearness Allowance + Grade + Other Allowances."
+   "label": "Daily Rate"
   },
   {
+   "default": "Fixed Days",
+   "description": "How a monthly salary is converted to a per-day rate for absence, LWP, late and OOO deductions.\n\n<b>Fixed Days</b> - always divide by the number below (Nepali practice is 30). Same deduction for the same absence in every month.\n<b>Days in Payroll Period</b> - the actual length of the slip's period, so a 29-day period divides by 29.\n<b>Days in BS Month</b> - the true length of the Bikram Sambat month the period starts in (29 to 32 days).\n<b>Working Days in Period</b> - the slip's Total Working Days, i.e. excluding holidays and weekly offs. This makes each absent day cost the most.",
    "fieldname": "daily_rate_basis",
    "fieldtype": "Select",
    "label": "Daily Rate Basis",
-   "default": "Fixed Days",
-   "options": "Fixed Days\nDays in Payroll Period\nDays in BS Month\nWorking Days in Period",
-   "description": "How a monthly salary is converted to a per-day rate for absence, LWP, late and OOO deductions.\n\n<b>Fixed Days</b> - always divide by the number below (Nepali practice is 30). Same deduction for the same absence in every month.\n<b>Days in Payroll Period</b> - the actual length of the slip's period, so a 29-day period divides by 29.\n<b>Days in BS Month</b> - the true length of the Bikram Sambat month the period starts in (29 to 32 days).\n<b>Working Days in Period</b> - the slip's Total Working Days, i.e. excluding holidays and weekly offs. This makes each absent day cost the most."
-  },
-  {
-   "fieldname": "daily_rate_fixed_days",
-   "fieldtype": "Int",
-   "label": "Fixed Days",
-   "default": "30",
-   "depends_on": "eval: doc.daily_rate_basis === 'Fixed Days'",
-   "description": "Divisor used when the basis is Fixed Days."
-  },
-  {
-   "fieldname": "deduction_base_section",
-   "fieldtype": "Section Break",
-   "label": "Attendance Deduction Components",
-   "description": "Choose which monthly salary amount is divided by the Daily Rate Basis for each attendance deduction."
-  },
-  {
-   "fieldname": "half_day_deduction_base",
-   "fieldtype": "Select",
-   "label": "Half-Day Deduction Base",
-   "default": "Basic Remuneration (SSF/PF Base)",
-   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)",
-   "description": "Used for late entry, early exit and out-of-office half-days. The selected daily amount is divided by two."
-  },
-  {
-   "fieldname": "lwp_deduction_base",
-   "fieldtype": "Select",
-   "label": "LWP Deduction Base",
-   "default": "Basic Remuneration (SSF/PF Base)",
-   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)",
-   "description": "Normal Leave Without Pay rate. The continuous-LWP rule can still change this to Gross after its threshold."
-  },
-  {
-   "fieldname": "unapproved_absence_deduction_base",
-   "fieldtype": "Select",
-   "label": "Unapproved Absence Deduction Base",
-   "default": "Total Fixed Remuneration (Gross)",
-   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)",
-   "description": "Used for each unapproved absent day and escalated full-day late or early-exit penalty."
-  },
-  {
-   "fieldname": "default_basic_percent",
-   "fieldtype": "Float",
-   "label": "Default Basic Salary %",
-   "default": "60",
-   "description": "When only Base is entered (e.g. via Bulk Salary Structure Assignment), Basic Salary is derived as this percent of Base and the remainder becomes Other Allowance. SSF requires basic to be at least 60% of remuneration."
-  },
-  {
-   "fieldname": "include_grade_in_ssf_base",
-   "fieldtype": "Check",
-   "label": "Include Grade in SSF / PF / Gratuity Base",
-   "default": "1",
-   "description": "Grade increments are normally treated as basic remuneration. Uncheck only if your SSF registration says otherwise."
-  },
-  {
-   "fieldname": "include_da_in_ssf_base",
-   "fieldtype": "Check",
-   "label": "Include Dearness Allowance in SSF / PF / Gratuity Base",
-   "default": "0",
-   "description": "Off by default: DA is part of the statutory minimum wage but is not normally part of basic remuneration for contribution purposes."
-  },
-  {
-   "fieldname": "overtime_rate_multiplier",
-   "fieldtype": "Float",
-   "label": "Overtime Rate Multiplier",
-   "default": "1.5",
-   "description": "Overtime is paid at this multiple of the normal hourly rate. Labour Act 2074 s.31 sets 1.5x, and caps overtime at 4 hours a day / 24 hours a week. Baked into the Overtime formula when you run Setup."
+   "options": "Fixed Days\nDays in Payroll Period\nDays in BS Month\nWorking Days in Period"
   },
   {
    "fieldname": "column_break_payroll",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "payroll_period_section",
-   "fieldtype": "Section Break",
-   "label": "Attendance & Payroll Period",
-   "description": "Defines the period a payroll run covers. Used to suggest dates on Payroll Entry and Salary Slip, and to resolve per-period day overrides."
+   "default": "30",
+   "depends_on": "eval: doc.daily_rate_basis === 'Fixed Days'",
+   "description": "Divisor used when the basis is Fixed Days.",
+   "fieldname": "daily_rate_fixed_days",
+   "fieldtype": "Int",
+   "label": "Fixed Days"
   },
   {
+   "description": "Choose which monthly salary amount is divided by the Daily Rate Basis for each attendance deduction.",
+   "fieldname": "deduction_base_section",
+   "fieldtype": "Section Break",
+   "label": "Attendance Deduction Bases"
+  },
+  {
+   "default": "Basic Remuneration (SSF/PF Base)",
+   "description": "Used for late entry, early exit and out-of-office half-days. The selected daily amount is divided by two.",
+   "fieldname": "half_day_deduction_base",
+   "fieldtype": "Select",
+   "label": "Half-Day Deduction Base",
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)"
+  },
+  {
+   "default": "Total Fixed Remuneration (Gross)",
+   "description": "Used for each unapproved absent day and escalated full-day late or early-exit penalty.",
+   "fieldname": "unapproved_absence_deduction_base",
+   "fieldtype": "Select",
+   "label": "Unapproved Absence Deduction Base",
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)"
+  },
+  {
+   "fieldname": "column_break_deduction",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Basic Remuneration (SSF/PF Base)",
+   "description": "Normal Leave Without Pay rate. The continuous-LWP rule can still change this to Gross after its threshold.",
+   "fieldname": "lwp_deduction_base",
+   "fieldtype": "Select",
+   "label": "LWP Deduction Base",
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)"
+  },
+  {
+   "description": "How the Salary Structure Assignment breakdown converts to pay. Base always equals Basic + Dearness Allowance + Grade + Other Allowances.",
+   "fieldname": "contribution_section",
+   "fieldtype": "Section Break",
+   "label": "Contribution & Overtime"
+  },
+  {
+   "default": "60",
+   "description": "When only Base is entered (e.g. via Bulk Salary Structure Assignment), Basic Salary is derived as this percent of Base and the remainder becomes Other Allowance. SSF requires basic to be at least 60% of remuneration.",
+   "fieldname": "default_basic_percent",
+   "fieldtype": "Float",
+   "label": "Default Basic Salary %"
+  },
+  {
+   "default": "1",
+   "description": "Grade increments are normally treated as basic remuneration. Uncheck only if your SSF registration says otherwise.",
+   "fieldname": "include_grade_in_ssf_base",
+   "fieldtype": "Check",
+   "label": "Include Grade in SSF / PF / Gratuity Base"
+  },
+  {
+   "fieldname": "column_break_contribution",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1.5",
+   "description": "Overtime is paid at this multiple of the normal hourly rate. Labour Act 2074 s.31 sets 1.5x, and caps overtime at 4 hours a day / 24 hours a week. Baked into the Overtime formula when you run Setup.",
+   "fieldname": "overtime_rate_multiplier",
+   "fieldtype": "Float",
+   "label": "Overtime Rate Multiplier"
+  },
+  {
+   "default": "0",
+   "description": "Off by default: DA is part of the statutory minimum wage but is not normally part of basic remuneration for contribution purposes.",
+   "fieldname": "include_da_in_ssf_base",
+   "fieldtype": "Check",
+   "label": "Include Dearness Allowance in SSF / PF / Gratuity Base"
+  },
+  {
+   "description": "Defines the period a payroll run covers. Used to suggest dates on Payroll Entry and Salary Slip, and to resolve per-period day overrides.\n\nTo change the day count for one month only \u2014 for example treating Shrawan as 32 days instead of 31 \u2014 create a <b>Nepal Payroll Period Override</b>. Overrides carry an <i>Applies From</i> date and are snapshotted onto each salary slip when it is first calculated, so existing slips keep the divisor they were computed with.",
+   "fieldname": "payroll_period_section",
+   "fieldtype": "Section Break",
+   "label": "Attendance & Payroll Period"
+  },
+  {
+   "default": "Nepali Month",
+   "description": "<b>Nepali Month</b> - the period runs from day 1 to the last day of the BS month.\n<b>Custom Day Range</b> - the period straddles two BS months, e.g. the 29th of one to the 28th of the next.",
    "fieldname": "payroll_period_basis",
    "fieldtype": "Select",
    "label": "Payroll Period Basis",
-   "default": "Nepali Month",
-   "options": "Nepali Month\nCustom Day Range",
-   "description": "<b>Nepali Month</b> - the period runs from day 1 to the last day of the BS month.\n<b>Custom Day Range</b> - the period straddles two BS months, e.g. the 29th of one to the 28th of the next."
-  },
-  {
-   "fieldname": "payroll_period_start_day",
-   "fieldtype": "Int",
-   "label": "Period Start Day (BS)",
-   "default": "1",
-   "depends_on": "eval: doc.payroll_period_basis === 'Custom Day Range'",
-   "description": "BS day the period opens on. 29 means the period runs from the 29th of one month to the 28th of the next. Must be between 1 and 28 so it exists in every BS month."
+   "options": "Nepali Month\nCustom Day Range"
   },
   {
    "fieldname": "column_break_period",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "period_override_help",
-   "fieldtype": "HTML",
-   "label": "Period Override Help",
-   "options": "<p style='color:var(--text-muted)'>To change the day count for one month only &mdash; for example treating Shrawan as 32 days instead of 31 &mdash; create a <b>Nepal Payroll Period Override</b>. Overrides carry an <i>Applies From</i> date and are snapshotted onto each salary slip when it is first calculated, so existing slips keep the divisor they were computed with.</p>"
+   "default": "1",
+   "depends_on": "eval: doc.payroll_period_basis === 'Custom Day Range'",
+   "description": "BS day the period opens on. 29 means the period runs from the 29th of one month to the 28th of the next. Must be between 1 and 28 so it exists in every BS month.",
+   "fieldname": "payroll_period_start_day",
+   "fieldtype": "Int",
+   "label": "Period Start Day (BS)"
   },
   {
+   "description": "Fixed by the Minimum Remuneration Fixation Committee and revised every two years. Nepal states the minimum as Basic + Dearness Allowance separately, so both floors are enforced independently as well as on the total.",
    "fieldname": "minimum_wage_section",
    "fieldtype": "Section Break",
-   "label": "Government Minimum Wage",
-   "description": "Fixed by the Minimum Remuneration Fixation Committee and revised every two years. Nepal states the minimum as Basic + Dearness Allowance separately, so both floors are enforced independently as well as on the total."
+   "label": "Government Minimum Wage"
   },
   {
+   "default": "1",
    "fieldname": "enforce_minimum_wage",
    "fieldtype": "Check",
-   "label": "Enforce Minimum Wage on Salary Structure Assignment",
-   "default": "1"
+   "label": "Enforce Minimum Wage"
   },
   {
-   "fieldname": "minimum_monthly_basic",
-   "fieldtype": "Currency",
-   "label": "Minimum Monthly Basic Salary",
+   "depends_on": "eval: doc.enforce_minimum_wage === 1",
+   "fieldname": "minimum_wage_floors_section",
+   "fieldtype": "Section Break",
+   "label": "Minimum Wage Floors"
+  },
+  {
    "default": "10820",
    "depends_on": "eval: doc.enforce_minimum_wage === 1",
-   "description": "\u0906\u0927\u093e\u0930\u092d\u0942\u0924 \u0924\u0932\u092c floor. The basic half of the statutory minimum wage. Note: your existing Basic Salary formula hardcodes 12170 - set whichever figure is current."
+   "description": "\u0906\u0927\u093e\u0930\u092d\u0942\u0924 \u0924\u0932\u092c floor. The basic half of the statutory minimum wage. Note: your existing Basic Salary formula hardcodes 12170 - set whichever figure is current.",
+   "fieldname": "minimum_monthly_basic",
+   "fieldtype": "Currency",
+   "label": "Minimum Monthly Basic Salary"
   },
   {
-   "fieldname": "minimum_monthly_dearness_allowance",
-   "fieldtype": "Currency",
-   "label": "Minimum Monthly Dearness Allowance",
-   "default": "6480",
-   "depends_on": "eval: doc.enforce_minimum_wage === 1",
-   "description": "\\u092e\\u0939\\u0901\\u0917\\u0940 \\u092d\\u0924\\u094d\\u0924\\u093e floor. The DA half of the statutory minimum wage."
-  },
-  {
-   "fieldname": "minimum_monthly_remuneration",
-   "fieldtype": "Currency",
-   "label": "Minimum Monthly Remuneration (Basic + DA)",
    "default": "17300",
    "depends_on": "eval: doc.enforce_minimum_wage === 1",
-   "description": "Combined floor. Basic + Dearness Allowance on an assignment must reach this, on top of each component clearing its own floor above."
+   "description": "Combined floor. Basic + Dearness Allowance on an assignment must reach this, on top of each component clearing its own floor above.",
+   "fieldname": "minimum_monthly_remuneration",
+   "fieldtype": "Currency",
+   "label": "Minimum Monthly Remuneration"
+  },
+  {
+   "default": "89",
+   "depends_on": "eval: doc.enforce_minimum_wage === 1",
+   "fieldname": "minimum_hourly_remuneration",
+   "fieldtype": "Currency",
+   "label": "Minimum Hourly Remuneration"
   },
   {
    "fieldname": "column_break_minwage",
    "fieldtype": "Column Break"
   },
   {
+   "default": "6480",
+   "depends_on": "eval: doc.enforce_minimum_wage === 1",
+   "description": "\u092e\u0939\u0901\u0917\u0940 \u092d\u0924\u094d\u0924\u093e floor. The DA half of the statutory minimum wage.",
+   "fieldname": "minimum_monthly_dearness_allowance",
+   "fieldtype": "Currency",
+   "label": "Minimum Monthly Dearness Allowance"
+  },
+  {
+   "default": "668",
+   "depends_on": "eval: doc.enforce_minimum_wage === 1",
    "fieldname": "minimum_daily_remuneration",
    "fieldtype": "Currency",
-   "label": "Minimum Daily Remuneration",
-   "default": "668",
-   "depends_on": "eval: doc.enforce_minimum_wage === 1"
+   "label": "Minimum Daily Remuneration"
   },
   {
-   "fieldname": "minimum_hourly_remuneration",
-   "fieldtype": "Currency",
-   "label": "Minimum Hourly Remuneration",
-   "default": "89",
-   "depends_on": "eval: doc.enforce_minimum_wage === 1"
-  },
-  {
+   "description": "Maps each kind of payroll posting to a GL account, per company. Running Setup assigns these to every Salary Component it creates, so you do not have to open each component to set its account. Wages and Salary are separate purposes because they post to different expense accounts.",
    "fieldname": "payroll_accounts_section",
    "fieldtype": "Section Break",
-   "label": "Component Account Mapping",
-   "description": "Maps each kind of payroll posting to a GL account, per company. Running Setup assigns these to every Salary Component it creates, so you do not have to open each component to set its account. Wages and Salary are separate purposes because they post to different expense accounts."
+   "label": "Component Account Mapping"
   },
   {
    "fieldname": "payroll_accounts",
@@ -482,72 +595,79 @@
    "options": "Nepal Payroll Account"
   },
   {
+   "description": "Creates a Payroll Entry per salary structure on a chosen day of the BS month, for the period that just ended. Runs from the daily scheduler, so the site's scheduler must be enabled.",
    "fieldname": "payroll_automation_section",
    "fieldtype": "Section Break",
-   "label": "Automated Payroll Runs",
-   "description": "Creates a Payroll Entry per salary structure on a chosen day of the BS month, for the period that just ended. Runs from the daily scheduler, so the site's scheduler must be enabled."
+   "label": "Automated Payroll Runs"
   },
   {
+   "default": "0",
    "fieldname": "enable_scheduled_payroll",
    "fieldtype": "Check",
-   "label": "Enable Scheduled Payroll Entry",
-   "default": "0"
+   "label": "Enable Scheduled Payroll Entry"
   },
   {
-   "fieldname": "scheduled_payroll_run_day",
-   "fieldtype": "Int",
-   "label": "Run on BS Day",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "fieldname": "scheduled_run_options_section",
+   "fieldtype": "Section Break",
+   "label": "Scheduled Run Options"
+  },
+  {
    "default": "1",
    "depends_on": "eval: doc.enable_scheduled_payroll === 1",
-   "description": "BS day of the month the job fires on. 1 means it runs on the first day of the new month and covers the month that just ended. Keep it at 28 or below so it exists in every BS month."
+   "description": "BS day of the month the job fires on. 1 means it runs on the first day of the new month and covers the month that just ended. Keep it at 28 or below so it exists in every BS month.",
+   "fieldname": "scheduled_payroll_run_day",
+   "fieldtype": "Int",
+   "label": "Run on BS Day"
   },
   {
+   "default": "Create Payroll Entry Only",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "<b>Create Payroll Entry Only</b> - a draft with employees filled in, for someone to review. Safest.\n<b>...and Salary Slips</b> - also creates draft slips.\n<b>...and Submit Salary Slips</b> - also submits the slips, which posts the accrual journal entry. Nothing is ever submitted without this set explicitly.",
    "fieldname": "scheduled_payroll_action",
    "fieldtype": "Select",
    "label": "How Far to Go",
-   "default": "Create Payroll Entry Only",
-   "options": "Create Payroll Entry Only\nCreate Payroll Entry and Salary Slips\nCreate, and Submit Salary Slips",
-   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
-   "description": "<b>Create Payroll Entry Only</b> - a draft with employees filled in, for someone to review. Safest.\n<b>...and Salary Slips</b> - also creates draft slips.\n<b>...and Submit Salary Slips</b> - also submits the slips, which posts the accrual journal entry. Nothing is ever submitted without this set explicitly."
-  },
-  {
-   "fieldname": "scheduled_payroll_notify",
-   "fieldtype": "Link",
-   "label": "Notify Role",
-   "options": "Role",
-   "default": "HR Manager",
-   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
-   "description": "Users with this role get a notification with the result of each run, including failures."
+   "options": "Create Payroll Entry Only\nCreate Payroll Entry and Salary Slips\nCreate, and Submit Salary Slips"
   },
   {
    "fieldname": "column_break_automation",
    "fieldtype": "Column Break"
   },
   {
+   "default": "HR Manager",
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "Users with this role get a notification with the result of each run, including failures.",
+   "fieldname": "scheduled_payroll_notify",
+   "fieldtype": "Link",
+   "label": "Notify Role",
+   "options": "Role"
+  },
+  {
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "Runs the rows above immediately for the period that just ended, ignoring the day check. Useful for a dry run before relying on the scheduler.",
+   "fieldname": "run_scheduled_payroll_now",
+   "fieldtype": "Button",
+   "label": "Run Scheduled Payroll Now"
+  },
+  {
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "fieldname": "scheduled_runs_section",
+   "fieldtype": "Section Break",
+   "label": "Scheduled Runs"
+  },
+  {
+   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
+   "description": "One row per Payroll Entry to create each period. Typically one per salary structure, e.g. a Wages row and a Salary row.",
    "fieldname": "scheduled_payroll_runs",
    "fieldtype": "Table",
    "label": "Scheduled Runs",
-   "options": "Nepal Scheduled Payroll",
-   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
-   "description": "One row per Payroll Entry to create each period. Typically one per salary structure, e.g. a Wages row and a Salary row."
+   "options": "Nepal Scheduled Payroll"
   },
   {
-   "fieldname": "run_scheduled_payroll_now",
-   "fieldtype": "Button",
-   "label": "Run Scheduled Payroll Now",
-   "depends_on": "eval: doc.enable_scheduled_payroll === 1",
-   "description": "Runs the rows above immediately for the period that just ended, ignoring the day check. Useful for a dry run before relying on the scheduler."
-  },
-  {
+   "description": "Creates the Nepal salary components, four salary structures (SSF and PF/Gratuity, each in a Wages and a Salary variant), and the income tax slab \u2014 then applies the account mapping above. Safe to re-run: existing records are updated, never duplicated. Structures already on the site are left untouched.",
    "fieldname": "payroll_setup_section",
    "fieldtype": "Section Break",
    "label": "Payroll Setup"
-  },
-  {
-   "fieldname": "payroll_setup_help",
-   "fieldtype": "HTML",
-   "label": "Setup Help",
-   "options": "<p style='color:var(--text-muted)'>Creates the Nepal salary components, four salary structures (SSF and PF/Gratuity, each in a Wages and a Salary variant), and the income tax slab &mdash; then applies the account mapping above. Safe to re-run: existing records are updated, never duplicated. Structures already on the site are left untouched.</p>"
   },
   {
    "fieldname": "run_payroll_setup",
@@ -558,7 +678,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-08-27 00:00:00.000000",
+ "modified": "2026-09-05 19:46:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Settings",

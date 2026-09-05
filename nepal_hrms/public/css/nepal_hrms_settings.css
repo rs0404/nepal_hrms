@@ -1,0 +1,92 @@
+/* Nepal HRMS Settings: compact grouped form + click-to-explain help */
+
+.nh-settings-form .form-section {
+	padding-top: 0.7rem;
+	padding-bottom: 0.35rem;
+}
+
+.nh-settings-form .form-section .section-body {
+	padding-top: 0.35rem;
+}
+
+.nh-settings-form .form-section-description,
+.nh-settings-form .help-box,
+.nh-settings-form .grid-description {
+	display: none !important;
+}
+
+.nh-settings-form .section-head {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.nh-field-help {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.2rem;
+	height: 1.2rem;
+	margin-left: 0.2rem;
+	padding: 0;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	vertical-align: middle;
+	line-height: 1;
+	flex-shrink: 0;
+}
+
+.nh-field-help svg {
+	width: 12px;
+	height: 12px;
+}
+
+.nh-field-help:hover,
+.nh-field-help:focus-visible {
+	color: var(--text-color);
+	background: var(--subtle-fg, var(--control-bg));
+	outline: none;
+}
+
+.nh-settings-form .checkbox {
+	display: flex;
+	align-items: center;
+}
+
+.nh-settings-form .checkbox .nh-check-help {
+	margin-left: 0.15rem;
+}
+
+.nh-settings-form .nh-button-help {
+	margin-left: 0.4rem;
+	display: inline-flex;
+	vertical-align: middle;
+}
+
+.nh-settings-form [data-fieldtype="Button"] .control-input {
+	display: flex;
+	align-items: center;
+}
+
+.nh-settings-form .grid-field > .help {
+	display: inline-flex;
+	vertical-align: middle;
+}
+
+.popover.nh-help-popover {
+	max-width: 360px;
+}
+
+.popover.nh-help-popover .popover-body {
+	font-size: var(--text-sm, 13px);
+	line-height: 1.5;
+	color: var(--text-color);
+	padding: 0.7rem 0.85rem;
+}
+
+.nh-help-body b {
+	font-weight: 600;
+}
