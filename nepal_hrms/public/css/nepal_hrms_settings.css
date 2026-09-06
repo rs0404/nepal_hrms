@@ -1,4 +1,4 @@
-/* Nepal HRMS Settings: compact grouped form + click-to-explain help */
+/* Nepal HRMS Settings + shared ? help popovers on Desk forms */
 
 .nh-settings-form .form-section {
 	padding-top: 0.7rem;
@@ -11,11 +11,15 @@
 
 .nh-settings-form .form-section-description,
 .nh-settings-form .help-box,
-.nh-settings-form .grid-description {
+.nh-settings-form .grid-description,
+.nh-help-form .form-section-description,
+.nh-help-form .help-box,
+.nh-help-form .grid-description {
 	display: none !important;
 }
 
-.nh-settings-form .section-head {
+.nh-settings-form .section-head,
+.nh-help-form .section-head {
 	display: flex;
 	align-items: center;
 	gap: 0.25rem;
@@ -51,27 +55,32 @@
 	outline: none;
 }
 
-.nh-settings-form .checkbox {
+.nh-settings-form .checkbox,
+.nh-help-form .checkbox {
 	display: flex;
 	align-items: center;
 }
 
-.nh-settings-form .checkbox .nh-check-help {
+.nh-settings-form .checkbox .nh-check-help,
+.nh-help-form .checkbox .nh-check-help {
 	margin-left: 0.15rem;
 }
 
-.nh-settings-form .nh-button-help {
+.nh-settings-form .nh-button-help,
+.nh-help-form .nh-button-help {
 	margin-left: 0.4rem;
 	display: inline-flex;
 	vertical-align: middle;
 }
 
-.nh-settings-form [data-fieldtype="Button"] .control-input {
+.nh-settings-form [data-fieldtype="Button"] .control-input,
+.nh-help-form [data-fieldtype="Button"] .control-input {
 	display: flex;
 	align-items: center;
 }
 
-.nh-settings-form .grid-field > .help {
+.nh-settings-form .grid-field > .help,
+.nh-help-form .grid-field > .help {
 	display: inline-flex;
 	vertical-align: middle;
 }

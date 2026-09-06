@@ -47,6 +47,8 @@ doctype_js = {
 	"Late Entry Application": "public/js/cnr_application.js",
 	"Early Exit Application": "public/js/cnr_application.js",
 	"Out of Office Application": "public/js/cnr_application.js",
+	"Salary Structure Assignment": "public/js/salary_structure_assignment.js",
+	"Salary Structure": "public/js/salary_structure.js",
 }
 
 doctype_list_js = {

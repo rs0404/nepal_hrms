@@ -12,7 +12,7 @@ const NH_SKIP_HELP_TYPES = new Set([
 	"Fold",
 ]);
 
-let nh_help_doc_bound = false;
+let nh_help_dismiss_bound = false;
 
 function nh_help_html(text) {
 	if (!text) return "";
@@ -23,9 +23,35 @@ function nh_hide_popovers() {
 	$(".nh-field-help").popover("hide");
 }
 
+function nh_is_help_target(target) {
+	return $(target).closest(".nh-field-help, .popover.nh-help-popover").length > 0;
+}
+
+function nh_ensure_dismiss_on_outside() {
+	if (nh_help_dismiss_bound) return;
+	nh_help_dismiss_bound = true;
+
+	document.addEventListener(
+		"pointerdown",
+		(e) => {
+			if (!nh_is_help_target(e.target)) nh_hide_popovers();
+		},
+		true
+	);
+	document.addEventListener(
+		"keydown",
+		(e) => {
+			if (e.key === "Escape") nh_hide_popovers();
+		},
+		true
+	);
+}
+
 function nh_bind_help_button($anchor, content) {
 	if (!$anchor.length || !content) return;
 	if ($anchor.find(".nh-field-help").length) return;
+
+	nh_ensure_dismiss_on_outside();
 
 	const $btn = $(`<button type="button" class="btn-reset nh-field-help" aria-label="${__(
 		"Help"
@@ -114,14 +140,7 @@ function nh_attach_settings_help(frm) {
 		.off("shown.bs.tab.nh-help")
 		.on("shown.bs.tab.nh-help", ".form-tabs a", nh_hide_popovers);
 
-	if (!nh_help_doc_bound) {
-		nh_help_doc_bound = true;
-		$(document).on("click.nh-settings-help", (e) => {
-			if (!$(e.target).closest(".nh-field-help, .popover.nh-help-popover").length) {
-				nh_hide_popovers();
-			}
-		});
-	}
+	nh_ensure_dismiss_on_outside();
 }
 
 frappe.ui.form.on("Nepal HRMS Settings", {
