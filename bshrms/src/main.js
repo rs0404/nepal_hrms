@@ -22,6 +22,11 @@ import { employeeResource } from "@/data/employee"
 
 import dayjs from "@/utils/dayjs"
 import getIonicConfig from "@/utils/ionicConfig"
+import {
+	identityMatches,
+	syncCsrfFromCookie,
+	waitForResourceData,
+} from "@/utils/startup"
 
 import FrappePushNotification from "../public/frappe-push-notification"
 
@@ -33,8 +38,10 @@ import "./theme/variables.css"
 
 import "./main.css"
 
+syncCsrfFromCookie()
+
 const app = createApp(App)
-const socket = initSocket()
+const socket = createLazySocket()
 
 setConfig("resourceFetcher", frappeRequest)
 app.use(resourcesPlugin)
@@ -58,39 +65,113 @@ app.provide("$employee", employeeResource)
 app.provide("$socket", socket)
 app.provide("$dayjs", dayjs)
 
+const BSHRMS_SW = "/assets/nepal_hrms/bshrms/sw.js"
+
+function createLazySocket() {
+	let real = null
+	const queue = []
+	const api = {
+		emit(...args) {
+			if (!real) {
+				queue.push(["emit", args])
+				return api
+			}
+			return real.emit(...args)
+		},
+		on(...args) {
+			if (!real) {
+				queue.push(["on", args])
+				return api
+			}
+			return real.on(...args)
+		},
+		off(...args) {
+			if (!real) {
+				for (let i = queue.length - 1; i >= 0; i--) {
+					if (queue[i][0] === "on" && queue[i][1][0] === args[0]) {
+						queue.splice(i, 1)
+					}
+				}
+				return api
+			}
+			return real.off(...args)
+		},
+		__start() {
+			if (real) return real
+			real = initSocket()
+			for (const [method, args] of queue) {
+				real[method](...args)
+			}
+			queue.length = 0
+			return real
+		},
+	}
+	return api
+}
+
+function startSocketWhenIdle() {
+	const start = () => socket.__start()
+	if ("requestIdleCallback" in window) {
+		window.requestIdleCallback(start, { timeout: 1500 })
+	} else {
+		setTimeout(start, 400)
+	}
+}
+
 const registerServiceWorker = async () => {
 	window.frappePushNotification = new FrappePushNotification("hrms")
 
-	if ("serviceWorker" in navigator) {
-		let serviceWorkerURL = "/assets/hrms/frontend/sw.js"
-		let config = ""
-
-		try {
-			config = await window.frappePushNotification.fetchWebConfig()
-			serviceWorkerURL = `${serviceWorkerURL}?config=${encodeURIComponent(
-				JSON.stringify(config)
-			)}`
-		} catch (err) {
-			console.error("Failed to fetch FCM config", err)
-		}
-
-		navigator.serviceWorker
-			.register(serviceWorkerURL, {
-				type: "classic",
-			})
-			.then((registration) => {
-				if (config) {
-					window.frappePushNotification.initialize(registration).then(() => {
-						console.log("Frappe Push Notification initialized")
-					})
-				}
-			})
-			.catch((err) => {
-				console.error("Failed to register service worker", err)
-			})
-	} else {
+	if (!("serviceWorker" in navigator)) {
 		console.error("Service worker not enabled/supported by the browser")
+		return
 	}
+
+	try {
+		const registrations = await navigator.serviceWorker.getRegistrations()
+		await Promise.all(
+			registrations
+				.filter((reg) =>
+					reg.active?.scriptURL?.includes("/assets/hrms/frontend/sw.js")
+				)
+				.map((reg) => reg.unregister())
+		)
+	} catch (err) {
+		console.error("Failed to unregister HRMS service worker", err)
+	}
+
+	try {
+		const registration = await navigator.serviceWorker.register(BSHRMS_SW, {
+			type: "classic",
+		})
+
+		if (!window.frappe?.boot?.push_relay_server_url) return
+
+		window.frappePushNotification
+			.fetchWebConfig()
+			.then((config) => {
+				const url = `${BSHRMS_SW}?config=${encodeURIComponent(
+					JSON.stringify(config)
+				)}`
+				return navigator.serviceWorker
+					.register(url, { type: "classic" })
+					.then((reg) => window.frappePushNotification.initialize(reg))
+			})
+			.catch((err) => console.error("Failed to fetch FCM config", err))
+
+		return registration
+	} catch (err) {
+		console.error("Failed to register service worker", err)
+	}
+}
+
+function refreshIdentityInBackground() {
+	userResource.reload().catch((error) => {
+		if (error?.exc_type === "AuthenticationError") {
+			session.user = null
+			router.replace({ name: "Login" })
+		}
+	})
+	employeeResource.reload()
 }
 
 router.isReady().then(async () => {
@@ -103,18 +184,39 @@ router.isReady().then(async () => {
 		})
 	}
 
-	await translationsPlugin.isReady();
-	registerServiceWorker()
+	if (window.frappe?.boot?.__messages) {
+		await translationsPlugin.isReady()
+	} else {
+		translationsPlugin.isReady()
+	}
+
 	app.mount("#app")
+	registerServiceWorker()
+	startSocketWhenIdle()
 })
 
 router.beforeEach(async (to, _, next) => {
 	let isLoggedIn = session.isLoggedIn
 
-	try {
-		if (isLoggedIn) await userResource.reload()
-	} catch (error) {
-		isLoggedIn = false
+	if (isLoggedIn) {
+		await Promise.all([
+			waitForResourceData(userResource),
+			waitForResourceData(employeeResource),
+		])
+
+		if (identityMatches(userResource, employeeResource)) {
+			refreshIdentityInBackground()
+			if (to.name === "Login") {
+				return next({ name: "Home" })
+			}
+			return next()
+		}
+
+		try {
+			await userResource.reload()
+		} catch (error) {
+			isLoggedIn = false
+		}
 	}
 
 	if (!isLoggedIn) {
@@ -123,13 +225,15 @@ router.beforeEach(async (to, _, next) => {
 			return next(false)
 		} else if (to.name !== "Login") {
 			next({ name: "Login" })
+		} else {
+			next()
 		}
+		return
 	}
 
-	if (isLoggedIn && to.name !== "InvalidEmployee") {
+	if (to.name !== "InvalidEmployee") {
+		if (!employeeResource.promise) employeeResource.reload()
 		await employeeResource.promise
-		// user should be an employee to access the app
-		// since all views are employee specific
 		if (
 			!employeeResource?.data ||
 			employeeResource?.data?.user_id !== userResource.data.name

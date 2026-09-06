@@ -78,7 +78,7 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed, markRaw } from "vue"
+import { ref, inject, onMounted, computed, markRaw, watch } from "vue"
 
 import TabButtons from "@/components/TabButtons.vue"
 import RequestList from "@/components/RequestList.vue"
@@ -232,6 +232,27 @@ function getSortedRequests(list) {
 		})
 		.slice(0, 12)
 }
+
+function reloadAll(resources) {
+	resources.forEach((resource) => resource.reload())
+}
+
+watch(activeTab, (tab) => {
+	if (tab === "Team Requests") {
+		reloadAll([
+			teamLeaves,
+			teamClaims,
+			teamShiftRequests,
+			teamAttendanceRequests,
+			teamLateEntryApplications,
+			teamEarlyExitApplications,
+			teamOutOfOfficeApplications,
+			recentlyApprovedTeamRequests,
+		])
+	} else if (tab === "OOO Approvals") {
+		reloadAll([pendingOOOApprovals, approvedOOOApprovals])
+	}
+})
 
 onMounted(() => {
 	useListUpdate(socket, "Leave Application", () => {

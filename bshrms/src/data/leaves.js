@@ -39,7 +39,7 @@ export const teamLeaves = createResource({
 		for_approval: 1,
 		limit: 10,
 	},
-	auto: true,
+	auto: false,
 	cache: "hrms:team_leaves",
 	transform(data) {
 		return transformLeaveData(data)
@@ -48,7 +48,7 @@ export const teamLeaves = createResource({
 
 export const leaveBalance = createResource({
 	url: "hrms.api.get_leave_balance_map",
-	auto: true,
+	auto: false,
 	cache: "hrms:leave_balance",
 	transform: (data) => {
 		// Calculate balance percentage for each leave type

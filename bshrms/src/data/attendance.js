@@ -92,7 +92,7 @@ export const teamShiftRequests = createResource({
 		for_approval: 1,
 		limit: 10,
 	},
-	auto: true,
+	auto: false,
 	cache: "hrms:team_shift_requests",
 	transform(data) {
 		return transformShiftRequests(data)
@@ -105,7 +105,7 @@ export const teamAttendanceRequests = createResource({
 		for_approval: 1,
 		limit: 10,
 	},
-	auto: true,
+	auto: false,
 	cache: "hrms:team_attendance_requests",
 	transform: (data) => {
 		return transformAttendanceRequests(data)
@@ -114,7 +114,7 @@ export const teamAttendanceRequests = createResource({
 
 export const pendingOOOApprovals = createResource({
 	url: "nepal_hrms.api.ooo_attendance.get_pending_ooo_approvals",
-	auto: true,
+	auto: false,
 	cache: "nepal_hrms:pending_ooo_approvals",
 	transform(data) {
 		const pending = Array.isArray(data) ? data : data?.pending || []
@@ -127,7 +127,7 @@ export const pendingOOOApprovals = createResource({
 
 export const approvedOOOApprovals = createResource({
 	url: "nepal_hrms.api.ooo_attendance.get_pending_ooo_approvals",
-	auto: true,
+	auto: false,
 	cache: "nepal_hrms:approved_ooo_approvals",
 	transform(data) {
 		const approved = Array.isArray(data) ? [] : data?.approved || []

@@ -149,6 +149,8 @@ import ProfileInfoModal from "@/components/ProfileInfoModal.vue"
 
 import { arePushNotificationsEnabled } from "@/data/notifications"
 
+if (!arePushNotificationsEnabled.data) arePushNotificationsEnabled.reload()
+
 const DOCTYPE = "Employee"
 
 const socket = inject("$socket")

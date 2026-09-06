@@ -111,6 +111,8 @@ import {
 	arePushNotificationsEnabled,
 } from "@/data/notifications"
 
+if (!arePushNotificationsEnabled.data) arePushNotificationsEnabled.reload()
+
 const dayjs = inject("$dayjs")
 const router = useRouter()
 const __ = inject("$translate")

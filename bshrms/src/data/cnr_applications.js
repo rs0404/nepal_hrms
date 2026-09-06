@@ -34,7 +34,7 @@ function makeTeamResource(doctype, cacheKey) {
 			for_approval: 1,
 			limit: 10,
 		},
-		auto: true,
+		auto: false,
 		cache: cacheKey,
 		transform(data) {
 			return (data || []).map((row) => {

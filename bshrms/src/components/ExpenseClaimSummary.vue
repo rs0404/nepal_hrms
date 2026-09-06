@@ -71,11 +71,15 @@
 
 <script setup>
 import { FeatherIcon } from "frappe-ui"
-import { computed } from "vue"
+import { computed, onMounted } from "vue"
 
 import { expenseClaimSummary as summary } from "@/data/claims"
 
 import { formatCurrency } from "@/utils/formatters"
+
+onMounted(() => {
+	if (!summary.data) summary.reload()
+})
 
 const total_claimed_amount = computed(() => {
 	return (

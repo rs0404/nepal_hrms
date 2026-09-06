@@ -7,7 +7,7 @@ let employeesByUserID = reactive({})
 
 export const employees = createResource({
 	url: "hrms.api.get_all_employees",
-	auto: true,
+	auto: false,
 	transform(data) {
 		return data.map((employee) => {
 			employee.isActive = employee.status === "Active"
@@ -25,11 +25,13 @@ export const employees = createResource({
 })
 
 export function getEmployeeInfo(employeeID) {
+	if (!employees.data && !employees.loading) employees.fetch()
 	if (!employeeID) employeeID = employeeResource.data.name
 
 	return employeesByID[employeeID]
 }
 
 export function getEmployeeInfoByUserID(userID) {
+	if (!employees.data && !employees.loading) employees.fetch()
 	return employeesByUserID[userID]
 }

@@ -9,6 +9,7 @@ def get_context(context):
 	context = frappe._dict()
 	context.csrf_token = csrf_token
 	context.boot = get_boot()
+	context.site_name = frappe.local.site
 	return context
 
 def get_boot():

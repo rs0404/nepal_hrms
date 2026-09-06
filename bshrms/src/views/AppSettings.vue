@@ -56,6 +56,8 @@ import { computed, inject, ref } from "vue"
 
 import { arePushNotificationsEnabled } from "@/data/notifications"
 
+if (!arePushNotificationsEnabled.data) arePushNotificationsEnabled.reload()
+
 const __ = inject("$translate")
 const router = useRouter()
 const pushNotificationState = ref(

@@ -19,6 +19,7 @@
 <script setup>
 import { ref, watch, onBeforeUnmount, inject } from "vue"
 import { Dialog, Button, createResource } from "frappe-ui"
+import { ensureNepaliCalendar } from "@/utils/nepali_calendar"
 
 const props = defineProps({
 	modelValue: Boolean,
@@ -61,7 +62,8 @@ watch(() => attendanceEvents.data, () => {
 	if (show.value) renderPicker()
 }, { deep: true })
 
-const renderPicker = () => {
+const renderPicker = async () => {
+	await ensureNepaliCalendar()
 	if (!pickerContainer.value || !window.NepaliCalendarLib) return
 
 	window.NepaliCalendarLib.render(pickerContainer.value, {

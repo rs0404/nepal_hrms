@@ -4,7 +4,7 @@ import { reactive } from "vue"
 
 export const expenseClaimSummary = createResource({
 	url: "hrms.api.get_expense_claim_summary",
-	auto: true,
+	auto: false,
 	cache: "hrms:expense_claim_summary",
 })
 
@@ -39,7 +39,7 @@ export const teamClaims = createResource({
 		for_approval: 1,
 		limit: 10,
 	},
-	auto: true,
+	auto: false,
 	cache: "hrms:team_claims",
 	transform(data) {
 		return transformClaimData(data)
@@ -50,7 +50,7 @@ export let claimTypesByID = reactive({})
 
 export const claimTypesResource = createResource({
 	url: "hrms.api.get_expense_claim_types",
-	auto: true,
+	auto: false,
 	transform(data) {
 		return data.map((row) => {
 			claimTypesByID[row.name] = row

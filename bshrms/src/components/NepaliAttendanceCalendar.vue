@@ -103,6 +103,7 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref, inject, watch, computed, nextTick } from "vue"
 import { createResource } from "frappe-ui"
+import { ensureNepaliCalendar } from "@/utils/nepali_calendar"
 
 const emit = defineEmits(["select-day", "create-leave"])
 
@@ -328,6 +329,7 @@ function paintAttendanceDays() {
 }
 
 const renderCalendar = async () => {
+	await ensureNepaliCalendar()
 	await nextTick()
 	if (!calendarContainer.value || !window.NepaliCalendarLib) return
 
