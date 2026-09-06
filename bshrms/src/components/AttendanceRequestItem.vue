@@ -18,6 +18,8 @@
 							__("{0}d", [props.doc.total_attendance_days])
 						}}</span>
 					</span>
+					<span class="whitespace-pre"> &middot; </span>
+					<span class="whitespace-nowrap">{{ formatDaysFromToday(props.doc.from_date) }}</span>
 				</div>
 				<div
 					v-if="props.doc.status === 'Rejected' && props.doc.custom_rejection_reason"
@@ -40,7 +42,7 @@ import { Badge, FeatherIcon } from "frappe-ui"
 
 import ListItem from "@/components/ListItem.vue"
 import AttendanceIcon from "@/components/icons/AttendanceIcon.vue"
-import { formatNepaliPeriod } from "@/utils/nepali_date"
+import { formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
 
 const props = defineProps({
 	doc: {

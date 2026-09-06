@@ -1,7 +1,7 @@
 import { createResource } from "frappe-ui"
 import { employeeResource } from "./employee"
 
-import dayjs from "@/utils/dayjs"
+import { formatNepaliPeriod } from "@/utils/nepali_date"
 
 const transformLeaveData = (data) => {
 	return data.map((leave) => {
@@ -12,12 +12,7 @@ const transformLeaveData = (data) => {
 }
 
 export const getLeaveDates = (leave) => {
-	if (leave.from_date == leave.to_date)
-		return dayjs(leave.from_date).format("D MMM")
-	else
-		return `${dayjs(leave.from_date).format("D MMM")} - ${dayjs(
-			leave.to_date
-		).format("D MMM")}`
+	return formatNepaliPeriod(leave.from_date, leave.to_date)
 }
 
 export const myLeaves = createResource({

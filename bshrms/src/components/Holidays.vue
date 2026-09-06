@@ -23,8 +23,16 @@
 						{{ __(holiday.description) }}
 					</div>
 				</div>
-				<div class="text-base font-bold text-gray-800">
-					{{ holiday.formatted_holiday_date }}
+				<div class="flex flex-col items-end text-right">
+					<div class="text-base font-bold text-gray-800">
+						{{ formatNepaliDate(holiday.holiday_date) }}
+					</div>
+					<div class="text-xs text-gray-500">
+						{{ dayjs(holiday.holiday_date).format("D MMM YYYY") }}
+					</div>
+					<div class="text-xs text-gray-500">
+						{{ formatDaysFromToday(holiday.holiday_date) }}
+					</div>
 				</div>
 			</div>
 		</div>
@@ -57,11 +65,19 @@
 					</div>
 					<div
 						:class="[
-							'text-base font-bold',
+							'flex flex-col items-end text-right',
 							holiday.is_upcoming ? 'text-gray-800' : 'text-gray-500',
 						]"
 					>
-						{{ holiday.formatted_holiday_date }}
+						<div class="text-base font-bold">
+							{{ formatNepaliDate(holiday.holiday_date) }}
+						</div>
+						<div class="text-xs font-normal text-gray-500">
+							{{ dayjs(holiday.holiday_date).format("D MMM YYYY") }}
+						</div>
+						<div class="text-xs font-normal text-gray-500">
+							{{ formatDaysFromToday(holiday.holiday_date) }}
+						</div>
 					</div>
 				</div>
 			</div>
@@ -73,6 +89,7 @@
 import { inject, computed } from "vue"
 import { IonModal } from "@ionic/vue"
 import { FeatherIcon, createResource } from "frappe-ui"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const employee = inject("$employee")
 const dayjs = inject("$dayjs")

@@ -28,7 +28,9 @@
 		</template>
 
 		<div v-else class="font-medium text-sm text-gray-500 mt-1.5">
-			{{ dayjs().format("ddd, D MMMM, YYYY") }}
+			{{ formatNepaliDate(dayjs().format("YYYY-MM-DD")) }}
+			· {{ dayjs().format("ddd, D MMM YYYY") }}
+			· {{ formatDaysFromToday(dayjs().format("YYYY-MM-DD")) }}
 		</div>
 	</div>
 
@@ -45,7 +47,10 @@
 					{{ dayjs(checkinTimestamp).format("hh:mm:ss a") }}
 				</div>
 				<div class="font-medium text-gray-500 text-sm">
-					{{ dayjs().format("D MMM, YYYY") }}
+					{{ formatNepaliDate(dayjs().format("YYYY-MM-DD")) }}
+				</div>
+				<div class="text-xs text-gray-400">
+					{{ dayjs().format("D MMM YYYY") }} · {{ formatDaysFromToday(dayjs().format("YYYY-MM-DD")) }}
 				</div>
 			</div>
 
@@ -119,6 +124,7 @@ import { computed, inject, ref, onMounted, onBeforeUnmount } from "vue"
 import { IonModal, modalController } from "@ionic/vue"
 
 import { formatTimestamp } from "@/utils/formatters"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const DOCTYPE = "Employee Checkin"
 

@@ -27,7 +27,8 @@
 								</span>
 								<span class="whitespace-pre"> &middot; </span>
 								<span class="whitespace-nowrap" v-if="item.expense_date">
-									{{ dayjs(item.expense_date).format("D MMM") }}
+									{{ formatNepaliDate(item.expense_date) }}
+									· {{ formatDaysFromToday(item.expense_date) }}
 								</span>
 							</div>
 						</div>
@@ -42,10 +43,11 @@
 </template>
 
 <script setup>
-import { computed, inject } from "vue"
+import { computed } from "vue"
 
 import { getCompanyCurrency } from "@/data/currencies"
 import { formatCurrency } from "@/utils/formatters"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const props = defineProps({
 	doc: {
@@ -54,6 +56,5 @@ const props = defineProps({
 	},
 })
 
-const dayjs = inject("$dayjs")
 const currency = computed(() => getCompanyCurrency(props.doc.company))
 </script>

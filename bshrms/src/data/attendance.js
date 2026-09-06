@@ -1,13 +1,16 @@
 import { createResource } from "frappe-ui"
 import { employeeResource } from "./employee"
 
+import { formatNepaliPeriod } from "@/utils/nepali_date"
 import dayjs from "@/utils/dayjs"
 
 
 export const getDates = (shift) => {
-	const fromDate = dayjs(shift.from_date).format("D MMM")
-	const toDate = shift.to_date ? dayjs(shift.to_date).format("D MMM") : "Ongoing"
-	return fromDate == toDate ? fromDate : `${fromDate} - ${toDate}`
+	if (!shift.to_date) {
+		const from = formatNepaliPeriod(shift.from_date, shift.from_date)
+		return from ? `${from} · Ongoing` : "Ongoing"
+	}
+	return formatNepaliPeriod(shift.from_date, shift.to_date)
 }
 
 export const getTotalDays = (shift) => {
@@ -18,9 +21,11 @@ export const getTotalDays = (shift) => {
 }
 
 export const getShiftDates = (shift) => {
-	const startDate = dayjs(shift.start_date).format("D MMM")
-	const endDate = shift.end_date ? dayjs(shift.end_date).format("D MMM") : "Ongoing"
-	return startDate == endDate ? startDate : `${startDate} - ${endDate}`
+	if (!shift.end_date) {
+		const start = formatNepaliPeriod(shift.start_date, shift.start_date)
+		return start ? `${start} · Ongoing` : "Ongoing"
+	}
+	return formatNepaliPeriod(shift.start_date, shift.end_date)
 }
 
 export const getTotalShiftDays = (shift) => {

@@ -63,6 +63,7 @@ import EmptyState from "@/components/EmptyState.vue"
 import SalarySlipItem from "@/components/SalarySlipItem.vue"
 
 import { formatCurrency } from "@/utils/formatters"
+import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
 
 let selectedPeriod = ref({})
 let periodsByName = ref({})
@@ -115,9 +116,11 @@ const documents = createListResource({
 const lastSalarySlip = computed(() => documents.data?.[0])
 
 function getPeriodLabel(period) {
-	return `${dayjs(period?.start_date).format("MMM YYYY")} - ${dayjs(
+	const ad = `${dayjs(period?.start_date).format("MMM YYYY")} – ${dayjs(
 		period?.end_date
 	).format("MMM YYYY")}`
+	const bs = formatNepaliMonthYearPeriod(period?.start_date, period?.end_date)
+	return bs ? `${bs} · ${ad}` : ad
 }
 
 watch(

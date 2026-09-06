@@ -16,6 +16,8 @@
 				</div>
 				<div class="text-xs font-normal text-gray-500">
 					<span>{{ formatNepaliDate(props.doc.attendance_date) }}</span>
+					<span class="whitespace-pre"> · </span>
+					<span>{{ formatDaysFromToday(props.doc.attendance_date) }}</span>
 					<span v-if="props.doc.type_of_work">
 						<span class="whitespace-pre"> · </span>{{ __(props.doc.type_of_work) }}
 					</span>
@@ -38,7 +40,7 @@ import { Badge, FeatherIcon } from "frappe-ui"
 import { inject } from "vue"
 
 import ListItem from "@/components/ListItem.vue"
-import { formatNepaliDate } from "@/utils/nepali_date"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const __ = inject("$translate")
 

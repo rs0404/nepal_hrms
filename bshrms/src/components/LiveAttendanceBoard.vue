@@ -12,6 +12,9 @@
 						{{ dayjs(attendanceDate).format("D MMM YYYY") }}
 					</span>
 				</div>
+				<div class="text-[11px] text-gray-500">
+					{{ formatDaysFromToday(attendanceDate) }}
+				</div>
 			</button>
 			<Button
 				v-if="!isToday"
@@ -109,7 +112,7 @@ import { computed, inject, ref } from "vue"
 import { createResource, Button } from "frappe-ui"
 
 import NepaliDatePickerDialog from "@/components/NepaliDatePickerDialog.vue"
-import { formatNepaliDate } from "@/utils/nepali_date"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const props = defineProps({
 	leaveBoardOnly: { type: Boolean, default: false },

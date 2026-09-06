@@ -1,0 +1,280 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"nh-h-shortcuts\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Shortcuts</b></span>\",\"col\":12}},{\"id\":\"nh-s-settings\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nepal HRMS Settings\",\"col\":3}},{\"id\":\"nh-s-board\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Live Attendance Board\",\"col\":3}},{\"id\":\"nh-s-report\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Monthly Attendance Sheet BS\",\"col\":3}},{\"id\":\"nh-s-late\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Late Entry Application\",\"col\":3}},{\"id\":\"nh-s-early\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Early Exit Application\",\"col\":3}},{\"id\":\"nh-s-ooo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Out of Office Application\",\"col\":3}},{\"id\":\"nh-s-slip\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Salary Slip\",\"col\":3}},{\"id\":\"nh-s-entry\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Payroll Entry\",\"col\":3}},{\"id\":\"nh-spacer\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"nh-h-masters\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports &amp; Masters</b></span>\",\"col\":12}},{\"id\":\"nh-c-att\",\"type\":\"card\",\"data\":{\"card_name\":\"Attendance\",\"col\":4}},{\"id\":\"nh-c-pay\",\"type\":\"card\",\"data\":{\"card_name\":\"Payroll\",\"col\":4}},{\"id\":\"nh-c-set\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}},{\"id\":\"nh-c-rep\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports & Dashboards\",\"col\":4}}]",
+ "creation": "2026-09-05 22:00:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "/assets/nepal_hrms/icon/nepal-hrms.svg",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Nepal HRMS",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Attendance",
+   "link_count": 7,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Late Entry Application",
+   "link_count": 0,
+   "link_to": "Late Entry Application",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Early Exit Application",
+   "link_count": 0,
+   "link_to": "Early Exit Application",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Out of Office Application",
+   "link_count": 0,
+   "link_to": "Out of Office Application",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Attendance Policy Escape",
+   "link_count": 0,
+   "link_to": "Attendance Policy Escape",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Employee Path Log",
+   "link_count": 0,
+   "link_to": "Employee Path Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Attendance",
+   "link_count": 0,
+   "link_to": "Attendance",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Employee Checkin",
+   "link_count": 0,
+   "link_to": "Employee Checkin",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payroll",
+   "link_count": 5,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Nepal Payroll Period Override",
+   "link_count": 0,
+   "link_to": "Nepal Payroll Period Override",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Employee CIT Contribution",
+   "link_count": 0,
+   "link_to": "Employee CIT Contribution",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Salary Slip",
+   "link_count": 0,
+   "link_to": "Salary Slip",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payroll Entry",
+   "link_count": 0,
+   "link_to": "Payroll Entry",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Salary Structure Assignment",
+   "link_count": 0,
+   "link_to": "Salary Structure Assignment",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Settings",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Nepal HRMS Settings",
+   "link_count": 0,
+   "link_to": "Nepal HRMS Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports & Dashboards",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Live Attendance Board",
+   "link_count": 0,
+   "link_to": "live_attendance_boar-1",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Attendance",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Monthly Attendance Sheet BS",
+   "link_count": 0,
+   "link_to": "Monthly Attendance Sheet BS",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-09-05 22:40:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nepal HRMS",
+ "name": "Nepal HRMS",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 8.0,
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Nepal HRMS Settings",
+   "link_to": "Nepal HRMS Settings",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Live Attendance Board",
+   "link_to": "live_attendance_boar-1",
+   "type": "Page"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Monthly Attendance Sheet BS",
+   "link_to": "Monthly Attendance Sheet BS",
+   "type": "Report",
+   "report_ref_doctype": "Attendance"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Late Entry Application",
+   "link_to": "Late Entry Application",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Early Exit Application",
+   "link_to": "Early Exit Application",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Out of Office Application",
+   "link_to": "Out of Office Application",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Salary Slip",
+   "link_to": "Salary Slip",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Payroll Entry",
+   "link_to": "Payroll Entry",
+   "stats_filter": "[]",
+   "type": "DocType"
+  }
+ ],
+ "title": "Nepal HRMS"
+}

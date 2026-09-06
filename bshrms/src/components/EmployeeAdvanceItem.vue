@@ -37,13 +37,13 @@
 
 <script setup>
 import { FeatherIcon, Badge } from "frappe-ui"
-import { computed, inject } from "vue"
+import { computed } from "vue"
 
 import ListItem from "@/components/ListItem.vue"
 import EmployeeAdvanceIcon from "@/components/icons/EmployeeAdvanceIcon.vue"
 import { formatCurrency } from "@/utils/formatters"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
-const dayjs = inject("$dayjs")
 const props = defineProps({
 	doc: {
 		type: Object,
@@ -67,7 +67,9 @@ const colorMap = {
 }
 
 const postingDate = computed(() => {
-	return dayjs(props.doc.posting_date).format("D MMM")
+	const bs = formatNepaliDate(props.doc.posting_date)
+	const offset = formatDaysFromToday(props.doc.posting_date)
+	return offset ? `${bs} · ${offset}` : bs
 })
 
 const status = computed(() => {

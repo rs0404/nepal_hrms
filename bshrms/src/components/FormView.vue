@@ -40,6 +40,11 @@
 								condition: showDeleteButton,
 								onClick: () => (showDeleteDialog = true),
 							},
+							{
+								label: __('Cancel Application'),
+								condition: () => canCancelOwnLeave.value,
+								onClick: () => (showCancelOwnLeaveDialog = true),
+							},
 							{ label: __('Reload'), onClick: () => reloadDoc() },
 						]"
 						:button="{
@@ -212,6 +217,21 @@
 					{{ __(formButton) }}
 				</Button>
 			</div>
+
+			<div
+				v-if="canCancelOwnLeave"
+				class="px-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white w-full"
+				:class="isFormDirty || (!workflow?.hasWorkflow && formButton) ? '' : 'pt-4 border-t drop-shadow-xl z-50 sticky bottom-[var(--ion-tab-bar-height,3.5rem)]'"
+			>
+				<Button
+					class="w-full rounded py-5 text-base"
+					variant="subtle"
+					theme="red"
+					@click="showCancelOwnLeaveDialog = true"
+				>
+					{{ __("Cancel Application") }}
+				</Button>
+			</div>
 		</div>
 	</div>
 
@@ -310,6 +330,41 @@
 		</template>
 	</Dialog>
 
+	<Dialog v-model="showCancelOwnLeaveDialog">
+		<template #body-title>
+			<h2 class="text-xl font-bold">{{ __("Cancel Leave Application") }}</h2>
+		</template>
+		<template #body-content>
+			<p>
+				{{
+					__(
+						"This will withdraw the application so you can submit a corrected one. This cannot be undone."
+					)
+				}}
+			</p>
+		</template>
+		<template #actions>
+			<div class="flex flex-row gap-4">
+				<Button
+					variant="outline"
+					class="py-5 w-full"
+					@click="showCancelOwnLeaveDialog = false"
+				>
+					{{ __("Keep") }}
+				</Button>
+				<Button
+					variant="solid"
+					theme="red"
+					class="py-5 w-full"
+					:loading="cancellingOwnLeave"
+					@click="cancelOwnLeaveApplication"
+				>
+					{{ __("Cancel Application") }}
+				</Button>
+			</div>
+		</template>
+	</Dialog>
+
 	<Dialog v-model="showCnrDraftDialog">
 		<template #body-title>
 			<h2 class="text-xl font-bold">{{ __("Application Submitted") }}</h2>
@@ -350,6 +405,7 @@ import {
 	Dropdown,
 	Dialog,
 	LoadingIndicator,
+	call,
 } from "frappe-ui"
 import FormField from "@/components/FormField.vue"
 import FileUploaderView from "@/components/FileUploaderView.vue"
@@ -358,6 +414,7 @@ import WorkflowActionSheet from "@/components/WorkflowActionSheet.vue"
 import { FileAttachment, guessStatusColor } from "@/composables"
 import useWorkflow from "@/composables/workflow"
 import { getCompanyCurrency } from "@/data/currencies"
+import { myLeaves, leaveBalance } from "@/data/leaves"
 import { formatCurrency } from "@/utils/formatters"
 
 const props = defineProps({
@@ -412,6 +469,7 @@ const CNR_DOCTYPES = [
 ]
 
 const __ = inject("$translate")
+const employee = inject("$employee")
 
 let activeTab = ref(props.tabs?.[0].name)
 let fileAttachments = ref([])
@@ -422,6 +480,8 @@ let isFormUpdated = ref(false)
 let showDeleteDialog = ref(false)
 let showSubmitDialog = ref(false)
 let showCancelDialog = ref(false)
+let showCancelOwnLeaveDialog = ref(false)
+let cancellingOwnLeave = ref(false)
 let showCnrDraftDialog = ref(false)
 let pendingCnrDetailId = ref(null)
 let isFileUploading = ref(false)
@@ -687,6 +747,46 @@ const isSaveAction = computed(() =>
 
 function showDeleteButton() {
 	return props.id && formModel.value.docstatus !== 1 && hasPermission("delete")
+}
+
+const canCancelOwnLeave = computed(() => {
+	if (props.doctype !== "Leave Application") return false
+	if (!props.id) return false
+	if (Number(formModel.value?.docstatus || 0) !== 0) return false
+	if ((formModel.value?.status || "Open") !== "Open") return false
+	const leaveEmployee = formModel.value?.employee
+	return !!leaveEmployee && leaveEmployee === employee?.data?.name
+})
+
+async function cancelOwnLeaveApplication() {
+	cancellingOwnLeave.value = true
+	try {
+		await call("nepal_hrms.api.leave_application.cancel_own_leave_application", {
+			name: props.id,
+		})
+		showCancelOwnLeaveDialog.value = false
+		myLeaves.reload()
+		leaveBalance.reload()
+		toast({
+			title: __("Success"),
+			text: __("Leave application cancelled. You can submit a new one."),
+			icon: "check-circle",
+			iconClasses: "text-green-500",
+		})
+		router.back()
+	} catch (error) {
+		toast({
+			title: __("Error"),
+			text:
+				error.messages?.join?.(" ") ||
+				error.message ||
+				__("Could not cancel the leave application"),
+			icon: "alert-circle",
+			iconClasses: "text-red-500",
+		})
+	} finally {
+		cancellingOwnLeave.value = false
+	}
 }
 
 function hasPermission(action) {

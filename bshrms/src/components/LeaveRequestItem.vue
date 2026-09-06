@@ -14,6 +14,8 @@
 					<span>{{ formatNepaliPeriod(props.doc.from_date, props.doc.to_date) }}</span>
 					<span class="whitespace-pre"> &middot; </span>
 					<span class="whitespace-nowrap">{{ __("{0}d", [props.doc.total_leave_days]) }}</span>
+					<span class="whitespace-pre"> &middot; </span>
+					<span class="whitespace-nowrap">{{ formatDaysFromToday(props.doc.from_date) }}</span>
 				</div>
 			</div>
 		</template>
@@ -30,8 +32,7 @@ import { FeatherIcon, Badge } from "frappe-ui"
 
 import ListItem from "@/components/ListItem.vue"
 import LeaveIcon from "@/components/icons/LeaveIcon.vue"
-import { getLeaveDates } from "@/data/leaves"
-import { formatNepaliPeriod } from "@/utils/nepali_date"
+import { formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
 
 const props = defineProps({
 	doc: {

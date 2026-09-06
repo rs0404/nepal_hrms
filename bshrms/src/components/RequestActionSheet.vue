@@ -29,7 +29,9 @@
 							field.fieldtype
 						)
 							? 'flex-col'
-							: 'flex-row items-center justify-between',
+							: ['Date', 'DateRange'].includes(field.fieldtype)
+								? 'flex-row items-start justify-between gap-3'
+								: 'flex-row items-center justify-between',
 						'flex w-full',
 					]"
 				>
@@ -136,6 +138,7 @@
 		<div
 			v-else-if="
 				props.modelValue.doctype !== 'Attendance Request' &&
+				!canCancelOwnLeave &&
 				['Open', 'Draft'].includes(document?.doc?.[approvalField]) &&
 				hasPermission('approval')
 			"
@@ -196,6 +199,23 @@
 			</Button>
 		</div>
 
+		<div
+			v-if="canCancelOwnLeave"
+			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4 bg-white"
+		>
+			<Button
+				@click="showCancelLeaveDialog = true"
+				class="w-full py-5"
+				variant="subtle"
+				theme="red"
+			>
+				<template #prefix>
+					<FeatherIcon name="x" class="w-4" />
+				</template>
+				{{ __("Cancel Application") }}
+			</Button>
+		</div>
+
 		<Dialog v-model="showRejectDialog">
 			<template #body-title>
 				<h2 class="text-lg font-bold">{{ __("Reject Attendance Request") }}</h2>
@@ -228,6 +248,37 @@
 						@click="rejectAttendanceRequest"
 					>
 						{{ __("Reject") }}
+					</Button>
+				</div>
+			</template>
+		</Dialog>
+
+		<Dialog v-model="showCancelLeaveDialog">
+			<template #body-title>
+				<h2 class="text-lg font-bold">{{ __("Cancel Leave Application") }}</h2>
+			</template>
+			<template #body-content>
+				<p class="text-sm text-gray-600">
+					{{
+						__(
+							"This will withdraw the application so you can submit a corrected one. This cannot be undone."
+						)
+					}}
+				</p>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 w-full">
+					<Button class="flex-1" variant="outline" @click="showCancelLeaveDialog = false">
+						{{ __("Keep") }}
+					</Button>
+					<Button
+						class="flex-1"
+						variant="solid"
+						theme="red"
+						:loading="cancellingOwnLeave"
+						@click="cancelOwnLeaveApplication"
+					>
+						{{ __("Cancel Application") }}
 					</Button>
 				</div>
 			</template>
@@ -266,8 +317,10 @@ import { getCompanyCurrency } from "@/data/currencies"
 import { formatCurrency } from "@/utils/formatters"
 
 import useWorkflow from "@/composables/workflow"
+import { myLeaves, leaveBalance } from "@/data/leaves"
 
 const __ = inject("$translate")
+const employee = inject("$employee")
 
 const props = defineProps({
 	fields: {
@@ -292,6 +345,8 @@ let selectedFile = ref({})
 let workflow = ref(null)
 const showRejectDialog = ref(false)
 const rejectReason = ref("")
+const showCancelLeaveDialog = ref(false)
+const cancellingOwnLeave = ref(false)
 const approvingAttendanceRequest = ref(false)
 const rejectingAttendanceRequest = ref(false)
 
@@ -386,6 +441,48 @@ watch(
 	},
 	{ immediate: true }
 )
+
+const canCancelOwnLeave = computed(() => {
+	if (props.modelValue.doctype !== "Leave Application") return false
+	if (document?.doc?.docstatus !== 0) return false
+	const status = document?.doc?.status || "Open"
+	if (status !== "Open") return false
+	const leaveEmployee = document?.doc?.employee || props.modelValue.employee
+	return !!leaveEmployee && leaveEmployee === employee?.data?.name
+})
+
+async function cancelOwnLeaveApplication() {
+	cancellingOwnLeave.value = true
+	try {
+		await call("nepal_hrms.api.leave_application.cancel_own_leave_application", {
+			name: props.modelValue.name,
+		})
+		showCancelLeaveDialog.value = false
+		myLeaves.reload()
+		leaveBalance.reload()
+		toast({
+			title: __("Success"),
+			text: __("Leave application cancelled. You can submit a new one."),
+			icon: "check-circle",
+			position: "bottom-center",
+			iconClasses: "text-green-500",
+		})
+		modalController.dismiss()
+	} catch (error) {
+		toast({
+			title: __("Error"),
+			text:
+				error.messages?.join?.(" ") ||
+				error.message ||
+				__("Could not cancel the leave application"),
+			icon: "alert-circle",
+			position: "bottom-center",
+			iconClasses: "text-red-500",
+		})
+	} finally {
+		cancellingOwnLeave.value = false
+	}
+}
 
 const showAttendanceRequestApproval = computed(() => {
 	if (props.modelValue.doctype !== "Attendance Request") return false
@@ -508,21 +605,25 @@ const fieldsWithValues = computed(() => {
 		) {
 			return false
 		}
+
+		const doc = { ...(props.modelValue || {}), ...(document?.doc || {}) }
+
 		if (field.fieldtype === "Currency") {
-			field.value = formatCurrency(
-				document.doc?.[field.fieldname],
-				currency.value
+			field.value = formatCurrency(doc[field.fieldname], currency.value)
+		} else if (field.fieldtype === "Table") {
+			// dynamically loading child table component as per config
+			// does not work with @ alias due to vite's import analysis
+			field.component = defineAsyncComponent(() =>
+				import(`../components/${field.componentName}.vue`)
 			)
-		} else {
-			if (field.fieldtype === "Table") {
-				// dynamically loading child table component as per config
-				// does not work with @ alias due to vite's import analysis
-				field.component = defineAsyncComponent(() =>
-					import(`../components/${field.componentName}.vue`)
-				)
+			field.value = doc[field.fieldname]
+		} else if (field.fieldtype === "DateRange") {
+			field.value = {
+				from: doc[field.fromField] || "",
+				to: doc[field.toField] || "",
 			}
-			field.value =
-				document?.doc?.[field.fieldname] || props.modelValue[field.fieldname]
+		} else {
+			field.value = doc[field.fieldname]
 			if (
 				field.fieldname === "status" &&
 				field.value === "Draft" &&
@@ -532,6 +633,9 @@ const fieldsWithValues = computed(() => {
 			}
 		}
 
+		if (field.fieldtype === "DateRange") {
+			return !!(field.value?.from || field.value?.to)
+		}
 		return field.value
 	})
 })

@@ -17,7 +17,10 @@ export function formatDaysFromToday(adDate) {
 	const now = new Date()
 	const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
 	const diff = Math.round((target.getTime() - today.getTime()) / 86400000)
-	if (diff >= 0) return `after ${diff} days`
+	if (diff === 0) return "today"
+	if (diff === 1) return "after 1 day"
+	if (diff > 1) return `after ${diff} days`
+	if (diff === -1) return "1 day ago"
 	return `${Math.abs(diff)} days ago`
 }
 
@@ -27,6 +30,30 @@ export function formatNepaliPeriod(fromDate, toDate) {
 	if (!toDate || fromDate === toDate) return fromBS
 	const toBS = formatNepaliDate(toDate)
 	return `${fromBS} to ${toBS}`
+}
+
+/** BS month + year, e.g. "Shrawan 2083". */
+export function formatNepaliMonthYear(adDate) {
+	if (!adDate || !window.NepaliDateLib) return ""
+	try {
+		const nd = window.NepaliDateLib.NepaliDate.fromAD(new Date(adDate))
+		const months = window.NepaliDateLib.MONTH_NAMES_EN_BS
+		const monthName = months?.[nd.monthIndex]
+		if (monthName && nd.year) return `${monthName} ${nd.year}`
+		return nd.format({ format: "YYYY-MM", calendar: "BS" })
+	} catch (e) {
+		console.error("Nepali month/year conversion error:", e)
+		return ""
+	}
+}
+
+/** BS month range, collapsing to one label when start and end are the same month. */
+export function formatNepaliMonthYearPeriod(fromDate, toDate) {
+	const from = formatNepaliMonthYear(fromDate)
+	if (!from) return ""
+	const to = formatNepaliMonthYear(toDate)
+	if (!to || to === from) return from
+	return `${from} – ${to}`
 }
 
 /** AD YYYY-MM-DD bounds for the BS month containing `refDate` (default: today). */

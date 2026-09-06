@@ -116,9 +116,12 @@
 						{{ formatNepaliDate(modelValue) }}
 					</div>
 					<div class="text-xs text-gray-500" v-if="modelValue">
-						{{ dayjs(modelValue).format("DD-MM-YYYY") }}
+						{{ dayjs(modelValue).format("dddd, DD-MM-YYYY") }}
 					</div>
-					<div class="text-sm text-gray-400 italic" v-else>
+					<div class="text-xs text-gray-500" v-if="modelValue && showRelativeDays">
+						{{ formatDaysFromToday(modelValue) }}
+					</div>
+					<div class="text-sm text-gray-400 italic" v-else-if="!modelValue">
 						{{ __("Select Date") }}
 					</div>
 				</div>
@@ -171,7 +174,7 @@ import { computed, onMounted, inject, ref } from "vue"
 
 import Link from "@/components/Link.vue"
 import NepaliDatePickerDialog from "@/components/NepaliDatePickerDialog.vue"
-import { formatNepaliDate } from "@/utils/nepali_date"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const showNepaliPicker = ref(false)
 
@@ -204,6 +207,11 @@ const props = defineProps({
 
 const emit = defineEmits(["change", "update:modelValue"])
 const dayjs = inject("$dayjs")
+
+const showRelativeDays = computed(() => {
+	if (props.doctype === "Employee") return false
+	return !["date_of_birth", "date_of_joining"].includes(props.fieldname)
+})
 
 const showField = computed(() => {
 	if (props.readOnly && !isLayoutField.value && !props.modelValue) return false

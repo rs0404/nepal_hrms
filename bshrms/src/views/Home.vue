@@ -29,9 +29,11 @@
 							class="bg-white p-4 rounded-lg shadow-sm border border-gray-100"
 						>
 							<div class="flex justify-between items-start mb-2">
-								<span class="text-sm font-bold text-gray-800">
-									{{ dayjs(log.time).format("D MMM, YYYY hh:mm a") }}
-								</span>
+								<div class="flex flex-col">
+									<span class="text-sm font-bold text-gray-800">
+										{{ formatTimestamp(log.time) }}
+									</span>
+								</div>
 								<Badge
 									:label="
 										log.custom_attendance_type === 'OOO Work'
@@ -73,10 +75,10 @@ import LeaveIcon from "@/components/icons/LeaveIcon.vue"
 import ExpenseIcon from "@/components/icons/ExpenseIcon.vue"
 import EmployeeAdvanceIcon from "@/components/icons/EmployeeAdvanceIcon.vue"
 import SalaryIcon from "@/components/icons/SalaryIcon.vue"
+import { formatTimestamp } from "@/utils/formatters"
 
 const __ = inject("$translate")
 const employee = inject("$employee")
-const dayjs = inject("$dayjs")
 const oooExpanded = ref(false)
 
 const oooCheckins = createListResource({

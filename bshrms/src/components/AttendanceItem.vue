@@ -8,6 +8,9 @@
 					<span class="text-xs text-gray-500 font-normal ml-1">
 						({{ dayjs(props.doc.attendance_date).format("D MMM") }})
 					</span>
+					<span class="text-xs text-gray-500 font-normal ml-1">
+						· {{ formatDaysFromToday(props.doc.attendance_date) }}
+					</span>
 				</div>
 				<div class="text-xs font-normal text-gray-500 truncate max-w-[220px]">
 					<span v-if="props.doc.in_time || props.doc.out_time">
@@ -50,7 +53,7 @@ import { Badge } from "frappe-ui"
 
 import ListItem from "@/components/ListItem.vue"
 import AttendanceIcon from "@/components/icons/AttendanceIcon.vue"
-import { formatNepaliDate } from "@/utils/nepali_date"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const dayjs = inject("$dayjs")
 const __ = inject("$translate")

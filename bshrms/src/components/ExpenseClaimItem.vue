@@ -35,8 +35,8 @@ import ExpenseIcon from "@/components/icons/ExpenseIcon.vue"
 
 import { getCompanyCurrency } from "@/data/currencies"
 import { formatCurrency } from "@/utils/formatters"
+import { formatNepaliDate, formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
 
-const dayjs = inject("$dayjs")
 const __ = inject("$translate")
 const props = defineProps({
 	doc: {
@@ -87,16 +87,12 @@ const claimTitle = computed(() => {
 })
 
 const claimDates = computed(() => {
-	if (!props.doc.from_date && !props.doc.to_date)
-		return dayjs(props.doc.posting_date).format("D MMM")
-
-	if (props.doc.from_date === props.doc.to_date) {
-		return dayjs(props.doc.from_date).format("D MMM")
-	} else {
-		return `${dayjs(props.doc.from_date).format("D MMM")} - ${dayjs(props.doc.to_date).format(
-			"D MMM"
-		)}`
-	}
+	const from = props.doc.from_date || props.doc.posting_date
+	const to = props.doc.to_date
+	const period =
+		from && to ? formatNepaliPeriod(from, to) : formatNepaliDate(from)
+	const offset = formatDaysFromToday(from)
+	return offset ? `${period} · ${offset}` : period
 })
 
 const currency = computed(() => getCompanyCurrency(props.doc.company))

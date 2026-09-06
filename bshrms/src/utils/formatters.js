@@ -1,6 +1,7 @@
 import { createDocumentResource } from "frappe-ui"
 
 import dayjs from "@/utils/dayjs"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const settings = createDocumentResource({
 	doctype: "System Settings",
@@ -34,11 +35,8 @@ export const formatCurrency = (value, currency) => {
 
 export const formatTimestamp = (timestamp) => {
 	const formattedTime = dayjs(timestamp).format("hh:mm a")
-
-	if (dayjs(timestamp).isToday()) return formattedTime
-	else if (dayjs(timestamp).isYesterday()) return `${formattedTime} yesterday`
-	else if (dayjs(timestamp).isSame(dayjs(), "year"))
-		return `${formattedTime} on ${dayjs(timestamp).format("D MMM")}`
-
-	return `${formattedTime} on ${dayjs(timestamp).format("D MMM, YYYY")}`
+	const bs = formatNepaliDate(timestamp)
+	const offset = formatDaysFromToday(timestamp)
+	if (!bs) return formattedTime
+	return `${formattedTime} · ${bs} · ${offset}`
 }

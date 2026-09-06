@@ -24,32 +24,32 @@ export default defineConfig({
 			},
 			manifest: {
 				display: "standalone",
-				name: "BS HRMS",
-				short_name: "BS HRMS",
+				name: "Nepal Hrms",
+				short_name: "Nepal Hrms",
 				start_url: "/bshrms",
 				description: "Everyday HR & Payroll operations at your fingertips (BS)",
 				theme_color: "#ffffff",
 				icons: [
 					{
-						src: "/assets/hrms/manifest/manifest-icon-192.maskable.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-192.png",
 						sizes: "192x192",
 						type: "image/png",
 						purpose: "any",
 					},
 					{
-						src: "/assets/hrms/manifest/manifest-icon-192.maskable.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-192.png",
 						sizes: "192x192",
 						type: "image/png",
 						purpose: "maskable",
 					},
 					{
-						src: "/assets/hrms/manifest/manifest-icon-512.maskable.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-512.png",
 						sizes: "512x512",
 						type: "image/png",
 						purpose: "any",
 					},
 					{
-						src: "/assets/hrms/manifest/manifest-icon-512.maskable.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-512.png",
 						sizes: "512x512",
 						type: "image/png",
 						purpose: "maskable",

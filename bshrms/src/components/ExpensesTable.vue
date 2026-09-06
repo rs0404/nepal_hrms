@@ -46,7 +46,8 @@
 								</span>
 								<span class="whitespace-pre"> &middot; </span>
 								<span class="whitespace-nowrap" v-if="item.expense_date">
-									{{ dayjs(item.expense_date).format("D MMM") }}
+									{{ formatNepaliDate(item.expense_date) }}
+									· {{ formatDaysFromToday(item.expense_date) }}
 								</span>
 							</div>
 						</div>
@@ -139,6 +140,7 @@ import CustomIonModal from "@/components/CustomIonModal.vue"
 
 import { claimTypesByID } from "@/data/claims"
 import { formatCurrency } from "@/utils/formatters"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const props = defineProps({
 	expenseClaim: {
@@ -159,7 +161,6 @@ const emit = defineEmits([
 	"update-expense-item",
 	"delete-expense-item",
 ])
-const dayjs = inject("$dayjs")
 const __ = inject("$translate")
 const expenseItem = ref({})
 const editingIdx = ref(null)

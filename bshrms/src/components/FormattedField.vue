@@ -1,5 +1,5 @@
 <template>
-	<div v-if="!props.value" class="text-gray-600 text-base">-</div>
+	<div v-if="isEmpty" class="text-gray-600 text-base">-</div>
 
 	<Badge
 		v-else-if="props.fieldtype === 'Select'"
@@ -9,8 +9,18 @@
 		size="md"
 	/>
 
-	<div v-else-if="props.fieldtype === 'Date'" class="text-gray-900 text-base">
-		{{ dayjs(props.value).format("D MMM YYYY") }}
+	<div v-else-if="props.fieldtype === 'Date'" class="flex flex-col items-end text-right">
+		<div class="text-gray-900 text-base">{{ formatNepaliDate(props.value) }}</div>
+		<div class="text-xs text-gray-500">{{ dayjs(props.value).format("dddd, D MMM YYYY") }}</div>
+		<div v-if="showRelativeOffset" class="text-xs text-gray-500">
+			{{ formatDaysFromToday(props.value) }}
+		</div>
+	</div>
+
+	<div v-else-if="props.fieldtype === 'DateRange'" class="flex flex-col items-end text-right">
+		<div class="text-gray-900 text-base">{{ rangeBs }}</div>
+		<div class="text-xs text-gray-500">{{ rangeAd }}</div>
+		<div v-if="rangeOffset" class="text-xs text-gray-500">{{ rangeOffset }}</div>
 	</div>
 
 	<div v-else-if="props.fieldtype === 'Time'" class="text-gray-900 text-base">
@@ -76,17 +86,61 @@
 </template>
 
 <script setup>
-import { inject } from "vue"
-import { Badge, FormControl, Input } from "frappe-ui"
+import { computed, inject } from "vue"
+import { Badge, Input } from "frappe-ui"
 
 import EmployeeAvatar from "@/components/EmployeeAvatar.vue"
+import { formatNepaliDate, formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
 
 const dayjs = inject("$dayjs")
+
+const NO_OFFSET_FIELDS = ["date_of_birth", "date_of_joining"]
 
 const props = defineProps({
 	value: [String, Number, Boolean, Array, Object],
 	fieldtype: String,
 	fieldname: String,
+})
+
+const isEmpty = computed(() => {
+	if (props.fieldtype === "DateRange") {
+		return !props.value?.from && !props.value?.to
+	}
+	return props.value === null || props.value === undefined || props.value === ""
+})
+
+const showRelativeOffset = computed(() => !NO_OFFSET_FIELDS.includes(props.fieldname))
+
+const rangeBs = computed(() => {
+	const from = props.value?.from
+	const to = props.value?.to
+	if (!from) return ""
+	if (!to) return `${formatNepaliDate(from)} · Ongoing`
+	return formatNepaliPeriod(from, to)
+})
+
+const rangeAd = computed(() => {
+	const from = props.value?.from
+	const to = props.value?.to
+	if (!from) return ""
+	const fromAd = dayjs(from).format("dddd, D MMM YYYY")
+	if (!to) return `${fromAd} – Ongoing`
+	if (from === to || dayjs(from).isSame(dayjs(to), "day")) return fromAd
+	if (dayjs(from).isSame(dayjs(to), "year")) {
+		return `${dayjs(from).format("dddd, D MMM")} – ${dayjs(to).format("dddd, D MMM YYYY")}`
+	}
+	return `${fromAd} – ${dayjs(to).format("dddd, D MMM YYYY")}`
+})
+
+const rangeOffset = computed(() => {
+	const from = props.value?.from
+	const to = props.value?.to
+	if (!from) return ""
+	const fromOffset = formatDaysFromToday(from)
+	if (!to || from === to || dayjs(from).isSame(dayjs(to), "day")) return fromOffset
+	const toOffset = formatDaysFromToday(to)
+	if (fromOffset === toOffset) return fromOffset
+	return `${fromOffset} · ${toOffset}`
 })
 
 const colorMap = {

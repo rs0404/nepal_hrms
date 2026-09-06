@@ -6,7 +6,7 @@
 					<div class="flex flex-row justify-between items-center">
 						<div class="flex flex-row items-center gap-2 min-w-0">
 							<h2 class="text-xl font-bold text-gray-900 truncate">
-								{{ props.pageTitle || __("Frappe HR") }}
+								{{ props.pageTitle || __("Nepal Hrms") }}
 							</h2>
 							<slot name="header-extra"></slot>
 						</div>

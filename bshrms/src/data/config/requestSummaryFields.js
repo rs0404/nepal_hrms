@@ -15,7 +15,9 @@ export const LEAVE_FIELDS = [
 	{
 		fieldname: "leave_dates",
 		label: "Leave Dates",
-		fieldtype: "Data",
+		fieldtype: "DateRange",
+		fromField: "from_date",
+		toField: "to_date",
 	},
 	{
 		fieldname: "half_day",
@@ -122,7 +124,9 @@ export const ATTENDANCE_REQUEST_FIELDS = [
 	{
 		fieldname: "attendance_dates",
 		label: "Attendance Dates",
-		fieldtype: "Data",
+		fieldtype: "DateRange",
+		fromField: "from_date",
+		toField: "to_date",
 	},
 	{
 		fieldname: "total_attendance_days",
@@ -185,7 +189,9 @@ export const SHIFT_FIELDS = [
 	{
 		fieldname: "shift_dates",
 		label: "Shift Dates",
-		fieldtype: "Data",
+		fieldtype: "DateRange",
+		fromField: "start_date",
+		toField: "end_date",
 	},
 	{
 		fieldname: "total_shift_days",
@@ -213,7 +219,9 @@ export const SHIFT_REQUEST_FIELDS = [
 	{
 		fieldname: "shift_dates",
 		label: "Shift Dates",
-		fieldtype: "Data",
+		fieldtype: "DateRange",
+		fromField: "from_date",
+		toField: "to_date",
 	},
 	{
 		fieldname: "total_shift_days",

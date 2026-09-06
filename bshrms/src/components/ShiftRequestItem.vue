@@ -16,6 +16,8 @@
 						<span class="whitespace-pre"> &middot; </span>
 						<span class="whitespace-nowrap">{{ __("{0}d", [props.doc.total_shift_days || getTotalDays(props.doc)]) }}</span>
 					</span>
+					<span class="whitespace-pre"> &middot; </span>
+					<span class="whitespace-nowrap">{{ formatDaysFromToday(props.doc.from_date) }}</span>
 				</div>
 			</div>
 		</template>
@@ -32,8 +34,8 @@ import { Badge, FeatherIcon } from "frappe-ui"
 
 import ListItem from "@/components/ListItem.vue"
 import ShiftIcon from "@/components/icons/ShiftIcon.vue"
-import { getDates, getTotalDays } from "@/data/attendance"
-import { formatNepaliPeriod } from "@/utils/nepali_date"
+import { getTotalDays } from "@/data/attendance"
+import { formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
 
 const props = defineProps({
 	doc: {

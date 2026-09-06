@@ -6,8 +6,10 @@
 				<div class="text-base font-normal text-gray-800">
 					{{ title }}
 				</div>
-				<div v-if="doc?.gross_pay" class="text-xs font-normal text-gray-500">
-					<span>
+				<div class="text-xs font-normal text-gray-500">
+					<span v-if="adPeriod">{{ adPeriod }}</span>
+					<span v-if="adPeriod && doc?.gross_pay" class="whitespace-pre"> &middot; </span>
+					<span v-if="doc?.gross_pay">
 						{{
 							__("{0}: {1}", [
 								__("Gross Pay"),
@@ -15,7 +17,6 @@
 							])
 						}}
 					</span>
-					<span class="whitespace-pre"> &middot; </span>
 				</div>
 			</div>
 		</template>
@@ -36,6 +37,7 @@ import ListItem from "@/components/ListItem.vue"
 import SalaryIcon from "@/components/icons/SalaryIcon.vue"
 
 import { formatCurrency } from "@/utils/formatters"
+import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
 
 const dayjs = inject("$dayjs")
 
@@ -46,14 +48,17 @@ const props = defineProps({
 })
 
 const title = computed(() => {
+	const bs = formatNepaliMonthYearPeriod(props.doc.start_date, props.doc.end_date)
+	if (bs) return bs
+	return adPeriod.value
+})
+
+const adPeriod = computed(() => {
 	if (dayjs(props.doc.start_date).isSame(props.doc.end_date, "month")) {
-		// monthly salary
 		return dayjs(props.doc.start_date).format("MMM YYYY")
-	} else {
-		// quarterly, bimonthly, etc
-		return `${dayjs(props.doc.start_date).format("MMM YYYY")} - ${dayjs(
-			props.doc.end_date
-		).format("MMM YYYY")}`
 	}
+	return `${dayjs(props.doc.start_date).format("MMM YYYY")} – ${dayjs(
+		props.doc.end_date
+	).format("MMM YYYY")}`
 })
 </script>

@@ -30,6 +30,7 @@ app_include_js = [
 	"/assets/nepal_hrms/js/employee_benefit_claim.js",
 	"/assets/nepal_hrms/js/attendance_cnr_bulk.js",
 	"/assets/nepal_hrms/js/attendance_policy_escape_list.js",
+	"/assets/nepal_hrms/js/icon_patch.js",
 ]
 
 boot_session = "nepal_hrms.boot.get_boot_info"

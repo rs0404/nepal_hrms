@@ -7,6 +7,8 @@
 				<div class="text-xs text-gray-500">
 					<span>{{ formatNepaliDate(props.doc.attendance_date) }}</span>
 					<span class="mx-1">&middot;</span>
+					<span>{{ formatDaysFromToday(props.doc.attendance_date) }}</span>
+					<span class="mx-1">&middot;</span>
 					<span>{{ props.doc.working_hours }} hrs</span>
 				</div>
 			</div>
@@ -50,6 +52,9 @@
 				<div class="text-sm text-gray-600">
 					<div class="font-semibold text-gray-800">{{ props.doc.employee_name }}</div>
 					<div>{{ formatNepaliDate(props.doc.attendance_date) }}</div>
+					<div class="text-xs text-gray-500">
+						{{ formatDaysFromToday(props.doc.attendance_date) }}
+					</div>
 				</div>
 
 				<div
@@ -279,7 +284,7 @@
 import { ref, inject, computed } from "vue"
 import { FeatherIcon, createResource, toast, Dialog, Button, call } from "frappe-ui"
 import ListItem from "@/components/ListItem.vue"
-import { formatNepaliDate } from "@/utils/nepali_date"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 import { pendingOOOApprovals, approvedOOOApprovals } from "@/data/attendance"
 
 const props = defineProps({

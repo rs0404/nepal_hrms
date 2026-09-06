@@ -418,9 +418,10 @@
 								<span class="text-sm font-medium text-gray-800">{{
 									dayjs(log.time).format("hh:mm a")
 								}}</span>
-								<span class="text-xs text-gray-500">{{
-									dayjs(log.time).format("D MMM, YYYY")
-								}}</span>
+								<span class="text-xs text-gray-500">
+									{{ formatNepaliDate(log.time) }}
+									· {{ formatDaysFromToday(log.time) }}
+								</span>
 							</div>
 							<div class="flex items-center gap-3">
 								<Badge
@@ -476,7 +477,7 @@ import AttendanceCalendar from "@/components/AttendanceCalendar.vue"
 import NepaliAttendanceCalendar from "@/components/NepaliAttendanceCalendar.vue"
 import AttendanceDaySheet from "@/components/AttendanceDaySheet.vue"
 import LiveAttendanceBoard from "@/components/LiveAttendanceBoard.vue"
-import { getBsMonthAdRange } from "@/utils/nepali_date"
+import { getBsMonthAdRange, formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 import { pwaAccess } from "@/data/pwa_access"
 
 const activeCalendar = ref("Nepali")

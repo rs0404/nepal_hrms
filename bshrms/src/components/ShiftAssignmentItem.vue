@@ -7,9 +7,12 @@
 					{{ props.doc.shift_type }}
 				</div>
 				<div class="text-xs font-normal text-gray-500">
-					<span>{{ props.doc.shift_dates || getShiftDates(props.doc) }}</span>
+					<span>{{ formatNepaliPeriod(props.doc.start_date, props.doc.end_date) }}</span>
+					<span v-if="!props.doc.end_date"> · {{ __("Ongoing") }}</span>
 					<span v-if="props.doc.end_date" class="whitespace-pre"> &middot; </span>
 					<span v-if="props.doc.end_date" class="whitespace-nowrap">{{ __("{0}d", [props.doc.total_shift_days || getTotalShiftDays(props.doc)]) }}</span>
+					<span class="whitespace-pre"> &middot; </span>
+					<span class="whitespace-nowrap">{{ formatDaysFromToday(props.doc.start_date) }}</span>
 				</div>
 			</div>
 		</template>
@@ -29,7 +32,8 @@ import { Badge, FeatherIcon } from "frappe-ui"
 
 import ListItem from "@/components/ListItem.vue"
 import ShiftIcon from "@/components/icons/ShiftIcon.vue"
-import { getShiftDates, getTotalShiftDays } from "@/data/attendance"
+import { getTotalShiftDays } from "@/data/attendance"
+import { formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
 
 const props = defineProps({
 	doc: {
