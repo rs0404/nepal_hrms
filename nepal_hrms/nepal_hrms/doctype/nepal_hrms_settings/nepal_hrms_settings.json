@@ -517,7 +517,7 @@
   {
    "default": "1",
    "depends_on": "eval: doc.payroll_period_basis === 'Custom Day Range'",
-   "description": "BS day the period opens on. 29 means the period runs from the 29th of one month to the 28th of the next. Must be between 1 and 28 so it exists in every BS month.",
+   "description": "BS day the period opens on. 29 means the period runs from the 29th of one month to the 28th of the next. Must be between 1 and 29 (every BS month has at least 29 days).",
    "fieldname": "payroll_period_start_day",
    "fieldtype": "Int",
    "label": "Period Start Day (BS)"

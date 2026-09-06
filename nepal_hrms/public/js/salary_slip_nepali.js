@@ -27,7 +27,7 @@ frappe.ui.form.on("Salary Slip", {
                     if (r.message && r.message.is_first_day && r.message.end_date) {
                         frm.set_value("end_date", r.message.end_date);
                         frappe.show_alert({
-                            message: __('End date auto-filled for the Nepali month'),
+                            message: __('End date auto-filled for the payroll period'),
                             indicator: 'green'
                         });
                     }

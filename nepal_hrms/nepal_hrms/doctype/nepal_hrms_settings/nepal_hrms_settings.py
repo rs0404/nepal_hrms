@@ -3,6 +3,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import cint
 
 # Account shape each scheduled-run field needs, mirroring stock Payroll Entry's
 # own link filters. Anything the grid lets through must still satisfy these.
@@ -14,8 +15,21 @@ SCHEDULED_ACCOUNT_RULES = {
 
 class NepalHRMSSettings(Document):
 	def validate(self):
+		self.validate_payroll_period_start_day()
 		self.validate_payroll_accounts()
 		self.validate_scheduled_payroll_runs()
+
+	def validate_payroll_period_start_day(self):
+		"""Custom ranges open on a day that exists in every BS month (1–29)."""
+		if self.payroll_period_basis != "Custom Day Range":
+			return
+		day = cint(self.payroll_period_start_day)
+		if day < 1 or day > 29:
+			frappe.throw(
+				_("Period Start Day (BS) must be between 1 and 29."),
+				title=_("Invalid Period Start Day"),
+			)
+		self.payroll_period_start_day = day
 
 	def validate_payroll_accounts(self):
 		"""Keep each mapping row's account inside its own company.

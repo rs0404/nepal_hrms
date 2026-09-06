@@ -41,6 +41,15 @@ def bs_month_length(bs_year, bs_month):
 		return 0
 
 
+def custom_period_start_day(settings=None):
+	"""Configured BS opening day for Custom Day Range (1–29).
+
+	Shortest BS months are 29 days, so day 29 exists in every month. Day 30+ does not.
+	"""
+	settings = settings if settings is not None else get_settings()
+	return min(max(cint(settings.get("payroll_period_start_day") or 1), 1), 29)
+
+
 def resolve_bs_period(bs_year, bs_month, settings=None):
 	"""(from_date, to_date, days) for a BS month under the configured basis.
 
@@ -65,8 +74,7 @@ def resolve_bs_period(bs_year, bs_month, settings=None):
 		end = nd.bs_to_ad(bs_year, bs_month, length)
 		return getdate(start), getdate(end), length
 
-	# Custom range: capped at 28 so the start day exists in every BS month.
-	start_day = min(max(cint(settings.get("payroll_period_start_day") or 1), 1), 28)
+	start_day = custom_period_start_day(settings)
 	start = getdate(nd.bs_to_ad(bs_year, bs_month, start_day))
 	nxt_year, nxt_month = (bs_year + 1, 1) if bs_month == 12 else (bs_year, bs_month + 1)
 	nxt_start = nd.bs_to_ad(nxt_year, nxt_month, start_day)
@@ -74,6 +82,41 @@ def resolve_bs_period(bs_year, bs_month, settings=None):
 		return start, None, 0
 	end = add_days(getdate(nxt_start), -1)
 	return start, end, (end - start).days + 1
+
+
+def period_containing(date, settings=None):
+	"""(from_date, to_date, days) for the payroll period that includes `date`.
+
+	For Custom Day Range with start day 29, a date on BS day 15 of month M falls in
+	the period that opened on day 29 of month M-1, not month M's upcoming range.
+	"""
+	settings = settings if settings is not None else get_settings()
+	date = getdate(date)
+	bs_year, bs_month = bs_month_of(date)
+	if not bs_year:
+		return None, None, 0
+
+	basis = settings.get("payroll_period_basis") or "Nepali Month"
+	if basis == "Custom Day Range":
+		try:
+			bs = _nd().ad_to_bs(date)
+			bs_day = cint(bs.get("day") if isinstance(bs, dict) else getattr(bs, "day", 0))
+		except Exception:
+			bs_day = 0
+		start_day = custom_period_start_day(settings)
+		if bs_day and bs_day < start_day:
+			bs_year, bs_month = (bs_year - 1, 12) if bs_month == 1 else (bs_year, bs_month - 1)
+
+	return resolve_bs_period(bs_year, bs_month, settings)
+
+
+def previous_period(date, settings=None):
+	"""(from_date, to_date, days) for the payroll period that ended before the one containing `date`."""
+	settings = settings if settings is not None else get_settings()
+	start, _end, _days = period_containing(date, settings)
+	if not start:
+		return None, None, 0
+	return period_containing(add_days(getdate(start), -1), settings)
 
 
 def get_settings():
@@ -89,6 +132,13 @@ def bs_month_of(date):
 		return cint(bs["year"]), cint(bs["month"])
 	except Exception:
 		return 0, 0
+
+
+def is_period_start_date(date, settings=None):
+	"""True when `date` is the opening day of its payroll period."""
+	settings = settings if settings is not None else get_settings()
+	start, _end, _days = period_containing(date, settings)
+	return bool(start) and getdate(date) == getdate(start)
 
 
 def get_period_override(start_date, company=None, created_on=None):

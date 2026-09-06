@@ -29,15 +29,14 @@ def _settings():
 
 
 def _previous_bs_period(settings):
-	"""(from_date, to_date) of the period that ended before today."""
-	from nepal_hrms.custom_code.payroll.period import bs_month_of, resolve_bs_period
+	"""(from_date, to_date) of the period that ended before today's period.
 
-	year, month = bs_month_of(today())
-	if not year:
-		return None, None
-	# The run fires at the start of a period and pays the one before it.
-	prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
-	start, end, _days = resolve_bs_period(prev_year, prev_month, settings)
+	Uses period_containing so Custom Day Range (e.g. 29th–28th) steps back by
+	payroll period, not by calendar BS month.
+	"""
+	from nepal_hrms.custom_code.payroll.period import previous_period
+
+	start, end, _days = previous_period(today(), settings)
 	return start, end
 
 

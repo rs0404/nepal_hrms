@@ -36,11 +36,21 @@ def evaluate_tax_formula(formula: str, taxable_salary: Union[str, float]) -> flo
 
 @frappe.whitelist()
 def get_suggested_payroll_dates(employee=None, start_date=None):
+	"""Suggest start/end for Payroll Entry / Salary Slip from Nepal HRMS Settings.
+
+	Uses the period that *contains* the reference date (Custom Day Range aware),
+	and sets is_first_day when that date is the period's opening day so the Desk
+	client can auto-fill the end date (e.g. picking the 29th fills through the 28th).
+	"""
 	from nepal_compliance.nepali_date_utils.nepali_date import (
-		ad_to_bs,
 		bs_to_ad,
 		_ensure_loaded,
 		_bs_months,
+	)
+	from nepal_hrms.custom_code.payroll.period import (
+		bs_month_of,
+		is_period_start_date,
+		period_containing,
 	)
 
 	ref_date = None
@@ -60,22 +70,12 @@ def get_suggested_payroll_dates(employee=None, start_date=None):
 	if not ref_date:
 		ref_date = getdate(nowdate())
 
-	bs_date = ad_to_bs(ref_date)
 	_ensure_loaded()
-
-	bs_year = bs_date.get("year") if isinstance(bs_date, dict) else getattr(bs_date, "year", None)
-	bs_month = bs_date.get("month") if isinstance(bs_date, dict) else getattr(bs_date, "month", None)
-	bs_day = bs_date.get("day") if isinstance(bs_date, dict) else getattr(bs_date, "day", None)
-
-	if not bs_year or not bs_month:
-		return {}
-
-	# Honour the configured payroll period basis: a whole BS month, or a custom
-	# range such as the 29th of one month to the 28th of the next.
-	from nepal_hrms.custom_code.payroll.period import resolve_bs_period
-
-	start_ad, end_ad, days = resolve_bs_period(bs_year, bs_month)
+	start_ad, end_ad, days = period_containing(ref_date)
 	if not start_ad:
+		bs_year, bs_month = bs_month_of(ref_date)
+		if not bs_year or not bs_month:
+			return {}
 		days_in_month = _bs_months.get(bs_year, [])[bs_month - 1]
 		start_ad = bs_to_ad(bs_year, bs_month, 1)
 		end_ad = bs_to_ad(bs_year, bs_month, days_in_month)
@@ -85,5 +85,6 @@ def get_suggested_payroll_dates(employee=None, start_date=None):
 		"start_date": str(start_ad) if start_ad else None,
 		"end_date": str(end_ad) if end_ad else None,
 		"period_days": days,
-		"is_first_day": bs_day == 1,
+		# Kept as is_first_day for existing Desk JS; means "period opening day".
+		"is_first_day": is_period_start_date(ref_date),
 	}

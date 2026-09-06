@@ -9,7 +9,7 @@ frappe.ui.form.on("Payroll Entry", {
                         frm.set_value("start_date", r.message.start_date);
                         frm.set_value("end_date", r.message.end_date);
                         frappe.show_alert({
-                            message: __('Auto-populated dates based on current Nepali month'),
+                            message: __('Auto-populated dates for the current payroll period'),
                             indicator: 'green'
                         });
                     }
@@ -27,7 +27,7 @@ frappe.ui.form.on("Payroll Entry", {
                     if (r.message && r.message.is_first_day && r.message.end_date) {
                         frm.set_value("end_date", r.message.end_date);
                         frappe.show_alert({
-                            message: __('End date auto-filled for the Nepali month'),
+                            message: __('End date auto-filled for the payroll period'),
                             indicator: 'green'
                         });
                     }
