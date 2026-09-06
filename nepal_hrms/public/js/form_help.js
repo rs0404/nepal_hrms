@@ -115,8 +115,10 @@ frappe.provide("nepal_hrms.form_help");
 	function attach(frm, opts = {}) {
 		const fieldnames = opts.fieldnames || null;
 		const include_sections = opts.include_sections !== false;
+		const hide_all_descriptions = opts.hide_all_descriptions !== false;
 
 		frm.$wrapper.addClass("nh-help-form");
+		if (hide_all_descriptions) frm.$wrapper.addClass("nh-help-hide-all");
 		if (opts.form_class) frm.$wrapper.addClass(opts.form_class);
 
 		Object.values(frm.fields_dict || {}).forEach((field) => {
@@ -125,6 +127,7 @@ frappe.provide("nepal_hrms.form_help");
 			if (fieldnames && !fieldnames.includes(field.df.fieldname)) return;
 			const content = help_html(field.df.description);
 			if (!content) return;
+			field.$wrapper.addClass("nh-help-attached");
 			bind_help_button(anchor_for_field(field), content);
 		});
 
@@ -145,6 +148,9 @@ frappe.provide("nepal_hrms.form_help");
 				}
 				bind_help_button($help, content);
 				$help.on("click", (e) => e.stopPropagation());
+				$(section.wrapper || section.head.closest(".form-section")).addClass(
+					"nh-help-attached"
+				);
 			});
 		}
 

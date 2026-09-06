@@ -7,6 +7,7 @@ frappe.ui.form.on("Salary Structure Assignment", {
 			"/assets/nepal_hrms/css/nepal_hrms_settings.css",
 			"/assets/nepal_hrms/js/form_help.js",
 		]);
+		suggest_leave_encashment_formula(frm);
 	},
 
 	refresh(frm) {
@@ -33,5 +34,18 @@ frappe.ui.form.on("Salary Structure Assignment", {
 				});
 			}
 		);
+		suggest_leave_encashment_formula(frm);
 	},
 });
+
+function suggest_leave_encashment_formula(frm) {
+	// Settings only suggest: never overwrite a value the user (or a prior save) already set.
+	if (frm.doc.custom_leave_encashment_formula) return;
+	if (frm._nh_encashment_formula_suggested) return;
+	frm._nh_encashment_formula_suggested = true;
+
+	frappe.db.get_single_value("Nepal HRMS Settings", "default_leave_encashment_formula").then((formula) => {
+		if (!formula || frm.doc.custom_leave_encashment_formula) return;
+		frm.set_value("custom_leave_encashment_formula", formula);
+	});
+}

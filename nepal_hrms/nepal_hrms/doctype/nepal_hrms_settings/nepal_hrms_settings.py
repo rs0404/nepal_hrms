@@ -16,8 +16,20 @@ SCHEDULED_ACCOUNT_RULES = {
 class NepalHRMSSettings(Document):
 	def validate(self):
 		self.validate_payroll_period_start_day()
+		self.validate_period_leave_gross_lwp()
 		self.validate_payroll_accounts()
 		self.validate_scheduled_payroll_runs()
+
+	def validate_period_leave_gross_lwp(self):
+		if not cint(self.enable_period_leave_gross_lwp):
+			return
+		threshold = cint(self.period_leave_gross_lwp_threshold)
+		if threshold < 1:
+			frappe.throw(
+				_("Period Leave Threshold Days must be at least 1."),
+				title=_("Invalid Period Leave Threshold"),
+			)
+		self.period_leave_gross_lwp_threshold = threshold
 
 	def validate_payroll_period_start_day(self):
 		"""Custom ranges open on a day that exists in every BS month (1–29)."""

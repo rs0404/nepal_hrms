@@ -114,6 +114,70 @@ def _classify_late_or_early(mins, app, employee, att_date, grace, max_delay):
     return "minor"
 
 
+def count_sandwich_holiday_absents(
+    employee, attendance_rows, holidays, already_counting_holiday_attendance=False
+):
+    """Holiday Absents created by the sandwich rule.
+
+    Stock HRMS skips Absent on holidays unless Payroll Settings
+    "Consider Marked Attendance on Holidays" is on. Sandwich weekends are
+    holidays, so those days never reached leave_without_pay / absent_days.
+    """
+    if already_counting_holiday_attendance or not employee:
+        return 0.0
+
+    from nepal_hrms.custom_code.attendance_holiday import (
+        is_sandwiched,
+        sandwich_rule_enabled,
+    )
+
+    if not sandwich_rule_enabled():
+        return 0.0
+
+    holiday_set = {getdate(h) for h in (holidays or [])}
+    extra = 0.0
+    for row in attendance_rows or []:
+        day = getdate(row.get("attendance_date") if isinstance(row, dict) else row.attendance_date)
+        status = row.get("status") if isinstance(row, dict) else row.status
+        if day not in holiday_set or (status or "").strip() != "Absent":
+            continue
+        if is_sandwiched(employee, day):
+            extra += 1
+    return extra
+
+
+def period_leave_days_for_gross_rule(lwp_days, absent_days):
+    """LWP + absent days in the payroll period that can trip LWP onto Gross."""
+    return flt(lwp_days) + flt(absent_days)
+
+
+def lwp_should_use_gross(
+    *,
+    enable_continuous,
+    max_continuous_lwp,
+    continuous_threshold,
+    enable_period_leave,
+    period_leave_days,
+    period_threshold,
+    escape_lwp_gross,
+):
+    """Return (use_gross, is_continuous, is_period_leave).
+
+    Continuous LWP: one application length is at least the threshold.
+    Period leave: LWP + absent days in this payroll period is more than the threshold.
+    """
+    if cint(escape_lwp_gross):
+        return False, 0, 0
+    is_continuous = int(
+        cint(enable_continuous)
+        and flt(max_continuous_lwp) >= cint(continuous_threshold or 0)
+    )
+    is_period = int(
+        cint(enable_period_leave) and flt(period_leave_days) > cint(period_threshold or 0)
+    )
+    return bool(is_continuous or is_period), is_continuous, is_period
+
+
 def compute_nepal_hr_variables(doc, data):
     if isinstance(doc, dict):
         doc = frappe._dict(doc)
@@ -303,8 +367,10 @@ def compute_nepal_hr_variables(doc, data):
     if unapproved_absent_days < 0:
         unapproved_absent_days = 0.0
 
-    # 4. Continuous LWP Streak & Gross Salary Deduction Rate
-    # Policy: normal deductions on basic; unapproved absence or continuous LWP >= threshold on gross.
+    # 4. LWP streak / period-leave count & Gross Salary Deduction Rate
+    # Policy: normal LWP on the configured base; unapproved absence or either
+    # Gross-LWP rule (continuous application, or too many LWP + absent days in the
+    # payroll period) uses gross.
     is_continuous_lwp_gross = 0
     max_continuous_lwp = 0
 
@@ -399,16 +465,20 @@ def compute_nepal_hr_variables(doc, data):
     configured_lwp_daily = flt(lwp_monthly_base) / working_days if working_days else 0.0
     configured_absent_daily = flt(absent_monthly_base) / working_days if working_days else 0.0
 
+    paid_leave_days = _get_paid_leave_days(employee, start_date, end_date)
+    period_leave_days = period_leave_days_for_gross_rule(lwp_days, unapproved_absent_days)
     threshold_lwp = cint(getattr(settings, "continuous_lwp_threshold_days", 5) or 5)
-    if (
-        cint(getattr(settings, "enable_continuous_lwp_gross_deduction", 0))
-        and max_continuous_lwp >= threshold_lwp
-        and not cint(period_escapes.escape_continuous_lwp_gross)
-    ):
-        is_continuous_lwp_gross = 1
-        lwp_deduction_rate = gross_daily
-    else:
-        lwp_deduction_rate = configured_lwp_daily
+    period_threshold = cint(getattr(settings, "period_leave_gross_lwp_threshold", 5) or 5)
+    use_gross, is_continuous_lwp_gross, is_period_leave_gross = lwp_should_use_gross(
+        enable_continuous=getattr(settings, "enable_continuous_lwp_gross_deduction", 0),
+        max_continuous_lwp=max_continuous_lwp,
+        continuous_threshold=threshold_lwp,
+        enable_period_leave=getattr(settings, "enable_period_leave_gross_lwp", 0),
+        period_leave_days=period_leave_days,
+        period_threshold=period_threshold,
+        escape_lwp_gross=period_escapes.escape_continuous_lwp_gross,
+    )
+    lwp_deduction_rate = gross_daily if use_gross else configured_lwp_daily
 
     # The escape only relaxes a configured gross absence rate.
     if cint(period_escapes.escape_absent_gross) and absent_base_name == GROSS_BASE:
@@ -421,7 +491,6 @@ def compute_nepal_hr_variables(doc, data):
     # Fold escalated full-day pool penalties into unapproved absent days (gross)
     escalated_full_days = flt(late_entry_full_days) + flt(early_exit_full_days)
     unapproved_absent_days = flt(unapproved_absent_days) + escalated_full_days
-    paid_leave_days = _get_paid_leave_days(employee, start_date, end_date)
     half_day_penalties = flt(
         late_entry_half_days + early_exit_half_days + out_of_office_half_days
     )
@@ -444,6 +513,8 @@ def compute_nepal_hr_variables(doc, data):
     data["unapproved_absent_rate"] = unapproved_absent_rate
     data["late_deduction_rate"] = late_deduction_rate
     data["is_continuous_lwp_gross"] = is_continuous_lwp_gross
+    data["is_period_leave_gross"] = is_period_leave_gross
+    data["period_leave_days"] = period_leave_days
     data["half_day_deduction_base"] = half_day_base_name
     data["lwp_deduction_base"] = lwp_base_name
     data["unapproved_absence_deduction_base"] = absent_base_name
@@ -463,6 +534,7 @@ def compute_nepal_hr_variables(doc, data):
         "custom_unapproved_absent_deduction_amount": absent_deduction_amount,
         "custom_leave_late_deduction_total": leave_late_deduction_total,
         "custom_is_continuous_lwp_gross": is_continuous_lwp_gross,
+        "custom_is_period_leave_gross": is_period_leave_gross,
     }
     for fieldname, value in visible_values.items():
         if doc.meta.has_field(fieldname):
@@ -478,6 +550,8 @@ def compute_nepal_hr_variables(doc, data):
                 "half_day_deduction_base": half_day_base_name,
                 "lwp_deduction_base": lwp_base_name,
                 "unapproved_absence_deduction_base": absent_base_name,
+                "period_leave_days": period_leave_days,
+                "is_period_leave_gross": is_period_leave_gross,
             }
         )
     doc._nepal_hr_vars = {
@@ -492,9 +566,33 @@ def compute_nepal_hr_variables(doc, data):
         "unapproved_absent_rate": unapproved_absent_rate,
         "late_deduction_rate": late_deduction_rate,
         "is_continuous_lwp_gross": is_continuous_lwp_gross,
+        "is_period_leave_gross": is_period_leave_gross,
     }
 
 class CustomSalarySlip(SalarySlip):
+    def get_working_days_details(self, lwp=None, for_preview=0):
+        super().get_working_days_details(lwp=lwp, for_preview=for_preview)
+        # Formulas may have already run against stale absent_days; force a rebuild.
+        for attr in ("_nepal_hr_variables_loaded", "_nepal_hr_vars"):
+            if hasattr(self, attr):
+                delattr(self, attr)
+
+    def calculate_lwp_ppl_and_absent_days_based_on_attendance(
+        self, holidays, daily_wages_fraction_for_half_day, consider_marked_attendance_on_holidays
+    ):
+        lwp, absent = super().calculate_lwp_ppl_and_absent_days_based_on_attendance(
+            holidays, daily_wages_fraction_for_half_day, consider_marked_attendance_on_holidays
+        )
+        extra = count_sandwich_holiday_absents(
+            self.employee,
+            self.get_employee_attendance(self.start_date, self.actual_end_date),
+            holidays,
+            already_counting_holiday_attendance=bool(
+                cint(consider_marked_attendance_on_holidays)
+            ),
+        )
+        return lwp, flt(absent) + extra
+
     def add_structure_components(self, component_type):
         super().add_structure_components(component_type)
         if component_type == "earnings" and (self.salary_structure or "").startswith("Nepal Payroll - "):

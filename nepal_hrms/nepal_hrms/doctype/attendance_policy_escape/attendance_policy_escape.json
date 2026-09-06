@@ -114,7 +114,7 @@
   },
   {
    "default": "0",
-   "description": "Continuous LWP stays on basic daily rate instead of gross",
+   "description": "Continuous LWP and Period Leave Gross LWP stay on the configured LWP daily rate instead of Gross",
    "fieldname": "escape_continuous_lwp_gross",
    "fieldtype": "Check",
    "label": "Escape Consecutive LWP Gross"

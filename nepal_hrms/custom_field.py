@@ -1,3 +1,5 @@
+import json
+
 import frappe
 from frappe import _
 
@@ -37,6 +39,7 @@ def create_custom_fields():
 			# Period Override cannot restate pay that has already been computed.
 			{"fieldname": "custom_daily_divisor_used", "label": "Daily Rate Divisor Used", "fieldtype": "Float", "insert_after": "total_working_days", "read_only": 1, "description": "Days this slip was divided by for per-day deductions. Frozen at first calculation."},
 			{"fieldname": "custom_daily_divisor_basis", "label": "Daily Rate Basis Used", "fieldtype": "Data", "insert_after": "custom_daily_divisor_used", "read_only": 1},
+			{"fieldname": "custom_overtime_hours", "label": "Overtime Hours", "fieldtype": "Int", "insert_after": "leave_without_pay", "description": "Hours paid as overtime this period. Formula: hours × (basic remuneration / 30 / 8) × the multiplier in Nepal HRMS Settings."},
 			{"fieldname": "custom_attendance_breakdown_section", "label": "", "fieldtype": "Section Break", "insert_after": "payment_days_calculation_help"},
 			{"fieldname": "custom_attendance_counts_heading", "label": "Attendance Deduction Breakdown", "fieldtype": "Heading", "insert_after": "custom_attendance_breakdown_section"},
 			{"fieldname": "custom_paid_leave_days", "label": "Paid Leave Days", "fieldtype": "Float", "insert_after": "custom_attendance_counts_heading", "read_only": 1, "allow_on_submit": 1, "description": "Approved paid leave (non-LWP) in this payroll period"},
@@ -49,14 +52,15 @@ def create_custom_fields():
 			{"fieldname": "custom_attendance_counts_col", "label": "", "fieldtype": "Column Break", "insert_after": "custom_unapproved_absent_days"},
 			{"fieldname": "custom_deduction_rates_section", "label": "Deduction Rates", "fieldtype": "Heading", "insert_after": "custom_attendance_counts_col"},
 			{"fieldname": "custom_late_deduction_rate", "label": "Late/Early/OOO Half-Day Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_deduction_rates_section", "read_only": 1, "allow_on_submit": 1, "description": "Half of the configured Half-Day Deduction Base daily rate."},
-			{"fieldname": "custom_lwp_deduction_rate", "label": "LWP Daily Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_late_deduction_rate", "read_only": 1, "allow_on_submit": 1, "description": "Configured LWP Deduction Base daily rate, or Gross when the continuous-LWP threshold applies."},
+			{"fieldname": "custom_lwp_deduction_rate", "label": "LWP Daily Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_late_deduction_rate", "read_only": 1, "allow_on_submit": 1, "description": "Configured LWP Deduction Base daily rate, or Gross when a continuous-LWP or period-leave threshold applies."},
 			{"fieldname": "custom_unapproved_absent_rate", "label": "Unapproved Absence Daily Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_lwp_deduction_rate", "read_only": 1, "allow_on_submit": 1, "description": "Daily rate from the configured Unapproved Absence Deduction Base."},
-			{"fieldname": "custom_is_continuous_lwp_gross", "label": "Continuous LWP Uses Gross Rate", "fieldtype": "Check", "insert_after": "custom_unapproved_absent_rate", "read_only": 1, "allow_on_submit": 1},
-			{"fieldname": "custom_deduction_amounts_section", "label": "", "fieldtype": "Column Break", "insert_after": "custom_is_continuous_lwp_gross"},
+			{"fieldname": "custom_is_continuous_lwp_gross", "label": "Continuous LWP Uses Gross Rate", "fieldtype": "Check", "insert_after": "custom_unapproved_absent_rate", "read_only": 1, "allow_on_submit": 1, "description": "Checked when a single LWP application met the continuous threshold, so LWP is deducted from Gross."},
+			{"fieldname": "custom_is_period_leave_gross", "label": "Period Leave Uses Gross LWP Rate", "fieldtype": "Check", "insert_after": "custom_is_continuous_lwp_gross", "read_only": 1, "allow_on_submit": 1, "description": "Set when LWP + absent days in this period exceeded the Period Leave Threshold, so LWP is deducted from Gross."},
+			{"fieldname": "custom_deduction_amounts_section", "label": "", "fieldtype": "Column Break", "insert_after": "custom_is_period_leave_gross"},
 			{"fieldname": "custom_deduction_amounts_heading", "label": "Actual Deduction Amounts", "fieldtype": "Heading", "insert_after": "custom_deduction_amounts_section"},
-			{"fieldname": "custom_late_deduction_amount", "label": "Late/Early/OOO Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_deduction_amounts_heading", "read_only": 1, "allow_on_submit": 1},
-			{"fieldname": "custom_lwp_deduction_amount", "label": "LWP Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_late_deduction_amount", "read_only": 1, "allow_on_submit": 1},
-			{"fieldname": "custom_unapproved_absent_deduction_amount", "label": "Unapproved Absence Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_lwp_deduction_amount", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_late_deduction_amount", "label": "Late/Early/OOO Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_deduction_amounts_heading", "read_only": 1, "allow_on_submit": 1, "description": "Half-day late, early-exit and out-of-office penalties multiplied by the half-day rate."},
+			{"fieldname": "custom_lwp_deduction_amount", "label": "LWP Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_late_deduction_amount", "read_only": 1, "allow_on_submit": 1, "description": "LWP days multiplied by the LWP daily rate."},
+			{"fieldname": "custom_unapproved_absent_deduction_amount", "label": "Unapproved Absence Deduction Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_lwp_deduction_amount", "read_only": 1, "allow_on_submit": 1, "description": "Unapproved absent days multiplied by the unapproved absence daily rate."},
 			{"fieldname": "custom_leave_late_deduction_total", "label": "Total Attendance Deduction", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_unapproved_absent_deduction_amount", "read_only": 1, "allow_on_submit": 1, "description": "Late/early/OOO, LWP and unapproved absence deductions combined"},
 			{"fieldname": "custom_attendance_breakdown_html", "label": "Attendance Deduction Explanation", "fieldtype": "HTML", "insert_after": "custom_leave_late_deduction_total"},
 			{"fieldname": "custom_attendance_breakdown_data", "label": "Attendance Deduction Data", "fieldtype": "Long Text", "insert_after": "custom_attendance_breakdown_html", "hidden": 1, "allow_on_submit": 1},
@@ -117,11 +121,11 @@ def create_custom_fields():
 			{"fieldname": "nepali_end_date", "label": "End Date BS", "fieldtype": "Data", "insert_after": "end_date", "allow_on_submit": 1},
 		],
 		"Salary Structure": [
-			{"fieldname": "custom_leave_encashment_formula", "label": "Leave Encashment Formula", "fieldtype": "Small Text", "insert_after": "leave_encashment_amount_per_day", "description": "Formula for Leave Encashment Per Day (e.g., base * 0.6 / 30). Use 'base' for base salary.", "allow_on_submit": 1},
+			{"fieldname": "custom_leave_encashment_formula", "label": "Leave Encashment Formula", "fieldtype": "Small Text", "insert_after": "leave_encashment_amount_per_day", "description": "Per-day Leave Encashment amount. Suggested from Nepal HRMS Settings when empty; change freely here.\n\nExamples: custom_basic_remuneration / 30, basic_remuneration / 30, base / 30.\n\nAlso available: custom_basic_salary, custom_dearness_allowance, custom_grade_amount, custom_total_fixed_remuneration, nsa_<abbr>, and structure component abbrs.", "allow_on_submit": 1},
 		],
 		"Salary Structure Assignment": [
 			{"fieldname": "nepali_date", "label": "Nepali Date", "fieldtype": "Data", "insert_after": "from_date", "allow_on_submit": 1},
-			{"fieldname": "custom_leave_encashment_formula", "label": "Leave Encashment Formula", "fieldtype": "Small Text", "insert_after": "leave_encashment_amount_per_day", "description": "Formula for Leave Encashment Per Day (e.g., basic_remuneration / 30). Use 'base' for total fixed remuneration.", "allow_on_submit": 1},
+			{"fieldname": "custom_leave_encashment_formula", "label": "Leave Encashment Formula", "fieldtype": "Small Text", "insert_after": "leave_encashment_amount_per_day", "description": "Per-day Leave Encashment amount. Suggested from Nepal HRMS Settings when empty; change freely here.\n\nExamples: custom_basic_remuneration / 30, basic_remuneration / 30, base / 30.\n\nAlso available: custom_basic_salary, custom_dearness_allowance, custom_grade_amount, custom_total_fixed_remuneration, nsa_<abbr>, and structure component abbrs.", "allow_on_submit": 1},
 			# Nepal salary breakdown. Deliberately NOT allow_on_submit: pay changes must go
 			# through amend so there is an audit trail.
 			{"fieldname": "custom_nepal_salary_section", "label": "Nepal Salary Breakdown", "fieldtype": "Section Break", "insert_after": "payroll_payable_account", "description": "Base is kept in sync with this breakdown automatically. Fill Basic, Dearness Allowance, Grade and Other Allowances; Base is updated from the total."},
@@ -317,4 +321,63 @@ def create_custom_fields():
 					update_modified=False,
 				)
 
+	_place_salary_slip_lwp_and_overtime_under_absent_days()
 	return created_fields
+
+
+def _move_fields_after(order, fields_to_move, after):
+	"""Return a copy of order with fields_to_move placed immediately after `after`."""
+	order = list(order)
+	if after not in order:
+		return order
+	moving = [fn for fn in fields_to_move if fn in order]
+	for fn in moving:
+		order.remove(fn)
+	idx = order.index(after) + 1
+	for offset, fn in enumerate(moving):
+		order.insert(idx + offset, fn)
+	return order
+
+
+def _place_salary_slip_lwp_and_overtime_under_absent_days():
+	"""Put Leave Without Pay and Overtime Hours in the right column under Absent Days."""
+	ps_name = frappe.db.get_value(
+		"Property Setter",
+		{
+			"doc_type": "Salary Slip",
+			"property": "field_order",
+			"doctype_or_field": "DocType",
+		},
+		"name",
+	)
+	if ps_name:
+		order = json.loads(frappe.db.get_value("Property Setter", ps_name, "value") or "[]")
+	else:
+		order = [df.fieldname for df in frappe.get_meta("Salary Slip").fields]
+
+	new_order = _move_fields_after(
+		order,
+		("leave_without_pay", "custom_overtime_hours"),
+		"absent_days",
+	)
+	if new_order == order:
+		return
+
+	value = json.dumps(new_order)
+	if ps_name:
+		frappe.db.set_value("Property Setter", ps_name, "value", value, update_modified=False)
+	else:
+		frappe.get_doc(
+			{
+				"doctype": "Property Setter",
+				"doctype_or_field": "DocType",
+				"doc_type": "Salary Slip",
+				"property": "field_order",
+				"property_type": "Small Text",
+				"value": value,
+				"is_system_generated": 1,
+				"module": "Nepal HRMS",
+			}
+		).insert(ignore_permissions=True)
+
+	frappe.clear_cache(doctype="Salary Slip")

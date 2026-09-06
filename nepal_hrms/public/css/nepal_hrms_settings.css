@@ -12,9 +12,11 @@
 .nh-settings-form .form-section-description,
 .nh-settings-form .help-box,
 .nh-settings-form .grid-description,
-.nh-help-form .form-section-description,
-.nh-help-form .help-box,
-.nh-help-form .grid-description {
+.nh-help-form.nh-help-hide-all .form-section-description,
+.nh-help-form.nh-help-hide-all .help-box,
+.nh-help-form.nh-help-hide-all .grid-description,
+.nh-help-form .frappe-control.nh-help-attached .help-box,
+.nh-help-form .form-section.nh-help-attached .form-section-description {
 	display: none !important;
 }
 

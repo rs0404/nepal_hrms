@@ -63,12 +63,18 @@
   "unapproved_absence_deduction_base",
   "column_break_deduction",
   "lwp_deduction_base",
+  "period_leave_gross_section",
+  "enable_period_leave_gross_lwp",
+  "column_break_period_leave_gross",
+  "period_leave_gross_lwp_threshold",
   "contribution_section",
   "default_basic_percent",
   "include_grade_in_ssf_base",
   "column_break_contribution",
   "overtime_rate_multiplier",
   "include_da_in_ssf_base",
+  "leave_encashment_section",
+  "default_leave_encashment_formula",
   "payroll_period_section",
   "payroll_period_basis",
   "column_break_period",
@@ -244,6 +250,7 @@
   },
   {
    "default": "0",
+   "description": "Weekends and holidays that sit between full-day leave or absence are marked Absent and deducted on the salary slip (unapproved absence).",
    "fieldname": "enable_leave_sandwich_rule",
    "fieldtype": "Check",
    "label": "Enable Leave Sandwich Rule"
@@ -452,11 +459,35 @@
   },
   {
    "default": "Basic Remuneration (SSF/PF Base)",
-   "description": "Normal Leave Without Pay rate. The continuous-LWP rule can still change this to Gross after its threshold.",
+   "description": "Normal Leave Without Pay rate. Continuous LWP and Period Leave Gross LWP can still switch this to Gross after their thresholds.",
    "fieldname": "lwp_deduction_base",
    "fieldtype": "Select",
    "label": "LWP Deduction Base",
    "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)"
+  },
+  {
+   "fieldname": "period_leave_gross_section",
+   "fieldtype": "Section Break",
+   "label": "Period Leave Gross LWP"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, if LWP + absent days in the payroll period are more than the threshold, all LWP on the slip is deducted at the Gross daily rate instead of the LWP Deduction Base. Paid leave is not counted.",
+   "fieldname": "enable_period_leave_gross_lwp",
+   "fieldtype": "Check",
+   "label": "Enable Period Leave Gross LWP"
+  },
+  {
+   "fieldname": "column_break_period_leave_gross",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "5",
+   "depends_on": "eval: doc.enable_period_leave_gross_lwp === 1",
+   "description": "If LWP + absent days in this payroll period are more than this number, LWP is deducted from Gross. Paid leave is not counted. Example: 5 means 6 or more LWP/absent days trigger Gross. This is separate from Continuous LWP, which looks at one application's length.",
+   "fieldname": "period_leave_gross_lwp_threshold",
+   "fieldtype": "Int",
+   "label": "Period Leave Threshold Days"
   },
   {
    "description": "How the Salary Structure Assignment breakdown converts to pay. Base always equals Basic + Dearness Allowance + Grade + Other Allowances.",
@@ -495,6 +526,19 @@
    "fieldname": "include_da_in_ssf_base",
    "fieldtype": "Check",
    "label": "Include Dearness Allowance in SSF / PF / Gratuity Base"
+  },
+  {
+   "description": "Suggested Leave Encashment Per Day formula for new Salary Structure Assignments. Assignments can override it. Clearing the Assignment formula does not re-lock it to this value on save.",
+   "fieldname": "leave_encashment_section",
+   "fieldtype": "Section Break",
+   "label": "Leave Encashment"
+  },
+  {
+   "default": "custom_basic_remuneration / 30",
+   "description": "Pre-fills Salary Structure Assignment \u2192 Leave Encashment Formula when that field is empty. Edit freely on each Assignment.\n\nAvailable names include: base, custom_basic_remuneration (alias basic_remuneration), custom_basic_salary, custom_dearness_allowance, custom_grade_amount, custom_total_fixed_remuneration, custom_total_allowances, nsa_<abbr>, and Salary Structure component abbrs.\n\nExample: custom_basic_remuneration / 30",
+   "fieldname": "default_leave_encashment_formula",
+   "fieldtype": "Small Text",
+   "label": "Default Leave Encashment Formula"
   },
   {
    "description": "Defines the period a payroll run covers. Used to suggest dates on Payroll Entry and Salary Slip, and to resolve per-period day overrides.\n\nTo change the day count for one month only \u2014 for example treating Shrawan as 32 days instead of 31 \u2014 create a <b>Nepal Payroll Period Override</b>. Overrides carry an <i>Applies From</i> date and are snapshotted onto each salary slip when it is first calculated, so existing slips keep the divisor they were computed with.",

@@ -4,7 +4,7 @@
 		width="20"
 		height="20"
 		viewBox="0 0 20 20"
-		fill="currentColor"
+		fill="#DC143C"
 	>
 		<path d="M4.4 4.7L11.05 8.35H4.4V4.7Z" />
 		<path d="M4.4 8.15L13.15 13.7H4.4V8.15Z" />

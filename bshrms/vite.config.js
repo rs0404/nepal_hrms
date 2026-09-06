@@ -31,25 +31,25 @@ export default defineConfig({
 				theme_color: "#ffffff",
 				icons: [
 					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-192.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-192.png?v=2",
 						sizes: "192x192",
 						type: "image/png",
 						purpose: "any",
 					},
 					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-192.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-192.png?v=2",
 						sizes: "192x192",
 						type: "image/png",
 						purpose: "maskable",
 					},
 					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-512.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-512.png?v=2",
 						sizes: "512x512",
 						type: "image/png",
 						purpose: "any",
 					},
 					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-512.png",
+						src: "/assets/nepal_hrms/icon/nepal-hrms-512.png?v=2",
 						sizes: "512x512",
 						type: "image/png",
 						purpose: "maskable",
