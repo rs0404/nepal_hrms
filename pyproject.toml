@@ -4,6 +4,7 @@ authors = [
     { name = "Yarsa Labs Pvt. Ltd.", email = "support@yarsalabs.com"}
 ]
 description = "Nepali HR and Payroll (Bikram Sambat) for Frappe HR"
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
