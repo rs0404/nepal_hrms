@@ -8,9 +8,24 @@
 					variant="ghost"
 					@click="firstOfMonth = firstOfMonth.subtract(1, 'M')"
 				/>
-				<span class="text-base text-gray-800 font-bold">
-					{{ firstOfMonth.format("MMMM") }} {{ firstOfMonth.format("YYYY") }}
-				</span>
+				<div class="flex items-center gap-1">
+					<span class="text-base text-gray-800 font-bold">
+						{{ firstOfMonth.format("MMMM") }} {{ firstOfMonth.format("YYYY") }}
+					</span>
+					<button
+						type="button"
+						class="p-1 text-gray-400 hover:text-gray-700"
+						:title="__('Refresh')"
+						:aria-label="__('Refresh')"
+						@click.stop="reloadCalendar"
+					>
+						<FeatherIcon
+							name="refresh-cw"
+							class="h-3.5 w-3.5"
+							:class="calendarEvents.loading ? 'animate-spin' : ''"
+						/>
+					</button>
+				</div>
 				<Button
 					icon="chevron-right"
 					variant="ghost"
@@ -49,7 +64,7 @@
 						v-if="hasMarkers(getEventOnDate(index))"
 						class="flex gap-0.5 mt-0.5 h-1.5 items-center justify-center"
 					>
-						<i v-if="dayMarkers(getEventOnDate(index)).leave" class="marker-dot leave" />
+						<i v-if="dayMarkers(getEventOnDate(index)).leave" class="marker-dot" :class="dayMarkers(getEventOnDate(index)).pending ? 'pending' : 'leave'" />
 						<i v-if="dayMarkers(getEventOnDate(index)).late" class="marker-dot late" />
 						<i v-if="dayMarkers(getEventOnDate(index)).early" class="marker-dot early" />
 					</div>
@@ -101,12 +116,12 @@
 			<hr class="border-gray-100" />
 
 			<!-- Summary -->
-			<div class="grid grid-cols-4 mx-1">
+			<div class="grid grid-cols-5 mx-1">
 				<div v-for="status in summaryStatuses" :key="status" class="flex flex-col gap-0.5">
 					<div class="flex flex-row gap-1 items-center">
 						<span class="rounded-full h-2.5 w-2.5 shrink-0" :class="colorMap[status]" />
 						<span class="text-gray-600 text-[11px] font-medium leading-4">
-							{{ __(status) }}
+							{{ __(summaryLabels[status] || status) }}
 						</span>
 					</div>
 					<span class="text-gray-800 text-sm font-semibold leading-5 mx-auto">
@@ -117,7 +132,10 @@
 
 			<div class="flex flex-wrap gap-x-3 gap-y-1 mx-1 text-[11px] text-gray-600">
 				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot leave" />{{ __("Leave") }}
+					<i class="marker-dot leave" />{{ __("Approved") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="marker-dot pending" />{{ __("Pending") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
 					<i class="marker-dot late" />{{ __("Late") }}
@@ -132,9 +150,10 @@
 
 <script setup>
 import { computed, inject, ref, watch } from "vue"
-import { createResource } from "frappe-ui"
+import { createResource, FeatherIcon } from "frappe-ui"
+import { groupContiguousDates } from "@/utils/leave_ranges"
 
-const emit = defineEmits(["select-day", "create-leave"])
+const emit = defineEmits(["select-day", "create-leave", "refresh"])
 
 const props = defineProps({
 	employee: { type: String, default: null },
@@ -155,11 +174,17 @@ const colorMap = {
 	"Half Day": "bg-yellow-200 ring-1 ring-inset ring-yellow-400",
 	Absent: "bg-red-200 ring-1 ring-inset ring-red-400",
 	"On Leave": "bg-blue-200 ring-1 ring-inset ring-blue-400",
+	"Leave Pending": "bg-orange-100 ring-1 ring-inset ring-orange-400",
+	"Leave Rejected": "bg-rose-100 ring-1 ring-inset ring-rose-300",
 	Holiday: "bg-gray-200 ring-1 ring-inset ring-gray-300",
 	"Weekly Off": "bg-gray-200 ring-1 ring-inset ring-gray-300",
 }
 
-const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave"]
+const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave", "Leave Pending"]
+const summaryLabels = {
+	"On Leave": "Leave",
+	"Leave Pending": "Pending",
+}
 const selectMode = ref(false)
 const selectedDates = ref(new Set())
 const selectedCount = computed(() => selectedDates.value.size)
@@ -174,15 +199,36 @@ const dayMarkers = (info) => {
 	if (!info || typeof info === "string") {
 		return {
 			leave: info === "On Leave",
+			pending: false,
+			rejected: false,
 			late: false,
 			early: false,
 		}
 	}
+	const status = info.status || null
+	const app = info.leave_app_status
+	const leave =
+		!!info.leave ||
+		status === "On Leave" ||
+		status === "Leave Pending" ||
+		status === "Leave Rejected"
 	return {
-		leave: !!info.leave || info.status === "On Leave",
+		leave,
+		pending: leave && (app === "Pending" || status === "Leave Pending"),
+		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
 		late: !!info.late,
 		early: !!info.early,
 	}
+}
+
+function resolvePaintStatus(info) {
+	const status = dayStatus(info)
+	if (status && colorMap[status]) return status
+	const m = dayMarkers(info)
+	if (!m.leave) return status
+	if (m.rejected) return "Leave Rejected"
+	if (m.pending) return "Leave Pending"
+	return "On Leave"
 }
 
 const hasMarkers = (info) => {
@@ -218,8 +264,13 @@ function toggleDaySelection(date) {
 
 function applyLeaveSelection() {
 	if (!selectedDates.value.size) return
-	const sorted = [...selectedDates.value].sort()
-	emit("create-leave", { from_date: sorted[0], to_date: sorted[sorted.length - 1] })
+	const ranges = groupContiguousDates([...selectedDates.value])
+	if (!ranges.length) return
+	emit("create-leave", {
+		from_date: ranges[0].from_date,
+		to_date: ranges[ranges.length - 1].to_date,
+		ranges,
+	})
 	cancelSelectMode()
 }
 
@@ -231,12 +282,11 @@ const onDayClick = (index) => {
 	}
 	const info = getEventOnDate(index)
 	const m = dayMarkers(info)
-	const status = dayStatus(info)
-	emit("select-day", { date, late: m.late, early: m.early, status })
+	emit("select-day", { date, late: m.late, early: m.early, status: resolvePaintStatus(info) })
 }
 
 const statusColor = (info) => {
-	const status = dayStatus(info)
+	const status = resolvePaintStatus(info)
 	return status ? colorMap[status] : ""
 }
 
@@ -245,9 +295,10 @@ const summary = computed(() => {
 	if (!calendarEvents.data) return counts
 
 	for (const info of Object.values(calendarEvents.data)) {
-		let status = dayStatus(info)
+		let status = resolvePaintStatus(info)
 		if (!status) continue
 		if (status === "Work From Home") status = "Present"
+		if (!summaryStatuses.includes(status)) continue
 		counts[status] = (counts[status] || 0) + 1
 	}
 
@@ -280,11 +331,6 @@ const DAYS = [
 const calendarEvents = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_calendar_details",
 	auto: true,
-	cache: [
-		"nepal_hrms:attendance_calendar_details",
-		() => props.employee,
-		() => firstOfMonth.value.format("YYYY-MM-DD"),
-	],
 	makeParams() {
 		const params = {
 			from_date: firstOfMonth.value.format("YYYY-MM-DD"),
@@ -294,6 +340,13 @@ const calendarEvents = createResource({
 		return params
 	},
 })
+
+function reloadCalendar() {
+	calendarEvents.reload()
+	emit("refresh")
+}
+
+defineExpose({ reload: () => calendarEvents.reload() })
 
 watch(
 	() => props.employee,
@@ -315,6 +368,10 @@ watch(
 
 .marker-dot.leave {
 	background-color: #2563eb;
+}
+
+.marker-dot.pending {
+	background-color: #d97706;
 }
 
 .marker-dot.late {

@@ -113,6 +113,10 @@
 									:maxDate="field.maxDate"
 									:addSectionPadding="fieldList[0].name !== field.name"
 									:doctype="props.doctype"
+									:quickOptions="field.quickOptions"
+									:placeholder="field.placeholder"
+									:highlight="Boolean(field.highlight)"
+									:hint="field.hint"
 								/>
 							</template>
 
@@ -136,6 +140,7 @@
 				</template>
 
 				<div class="flex flex-col space-y-4 p-4" v-else>
+					<slot name="formHeader"></slot>
 					<FormField
 						v-for="field in props.fields"
 						:key="field.name"
@@ -154,6 +159,10 @@
 						:minDate="field.minDate"
 						:maxDate="field.maxDate"
 						:doctype="props.doctype"
+						:quickOptions="field.quickOptions"
+						:placeholder="field.placeholder"
+						:highlight="Boolean(field.highlight)"
+						:hint="field.hint"
 					/>
 
 					<!-- Attachment upload -->
@@ -211,7 +220,9 @@
 					@click="isSaveAction ? saveForm() : submitOrCancelForm()"
 					:variant="formButton === 'Cancel' ? 'subtle' : 'solid'"
 					:loading="
-						docList.insert.loading || documentResource?.setValue?.loading
+						docList.insert.loading ||
+						documentResource?.setValue?.loading ||
+						props.submitLoading
 					"
 				>
 					{{ __(formButton) }}
@@ -416,6 +427,7 @@ import useWorkflow from "@/composables/workflow"
 import { getCompanyCurrency } from "@/data/currencies"
 import { myLeaves, leaveBalance } from "@/data/leaves"
 import { formatCurrency } from "@/utils/formatters"
+import { markAttendanceRefresh } from "@/utils/attendance_refresh"
 
 const props = defineProps({
 	doctype: {
@@ -458,8 +470,18 @@ const props = defineProps({
 		required: false,
 		default: true,
 	},
+	customSubmit: {
+		type: Boolean,
+		required: false,
+		default: false,
+	},
+	submitLoading: {
+		type: Boolean,
+		required: false,
+		default: false,
+	},
 })
-const emit = defineEmits(["validateForm", "update:modelValue"])
+const emit = defineEmits(["validateForm", "update:modelValue", "submitDocument"])
 const router = useRouter()
 
 const CNR_DOCTYPES = [
@@ -632,6 +654,15 @@ const docList = createListResource({
 				position: "bottom-center",
 				iconClasses: "text-green-500",
 			})
+
+			if (props.doctype === "Leave Application") {
+				markAttendanceRefresh()
+				const query = router.currentRoute.value.query || {}
+				if (query.prefill === "1" || query.ranges) {
+					router.replace({ name: "AttendanceDashboard" })
+					return
+				}
+			}
 
 			router.replace({
 				name: `${props.doctype.replace(/\s+/g, "")}DetailView`,
@@ -845,11 +876,16 @@ function handleDocInsert() {
 	docList.insert.submit(formModel.value)
 }
 
+function isEmptyValue(value) {
+	if (typeof value === "string") return !value.trim()
+	return !value
+}
+
 function validateMandatoryFields() {
 	const errorFields = props.fields
 		.filter(
 			(field) =>
-				field.reqd && !field.hidden && !formModel.value[field.fieldname]
+				field.reqd && !field.hidden && isEmptyValue(formModel.value[field.fieldname])
 		)
 		.map((field) => field.label)
 
@@ -890,6 +926,9 @@ function saveForm() {
 
 	if (props.id) {
 		handleDocUpdate()
+	} else if (props.customSubmit) {
+		if (!validateMandatoryFields()) return
+		emit("submitDocument", { ...formModel.value })
 	} else {
 		handleDocInsert()
 	}

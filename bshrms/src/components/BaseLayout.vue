@@ -54,7 +54,7 @@
 </template>
 
 <script setup>
-import { IonHeader, IonContent, IonPage } from "@ionic/vue"
+import { IonHeader, IonContent, IonPage, onIonViewWillEnter } from "@ionic/vue"
 import { FeatherIcon, Avatar } from "frappe-ui"
 
 import { unreadNotificationsCount } from "@/data/notifications"
@@ -62,6 +62,7 @@ import { unreadNotificationsCount } from "@/data/notifications"
 import { inject } from "vue"
 
 const user = inject("$user")
+const emit = defineEmits(["viewWillEnter"])
 
 const props = defineProps({
 	pageTitle: {
@@ -70,4 +71,6 @@ const props = defineProps({
 		default: "",
 	},
 })
+
+onIonViewWillEnter(() => emit("viewWillEnter"))
 </script>

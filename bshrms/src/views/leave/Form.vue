@@ -8,25 +8,78 @@
 				:isSubmittable="true"
 				:fields="formFields.data"
 				:id="props.id"
-				:showAttachmentView="true"
+				:showAttachmentView="!isSplitLeave"
+				:customSubmit="isSplitLeave"
+				:submitLoading="splitCreate.loading"
 				@validateForm="validateForm"
-			/>
+				@submitDocument="createSplitApplications"
+			>
+				<template #formHeader>
+					<div
+						v-if="isSplitLeave"
+						class="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"
+					>
+						<div class="font-semibold">
+							{{
+								__("{0} leave applications will be created", [leaveRanges.length])
+							}}
+						</div>
+						<p class="mt-1 text-xs text-blue-800">
+							{{
+								__(
+									"Same leave type, reason, and approver for each. Save creates drafts — not submitted."
+								)
+							}}
+						</p>
+						<ul class="mt-2 space-y-1 text-xs font-medium">
+							<li
+								v-for="(range, index) in leaveRanges"
+								:key="range.from_date + '-' + range.to_date"
+							>
+								{{ __("Application {0}", [index + 1]) }}:
+								{{ formatNepaliPeriod(range.from_date, range.to_date) }}
+							</li>
+						</ul>
+						<p
+							v-if="leaveApplication.total_leave_days"
+							class="mt-2 text-xs text-blue-800"
+						>
+							{{
+								__("{0} leave days in total", [leaveApplication.total_leave_days])
+							}}
+						</p>
+					</div>
+				</template>
+			</FormView>
 		</ion-content>
 	</ion-page>
 </template>
 
 <script setup>
 import { IonPage, IonContent } from "@ionic/vue"
-import { createResource } from "frappe-ui"
-import { ref, watch, inject, onMounted } from "vue"
-import { useRoute } from "vue-router"
+import { createResource, toast, call } from "frappe-ui"
+import { ref, watch, inject, onMounted, computed } from "vue"
+import { useRoute, useRouter } from "vue-router"
 
 import FormView from "@/components/FormView.vue"
+import { decodeLeaveRanges } from "@/utils/leave_ranges"
+import { formatNepaliPeriod } from "@/utils/nepali_date"
+import { markAttendanceRefresh } from "@/utils/attendance_refresh"
+import { myLeaves } from "@/data/leaves"
+
+const SPLIT_HIDDEN_FIELDS = [
+	"from_date",
+	"to_date",
+	"half_day",
+	"half_day_date",
+	"total_leave_days",
+]
 
 const dayjs = inject("$dayjs")
 const __ = inject("$translate")
 const today = dayjs().format("YYYY-MM-DD")
 const route = useRoute()
+const router = useRouter()
 
 const props = defineProps({
 	id: {
@@ -40,19 +93,45 @@ const currEmployee = ref(sessionEmployee.data.name)
 
 // reactive object to store form data
 const leaveApplication = ref({})
+const leaveRanges = ref(props.id ? [] : decodeLeaveRanges(route.query?.ranges))
+const isSplitLeave = computed(() => !props.id && leaveRanges.value.length > 1)
+
+function applyPrefillFromQuery() {
+	if (props.id) {
+		leaveRanges.value = []
+		return
+	}
+	const q = route.query || {}
+	const decoded = decodeLeaveRanges(q.ranges)
+	if (decoded.length) {
+		leaveRanges.value = decoded
+	} else if (q.prefill === "1" && q.from_date) {
+		leaveRanges.value = [
+			{
+				from_date: String(q.from_date),
+				to_date: String(q.to_date || q.from_date),
+			},
+		]
+	}
+	const first = leaveRanges.value[0]
+	if (!first) return
+	leaveApplication.value = {
+		...leaveApplication.value,
+		from_date: first.from_date,
+		to_date: isSplitLeave.value ? first.to_date : String(q.to_date || first.to_date),
+		employee: currEmployee.value,
+		posting_date: today,
+	}
+	const singleDay = leaveRanges.value.length === 1 && first.from_date === first.to_date
+	if (q.half_day === "1" && singleDay) {
+		leaveApplication.value.half_day = 1
+		leaveApplication.value.half_day_date = first.from_date
+	}
+}
 
 onMounted(() => {
-	if (props.id) return
-	const q = route.query || {}
-	if (q.prefill === "1" && q.from_date) {
-		leaveApplication.value = {
-			...leaveApplication.value,
-			from_date: String(q.from_date),
-			to_date: String(q.to_date || q.from_date),
-			employee: currEmployee.value,
-			posting_date: today,
-		}
-	}
+	applyPrefillFromQuery()
+	hideSplitDateFields()
 })
 
 // get form fields
@@ -67,12 +146,35 @@ const formFields = createResource({
 
 			if (field.fieldname === "posting_date") field.default = today
 
+			if (field.fieldname === "section_break_5") {
+				field.label = __("Reason & Dates")
+			}
+
+			if (field.fieldname === "leave_type") {
+				field.highlight = true
+				field.hint = __("Required — tap a leave type")
+			}
+
+			if (field.fieldname === "description") {
+				field.reqd = 1
+				field.highlight = true
+				field.placeholder = __("Why are you taking this leave?")
+				field.hint = __("Required — this is sent to your approver")
+			}
+
+			if (isSplitLeave.value && SPLIT_HIDDEN_FIELDS.includes(field.fieldname)) {
+				field.hidden = true
+			}
+
 			return field
 		})
 	},
 	onSuccess(_data) {
 		leaveApprovalDetails.reload()
 		leaveTypes.reload()
+		frequentLeaveTypes.reload()
+		leaveTypeBalances.reload()
+		hideSplitDateFields()
 	},
 })
 formFields.reload()
@@ -96,6 +198,30 @@ const leaveTypes = createResource({
 	},
 })
 
+const frequentLeaveTypes = createResource({
+	url: "nepal_hrms.api.leave_application.get_frequent_leave_types",
+	params: {
+		employee: currEmployee.value,
+		date: today,
+	},
+	auto: false,
+	onSuccess() {
+		if (leaveTypes.data) setLeaveTypes(leaveTypes.data)
+	},
+})
+
+const leaveTypeBalances = createResource({
+	url: "nepal_hrms.api.leave_application.get_leave_type_balances",
+	params: {
+		employee: currEmployee.value,
+		date: today,
+	},
+	auto: false,
+	onSuccess() {
+		if (leaveTypes.data) setLeaveTypes(leaveTypes.data)
+	},
+})
+
 // form scripts
 watch(
 	() => leaveApplication.value.employee,
@@ -105,13 +231,19 @@ watch(
 			setFormReadOnly()
 		}
 		currEmployee.value = employee_id
-		leaveTypes.fetch({ employee: currEmployee.value, date: today })
-		leaveApprovalDetails.fetch({ employee: currEmployee.value })		
+		const date = leaveApplication.value.from_date || today
+		leaveTypes.fetch({ employee: currEmployee.value, date })
+		frequentLeaveTypes.fetch({ employee: currEmployee.value, date })
+		leaveTypeBalances.fetch({ employee: currEmployee.value, date })
+		leaveApprovalDetails.fetch({ employee: currEmployee.value })
 	}
 )
 watch(
 	() => leaveApplication.value.leave_type,
-	(leave_type) => setLeaveBalance(leave_type)
+	(leave_type) => {
+		setLeaveBalance(leave_type)
+		setTotalLeaveDays()
+	}
 )
 
 watch(
@@ -133,6 +265,14 @@ watch(
 
 		// fetch leave types for the selected date
 		leaveTypes.fetch({
+			employee: currEmployee.value,
+			date: from_date,
+		})
+		frequentLeaveTypes.fetch({
+			employee: currEmployee.value,
+			date: from_date,
+		})
+		leaveTypeBalances.fetch({
 			employee: currEmployee.value,
 			date: from_date,
 		})
@@ -180,7 +320,21 @@ function getFilteredFields(fields) {
 
 	if (!props.id) excludeFields.push(...employeeFields)
 
-	return fields.filter((field) => !excludeFields.includes(field.fieldname))
+	return moveReasonBeforeDates(
+		fields.filter((field) => !excludeFields.includes(field.fieldname))
+	)
+}
+
+function moveReasonBeforeDates(fields) {
+	const reasonIdx = fields.findIndex((field) => field.fieldname === "description")
+	const fromIdx = fields.findIndex((field) => field.fieldname === "from_date")
+	if (reasonIdx === -1 || fromIdx === -1 || reasonIdx === fromIdx) return fields
+
+	const next = [...fields]
+	const [reason] = next.splice(reasonIdx, 1)
+	const insertAt = next.findIndex((field) => field.fieldname === "from_date")
+	next.splice(insertAt, 0, reason)
+	return next
 }
 
 function setFormReadOnly() {
@@ -189,18 +343,32 @@ function setFormReadOnly() {
 }
 
 function validateDates(from_date, to_date) {
-	if (!(from_date && to_date)) return
+	if (!(from_date && to_date) || isSplitLeave.value) return
 
 	const error_message =
 		from_date > to_date ? __("To Date cannot be before From Date") : ""
 
-	const from_date_field = formFields.data.find(
+	const from_date_field = formFields.data?.find(
 		(field) => field.fieldname === "from_date"
 	)
-	from_date_field.error_message = error_message
+	if (from_date_field) from_date_field.error_message = error_message
+}
+
+function hideSplitDateFields() {
+	if (!isSplitLeave.value || !formFields.data) return
+	for (const field of formFields.data) {
+		if (SPLIT_HIDDEN_FIELDS.includes(field.fieldname)) {
+			field.hidden = true
+		}
+	}
 }
 
 function setTotalLeaveDays() {
+	if (isSplitLeave.value) {
+		setSplitTotalLeaveDays()
+		setLeaveBalance()
+		return
+	}
 	if (!areValuesSet()) return
 
 	const leaveDays = createResource({
@@ -241,9 +409,11 @@ function setLeaveBalance() {
 }
 
 function setHalfDayDate(half_day) {
-	const half_day_date = formFields.data.find(
+	if (isSplitLeave.value) return
+	const half_day_date = formFields.data?.find(
 		(field) => field.fieldname === "half_day_date"
 	)
+	if (!half_day_date) return
 	half_day_date.hidden = !half_day
 	half_day_date.reqd = half_day
 
@@ -257,9 +427,11 @@ function setHalfDayDate(half_day) {
 }
 
 function setHalfDayDateRange() {
-	const half_day_date = formFields.data.find(
+	if (isSplitLeave.value) return
+	const half_day_date = formFields.data?.find(
 		(field) => field.fieldname === "half_day_date"
 	)
+	if (!half_day_date) return
 	half_day_date.minDate = leaveApplication.value.from_date
 	half_day_date.maxDate = leaveApplication.value.to_date
 }
@@ -282,14 +454,49 @@ function setLeaveApprovers(data) {
 	
 }
 
+function typeHasAvailableLeave(name) {
+	const frequent = (frequentLeaveTypes.data || []).find((row) => row.leave_type === name)
+	const row = frequent || leaveTypeBalances.data?.[name]
+	if (!row) return true
+	if (row.is_lwp) return true
+	if (row.remaining === null || row.remaining === undefined || row.remaining === "") {
+		return false
+	}
+	return Number(row.remaining) > 0
+}
+
 function setLeaveTypes(data) {
-	const leave_type = formFields.data.find(
+	const leave_type = formFields.data?.find(
 		(field) => field.fieldname === "leave_type"
 	)
-	leave_type.documentList = data?.map((leave_type) => ({
-		label: leave_type,
-		value: leave_type,
+	if (!leave_type) return
+
+	const available = data || []
+	const frequent = (frequentLeaveTypes.data || []).filter((row) =>
+		available.includes(row.leave_type)
+	)
+	leave_type.quickOptions = frequent.map((row) => ({
+		label: row.leave_type,
+		value: row.leave_type,
+		remaining: row.remaining,
+		pending: row.pending,
+		is_lwp: Boolean(row.is_lwp),
+		disabled: !row.is_lwp && !(Number(row.remaining) > 0),
 	}))
+	const frequentNames = new Set(frequent.map((row) => row.leave_type))
+	leave_type.placeholder = frequent.length ? __("Other leave types") : ""
+	leave_type.documentList = available
+		.filter((name) => !frequentNames.has(name))
+		.filter((name) => typeHasAvailableLeave(name))
+		.map((name) => ({
+			label: name,
+			value: name,
+		}))
+
+	const selected = leaveApplication.value.leave_type
+	if (!props.id && selected && !typeHasAvailableLeave(selected)) {
+		leaveApplication.value.leave_type = ""
+	}
 }
 
 function areValuesSet() {
@@ -298,6 +505,106 @@ function areValuesSet() {
 		leaveApplication.value.to_date &&
 		leaveApplication.value.leave_type
 	)
+}
+
+async function setSplitTotalLeaveDays() {
+	if (!leaveApplication.value.leave_type || !leaveRanges.value.length) return
+	let total = 0
+	for (const range of leaveRanges.value) {
+		try {
+			const days = await call(
+				"hrms.hr.doctype.leave_application.leave_application.get_number_of_leave_days",
+				{
+					employee: currEmployee.value,
+					leave_type: leaveApplication.value.leave_type,
+					from_date: range.from_date,
+					to_date: range.to_date,
+					half_day: 0,
+				}
+			)
+			total += Number(days) || 0
+		} catch (error) {
+			console.warn("Leave days lookup failed", error)
+		}
+	}
+	leaveApplication.value.total_leave_days = total
+}
+
+const splitCreate = createResource({
+	url: "nepal_hrms.api.leave_application.create_leave_applications",
+	auto: false,
+	makeParams() {
+		return {
+			employee: currEmployee.value,
+			leave_type: leaveApplication.value.leave_type,
+			ranges: JSON.stringify(leaveRanges.value),
+			description: leaveApplication.value.description,
+			leave_approver: leaveApplication.value.leave_approver || "",
+			leave_approver_name: leaveApplication.value.leave_approver_name || "",
+		}
+	},
+	onSuccess(data) {
+		myLeaves.reload()
+		markAttendanceRefresh()
+		toast({
+			title: __("Success"),
+			text: __("{0} leave applications created", [data?.count || leaveRanges.value.length]),
+			icon: "check-circle",
+			position: "bottom-center",
+			iconClasses: "text-green-500",
+		})
+		router.replace({ name: "AttendanceDashboard" })
+	},
+	onError(error) {
+		toast({
+			title: __("Error"),
+			text:
+				error?.messages?.[0] ||
+				error?.message ||
+				__("Could not create leave applications"),
+			icon: "alert-circle",
+			position: "bottom-center",
+			iconClasses: "text-red-500",
+		})
+	},
+})
+
+function remainingForSelectedType() {
+	const type = leaveApplication.value.leave_type
+	if (!type) return null
+	if (/without\s*pay|\blwp\b/i.test(type)) return null
+	const frequent = (frequentLeaveTypes.data || []).find((row) => row.leave_type === type)
+	if (frequent?.is_lwp) return null
+	if (frequent?.remaining != null && frequent.remaining !== "") {
+		return Number(frequent.remaining)
+	}
+	if (
+		leaveApplication.value.leave_balance != null &&
+		leaveApplication.value.leave_balance !== ""
+	) {
+		return Number(leaveApplication.value.leave_balance)
+	}
+	return null
+}
+
+function createSplitApplications() {
+	if (!isSplitLeave.value) return
+	const remaining = remainingForSelectedType()
+	const total = Number(leaveApplication.value.total_leave_days || 0)
+	if (remaining != null && total > remaining) {
+		toast({
+			title: __("Insufficient Balance"),
+			text: __(
+				"Insufficient leave balance for Leave Type {0}. {1} day(s) selected, {2} remaining.",
+				[leaveApplication.value.leave_type, total, remaining]
+			),
+			icon: "alert-circle",
+			position: "bottom-center",
+			iconClasses: "text-red-500",
+		})
+		return
+	}
+	splitCreate.submit()
 }
 
 function validateForm() {

@@ -124,7 +124,10 @@ doc_events = {
 		]
 	},
 	"Leave Application": {
-		"validate": "nepal_hrms.custom_code.leave_application_hooks.validate_sandwich_leave_application"
+		"validate": [
+			"nepal_hrms.custom_code.leave_application_hooks.validate_sandwich_leave_application",
+			"nepal_hrms.custom_code.leave_application_hooks.validate_leave_balance_including_drafts",
+		]
 	},
 }
 

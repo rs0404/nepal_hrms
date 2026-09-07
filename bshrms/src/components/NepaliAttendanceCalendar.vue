@@ -4,24 +4,40 @@
 			<div ref="calendarContainer"></div>
 
 			<div
-				class="flex items-center justify-between gap-2 px-2 pt-2 pb-1 border-t border-gray-100"
+				class="flex items-center justify-between gap-2 px-2 py-1.5 border-t"
+				:class="selectMode ? 'bg-blue-50 border-blue-200 rounded-b-md' : 'border-gray-100'"
 			>
 				<template v-if="!selectMode">
 					<span class="text-[11px] text-gray-400">{{ __("Tap a day for details") }}</span>
-					<button
-						v-if="isSelf"
-						type="button"
-						class="text-[11px] font-semibold text-blue-600 py-1"
-						@click="startSelectMode"
-					>
-						{{ __("Select days for leave") }}
-					</button>
+					<div class="flex items-center gap-2 shrink-0">
+						<button
+							type="button"
+							class="p-1 text-gray-400"
+							:title="__('Refresh')"
+							:aria-label="__('Refresh')"
+							@click="reloadCalendar"
+						>
+							<FeatherIcon
+								name="refresh-cw"
+								class="h-3.5 w-3.5"
+								:class="attendanceEvents.loading ? 'animate-spin' : ''"
+							/>
+						</button>
+						<button
+							v-if="isSelf"
+							type="button"
+							class="text-[11px] font-semibold text-blue-600 py-1"
+							@click="startSelectMode"
+						>
+							{{ __("Select days for leave") }}
+						</button>
+					</div>
 				</template>
 				<template v-else>
-					<span class="text-[11px] text-gray-500">
+					<span class="text-[11px] font-medium text-blue-800">
 						{{
 							selectedCount
-								? __("{0} day(s) selected — tap more future days", [selectedCount])
+								? __("{0} day(s) selected — tap more to add", [selectedCount])
 								: __("Tap future working days to select")
 						}}
 					</span>
@@ -36,7 +52,7 @@
 						<button
 							type="button"
 							class="text-[11px] font-semibold py-1"
-							:class="selectedCount ? 'text-blue-600' : 'text-gray-300 pointer-events-none'"
+							:class="selectedCount ? 'text-blue-700' : 'text-blue-300 pointer-events-none'"
 							@click="applyLeaveSelection"
 						>
 							{{ __("Apply for Leave") }}
@@ -47,7 +63,7 @@
 		</div>
 
 		<!-- Status summary — visible month only -->
-		<div class="grid grid-cols-4 gap-1 mx-1" v-if="hasSummary">
+		<div class="grid grid-cols-5 gap-1 mx-1" v-if="hasSummary">
 			<div v-for="status in summaryStatuses" :key="status" class="flex flex-col gap-0.5">
 				<div class="flex flex-row gap-1 items-center">
 					<span
@@ -55,7 +71,7 @@
 						:style="{ backgroundColor: STATUS_FILL[status]?.backgroundColor }"
 					/>
 					<span class="text-gray-600 text-[11px] font-medium leading-4 whitespace-nowrap">
-						{{ __(status) }}
+						{{ __(summaryLabels[status] || status) }}
 					</span>
 				</div>
 				<span class="text-gray-800 text-sm font-semibold leading-5 mx-auto">
@@ -84,7 +100,14 @@
 			</span>
 			<span class="inline-flex items-center gap-1">
 				<span class="status-swatch" style="background:#dbeafe;box-shadow:inset 0 0 0 1px #60a5fa" />
-				{{ __("Leave") }}
+				{{ __("Approved") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<span
+					class="status-swatch"
+					style="background:#fff7ed;box-shadow:inset 0 0 0 1px #fb923c;background-image:repeating-linear-gradient(-45deg,transparent,transparent 2px,rgba(245,158,11,.2) 2px,rgba(245,158,11,.2) 4px)"
+				/>
+				{{ __("Pending") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
 				<span class="status-swatch" style="background:#fee2e2;box-shadow:inset 0 0 0 1px #f87171" />
@@ -101,11 +124,12 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, inject, watch, computed, nextTick } from "vue"
-import { createResource } from "frappe-ui"
+import { onMounted, onBeforeUnmount, ref, inject, watch, computed, nextTick, toRaw } from "vue"
+import { createResource, FeatherIcon } from "frappe-ui"
 import { ensureNepaliCalendar } from "@/utils/nepali_calendar"
+import { groupContiguousDates } from "@/utils/leave_ranges"
 
-const emit = defineEmits(["select-day", "create-leave"])
+const emit = defineEmits(["select-day", "create-leave", "refresh"])
 
 const props = defineProps({
 	employee: { type: String, default: null },
@@ -133,11 +157,18 @@ const STATUS_FILL = {
 	"Half Day": { backgroundColor: "#fef9c3", boxShadow: "inset 0 0 0 1.5px #facc15" },
 	Absent: { backgroundColor: "#fee2e2", boxShadow: "inset 0 0 0 1.5px #f87171" },
 	"On Leave": { backgroundColor: "#dbeafe", boxShadow: "inset 0 0 0 1.5px #60a5fa" },
-	Holiday: { backgroundColor: "#f3f4f6", boxShadow: "inset 0 0 0 1.5px #d1d5db" },
-	"Weekly Off": { backgroundColor: "#f3f4f6", boxShadow: "inset 0 0 0 1.5px #d1d5db" },
+	"Leave Pending": { backgroundColor: "#fed7aa", boxShadow: "inset 0 0 0 1.5px #fb923c" },
+	"Leave Rejected": { backgroundColor: "#ffe4e6", boxShadow: "inset 0 0 0 1.5px #fda4af" },
+	Holiday: { backgroundColor: "#f3e8ff", boxShadow: "inset 0 0 0 1.5px #d8b4fe" },
+	"Weekly Off": { backgroundColor: "#f3e8ff", boxShadow: "inset 0 0 0 1.5px #d8b4fe" },
 }
 
-const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave"]
+const PAINTABLE = new Set(Object.keys(STATUS_FILL))
+const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave", "Leave Pending"]
+const summaryLabels = {
+	"On Leave": "Leave",
+	"Leave Pending": "Pending",
+}
 
 const attendanceEvents = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_calendar_details",
@@ -151,10 +182,16 @@ const attendanceEvents = createResource({
 		return params
 	},
 	onSuccess() {
-		paintAttendanceDays()
 		syncLeaveSelection()
 	},
 })
+
+function reloadCalendar() {
+	attendanceEvents.reload()
+	emit("refresh")
+}
+
+defineExpose({ reload: () => attendanceEvents.reload() })
 
 watch(
 	() => props.employee,
@@ -172,13 +209,32 @@ const dayStatus = (info) => {
 
 const dayMarkers = (info) => {
 	if (!info || typeof info === "string") {
-		return { leave: info === "On Leave", late: false, early: false }
+		return { leave: info === "On Leave", pending: false, rejected: false, late: false, early: false }
 	}
+	const status = info.status || null
+	const app = info.leave_app_status
+	const leave =
+		!!info.leave ||
+		status === "On Leave" ||
+		status === "Leave Pending" ||
+		status === "Leave Rejected"
 	return {
-		leave: !!info.leave || info.status === "On Leave",
+		leave,
+		pending: leave && (app === "Pending" || status === "Leave Pending"),
+		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
 		late: !!info.late,
 		early: !!info.early,
 	}
+}
+
+function resolvePaintStatus(info) {
+	const status = dayStatus(info)
+	if (PAINTABLE.has(status)) return status
+	const m = dayMarkers(info)
+	if (!m.leave) return status
+	if (m.rejected) return "Leave Rejected"
+	if (m.pending) return "Leave Pending"
+	return "On Leave"
 }
 
 const summary = computed(() => {
@@ -189,8 +245,9 @@ const summary = computed(() => {
 	for (const [date, info] of Object.entries(attendanceEvents.data)) {
 		if (from && date < from) continue
 		if (to && date > to) continue
-		let status = dayStatus(info)
-		if (!status || status === "Holiday" || status === "Weekly Off") continue
+		let status = resolvePaintStatus(info)
+		if (!status || status === "Holiday" || status === "Weekly Off" || status === "Leave Rejected")
+			continue
 		if (status === "Work From Home") status = "Present"
 		if (!summaryStatuses.includes(status)) continue
 		counts[status] = (counts[status] || 0) + 1
@@ -226,8 +283,13 @@ function toggleDaySelection(ad) {
 
 function applyLeaveSelection() {
 	if (!selectedDates.value.size) return
-	const sorted = [...selectedDates.value].sort()
-	emit("create-leave", { from_date: sorted[0], to_date: sorted[sorted.length - 1] })
+	const ranges = groupContiguousDates([...selectedDates.value])
+	if (!ranges.length) return
+	emit("create-leave", {
+		from_date: ranges[0].from_date,
+		to_date: ranges[ranges.length - 1].to_date,
+		ranges,
+	})
 	cancelSelectMode()
 }
 
@@ -246,86 +308,8 @@ const handleMonthChange = (range) => {
 		from_date: range.from_date,
 		to_date: range.to_date,
 	}
-	requestAnimationFrame(() => {
-		paintAttendanceDays()
-		syncLeaveSelection()
-	})
-	setTimeout(() => {
-		paintAttendanceDays()
-		syncLeaveSelection()
-	}, 80)
-}
-
-function clearDayPaint(btn) {
-	// Color fill is CSS ::before — only sync classes / markers here
-	btn.style.backgroundColor = ""
-	btn.style.boxShadow = ""
-	btn.style.borderRadius = ""
-	btn.removeAttribute("data-painted-status")
-	const markers = btn.querySelector(":scope > .day-markers")
-	if (markers) markers.remove()
-	;[...btn.classList].forEach((c) => {
-		if (c.startsWith("status-") || c === "has-markers") btn.classList.remove(c)
-	})
-}
-
-function paintAttendanceDays() {
-	const root = calendarContainer.value
-	const events = attendanceEvents.data
-	if (!root || !events) return
-
-	const buttons = root.querySelectorAll(".days-grid .day[data-ad]")
-	if (!buttons.length) {
-		// Old calendar build without data-ad — try again shortly after React paints
-		setTimeout(() => {
-			const retry = root.querySelectorAll(".days-grid .day[data-ad]")
-			if (retry.length) paintAttendanceDays()
-		}, 50)
-		return
-	}
-
-	buttons.forEach((btn) => {
-		clearDayPaint(btn)
-		const key = btn.getAttribute("data-ad")
-		const info = events[key]
-		if (!info) return
-
-		const status = dayStatus(info)
-		if (status && STATUS_FILL[status]) {
-			btn.dataset.paintedStatus = status
-			btn.classList.add(
-				`status-${String(status).toLowerCase().replace(/ /g, "-")}`
-			)
-		}
-
-		const m = dayMarkers(info)
-		if (m.leave || m.late || m.early) {
-			btn.classList.add("has-markers")
-			const wrap = document.createElement("span")
-			wrap.className = "day-markers"
-			wrap.setAttribute("aria-hidden", "true")
-			if (m.leave) {
-				const i = document.createElement("i")
-				i.className = "marker leave"
-				i.title = "Leave"
-				wrap.appendChild(i)
-			}
-			if (m.late) {
-				const i = document.createElement("i")
-				i.className = "marker late"
-				i.title = "Late"
-				wrap.appendChild(i)
-			}
-			if (m.early) {
-				const i = document.createElement("i")
-				i.className = "marker early"
-				i.title = "Early exit"
-				wrap.appendChild(i)
-			}
-			btn.appendChild(wrap)
-		}
-	})
-	syncLeaveSelection()
+	requestAnimationFrame(() => syncLeaveSelection())
+	setTimeout(syncLeaveSelection, 80)
 }
 
 const renderCalendar = async () => {
@@ -333,8 +317,9 @@ const renderCalendar = async () => {
 	await nextTick()
 	if (!calendarContainer.value || !window.NepaliCalendarLib) return
 
+	const events = attendanceEvents.data ? { ...toRaw(attendanceEvents.data) } : {}
 	window.NepaliCalendarLib.render(calendarContainer.value, {
-		events: attendanceEvents.data || {},
+		events,
 		onSelect: (nepaliDate) => {
 			if (!nepaliDate) return
 			const ad = nepaliDate.format({ format: "YYYY-MM-DD", calendar: "AD" })
@@ -344,7 +329,7 @@ const renderCalendar = async () => {
 			}
 			const info = attendanceEvents.data?.[ad]
 			const m = dayMarkers(info)
-			const status = dayStatus(info)
+			const status = resolvePaintStatus(info)
 			emit("select-day", {
 				date: ad,
 				late: m.late,
@@ -354,9 +339,8 @@ const renderCalendar = async () => {
 		},
 		onMonthChange: handleMonthChange,
 	})
-	// Paint after React commit
-	requestAnimationFrame(() => paintAttendanceDays())
-	setTimeout(paintAttendanceDays, 80)
+	requestAnimationFrame(() => syncLeaveSelection())
+	setTimeout(syncLeaveSelection, 80)
 }
 
 onMounted(() => {
@@ -369,12 +353,15 @@ onBeforeUnmount(() => {
 	}
 })
 
+watch(selectMode, () => {
+	nextTick(() => syncLeaveSelection())
+})
+
 watch(
 	() => attendanceEvents.data,
 	() => {
 		renderCalendar()
-	},
-	{ deep: true }
+	}
 )
 </script>
 
@@ -399,19 +386,6 @@ watch(
 	transform: none;
 	font-size: 0.58rem;
 	opacity: 0.65;
-}
-
-:deep(.days-grid .day.leave-selected) {
-	outline: none;
-}
-
-:deep(.days-grid .day.leave-selected::before) {
-	content: "";
-	position: absolute;
-	inset: 2px;
-	border-radius: 0.4rem;
-	z-index: -1;
-	box-shadow: inset 0 0 0 2px #2563eb;
 }
 
 .status-swatch {

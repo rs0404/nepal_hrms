@@ -17,6 +17,8 @@
 	font-size: 0.8rem;
 	line-height: 1.15;
 	border-radius: 0.45rem;
+	position: relative;
+	z-index: 0;
 }
 
 .calendar-wrapper .days-grid .day .ad {
@@ -178,6 +180,10 @@
 	background-color: #d97706;
 }
 
+.calendar-wrapper .days-grid .day .day-markers .marker.leave.pending::before {
+	content: "P";
+}
+
 .calendar-wrapper .days-grid .day .day-markers .marker.leave.rejected {
 	background-color: #e11d48;
 }
@@ -204,4 +210,17 @@
 
 .calendar-wrapper .days-grid .day.has-markers .ad {
 	bottom: 5px;
+}
+
+.calendar-wrapper .days-grid .day.leave-selected::before,
+.calendar-wrapper .days-grid .day[class*="status-"].leave-selected::before {
+	content: "";
+	position: absolute;
+	inset: 2px;
+	border-radius: 0.4rem;
+	z-index: -1;
+	pointer-events: none;
+	background-color: #bfdbfe !important;
+	background-image: none !important;
+	box-shadow: inset 0 0 0 2.5px #2563eb !important;
 }

@@ -30,6 +30,8 @@
   "enable_leave_sandwich_rule",
   "column_break_sandwich",
   "block_sandwich_leave_application",
+  "pwa_leave_form_section",
+  "frequent_leave_types",
   "ooo_section",
   "max_paid_out_of_office_hours",
   "lwp_section",
@@ -265,6 +267,19 @@
    "fieldname": "block_sandwich_leave_application",
    "fieldtype": "Check",
    "label": "Block Leave Application on Sandwich Rule Violation"
+  },
+  {
+   "description": "These leave types appear as shortcuts on the BSHRMS leave form, with remaining balance. Other types stay in the dropdown.",
+   "fieldname": "pwa_leave_form_section",
+   "fieldtype": "Section Break",
+   "label": "PWA Frequent Leave Types"
+  },
+  {
+   "description": "Shown as quick choices on the BSHRMS leave form. Only types allocated to the employee (or LWP) are listed. Remaining types stay in the dropdown.",
+   "fieldname": "frequent_leave_types",
+   "fieldtype": "Table MultiSelect",
+   "label": "Frequent Leave Types",
+   "options": "Nepal HRMS Frequent Leave Type"
   },
   {
    "fieldname": "ooo_section",

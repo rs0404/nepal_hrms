@@ -1,22 +1,67 @@
 <template>
-	<div v-if="showField" class="flex flex-col gap-1.5">
+	<div
+		v-if="showField"
+		class="flex flex-col gap-1.5"
+		:class="highlightClass"
+	>
 		<!-- Label -->
 		<span
 			v-if="!['Check', 'Section Break', 'Column Break'].includes(props.fieldtype)"
 			:class="[
 				// mark field as mandatory
 				props.reqd ? `after:content-['_*'] after:text-red-600` : ``,
-				`block text-sm leading-5 text-gray-700`,
+				props.highlight
+					? `block text-sm font-semibold leading-5 text-gray-900`
+					: `block text-sm leading-5 text-gray-700`,
 			]"
 		>
 			{{ props.label }}
 		</span>
+		<p v-if="props.highlight && props.hint" class="text-xs text-orange-800 -mt-1">
+			{{ props.hint }}
+		</p>
+
+		<!-- Quick choices (e.g. frequent leave types) -->
+		<div
+			v-if="quickOptions.length"
+			class="flex flex-wrap gap-1.5"
+			:class="
+				props.highlight && !modelValue
+					? 'rounded-md ring-2 ring-orange-400 bg-orange-100/80 p-1.5'
+					: ''
+			"
+		>
+			<button
+				v-for="opt in quickOptions"
+				:key="opt.value"
+				type="button"
+				class="inline-flex items-center gap-1.5 max-w-full px-2.5 py-1.5 rounded-md border text-left transition-colors"
+				:class="chipClass(opt)"
+				:disabled="isReadOnly || isOptionDisabled(opt)"
+				:title="isOptionDisabled(opt) ? __('No remaining leave') : undefined"
+				@click="selectQuickOption(opt)"
+			>
+				<span class="text-xs font-semibold truncate">{{ opt.label }}</span>
+				<span
+					class="text-[11px] tabular-nums shrink-0 inline-flex items-center gap-0.5"
+					:class="chipRemainingClass(opt)"
+				>
+					{{ remainingLabel(opt) }}
+					<span
+						v-if="opt.pending"
+						class="text-[10px] font-normal opacity-80"
+					>
+						−{{ opt.pending }}
+					</span>
+				</span>
+			</button>
+		</div>
 
 		<!-- Select or Link field with predefined options -->
 		<Autocomplete
-			v-if="props.fieldtype === 'Select' || props.documentList"
+			v-if="showSelectControl"
 			:class="isReadOnly ? 'pointer-events-none' : ''"
-			:placeholder="__('Select {0}', [props.label])"
+			:placeholder="props.placeholder || __('Select {0}', [props.label])"
 			:options="selectionList"
 			:modelValue="modelValue"
 			v-bind="$attrs"
@@ -39,12 +84,12 @@
 			v-else-if="['Text Editor', 'Small Text', 'Text', 'Long Text'].includes(props.fieldtype)"
 			type="textarea"
 			:value="modelValue"
-			:placeholder="__('Enter {0}', [props.label])"
+			:placeholder="props.placeholder || __('Enter {0}', [props.label])"
 			@input="(v) => emit('update:modelValue', v)"
 			@change="(v) => emit('change', v)"
 			v-bind="$attrs"
 			:disabled="isReadOnly"
-			class="h-15"
+			:class="props.highlight ? 'h-20 bg-white border-orange-300' : 'h-15'"
 		/>
 
 		<!-- Check -->
@@ -203,6 +248,16 @@ const props = defineProps({
 		default: true,
 	},
 	doctype: String,
+	quickOptions: {
+		type: Array,
+		default: () => [],
+	},
+	placeholder: String,
+	highlight: {
+		type: Boolean,
+		default: false,
+	},
+	hint: String,
 })
 
 const emit = defineEmits(["change", "update:modelValue"])
@@ -231,6 +286,25 @@ const isReadOnly = computed(() => {
 	return Boolean(props.readOnly)
 })
 
+const highlightClass = computed(() => {
+	if (!props.highlight) return ""
+	return "rounded-lg border border-orange-300 bg-orange-50 p-3"
+})
+
+const showSelectControl = computed(() => {
+	const hasSelect = props.fieldtype === "Select"
+	const hasList = Boolean(props.documentList)
+	if (!hasSelect && !hasList) return false
+	if (
+		props.quickOptions?.length &&
+		Array.isArray(props.documentList) &&
+		props.documentList.length === 0
+	) {
+		return false
+	}
+	return true
+})
+
 const timeInputValue = computed(() => toTimeInputValue(props.modelValue))
 
 function toTimeInputValue(val) {
@@ -242,6 +316,44 @@ function toTimeInputValue(val) {
 	const minutes = match[2]
 	const seconds = match[3] || "00"
 	return `${hours}:${minutes}:${seconds}`
+}
+
+function remainingLabel(opt) {
+	if (opt?.is_lwp && (opt.remaining === null || opt.remaining === undefined || opt.remaining === "")) {
+		return __("LWP")
+	}
+	if (opt?.remaining === null || opt?.remaining === undefined || opt?.remaining === "") {
+		return "—"
+	}
+	return String(opt.remaining)
+}
+
+function isOptionDisabled(opt) {
+	return Boolean(opt?.disabled)
+}
+
+function selectQuickOption(opt) {
+	if (isReadOnly.value || isOptionDisabled(opt)) return
+	emit("update:modelValue", opt.value)
+}
+
+function chipRemainingClass(opt) {
+	if (isOptionDisabled(opt) && props.modelValue !== opt.value) return "text-gray-400"
+	if (props.modelValue === opt.value) return "text-orange-50"
+	return "text-orange-800"
+}
+
+function chipClass(opt) {
+	if (isOptionDisabled(opt) && props.modelValue !== opt.value) {
+		return "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+	}
+	if (props.modelValue === opt.value) {
+		return "bg-orange-600 border-orange-600 text-white shadow-sm"
+	}
+	if (props.highlight && !props.modelValue) {
+		return "bg-white border-orange-400 text-orange-950"
+	}
+	return "bg-gray-50 border-gray-200 text-gray-800"
 }
 
 function onTimeInput(event) {

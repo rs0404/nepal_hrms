@@ -3,6 +3,13 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, add_days
 
+
+def validate_leave_balance_including_drafts(doc, method=None):
+	from nepal_hrms.api.leave_application import validate_document_leave_balance
+
+	validate_document_leave_balance(doc)
+
+
 def validate_sandwich_leave_application(doc, method):
     from nepal_hrms.custom_code.attendance_policy import get_hr_settings
 

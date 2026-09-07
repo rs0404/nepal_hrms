@@ -14,7 +14,7 @@
 				v-if="displayStatus"
 				variant="outline"
 				:theme="statusTheme[displayStatus] || 'gray'"
-				:label="__(displayStatus)"
+				:label="displayStatusLabel"
 				size="md"
 				class="mt-1"
 			/>
@@ -71,10 +71,11 @@
 						<i class="flag-dot bg-teal-600" />{{ __("Out of Office required") }}
 					</span>
 					<span
-						v-if="details.flags.leave"
-						class="flag-chip bg-blue-50 text-blue-700 ring-blue-200"
+						v-if="leaveChip"
+						class="flag-chip"
+						:class="leaveChip.className"
 					>
-						<i class="flag-dot bg-blue-600" />{{ __("On Leave") }}
+						<i class="flag-dot" :class="leaveChip.dot" />{{ leaveChip.label }}
 						<template v-if="details.flags.leave_type">
 							· {{ __(details.flags.leave_type) }}
 						</template>
@@ -219,13 +220,48 @@ watch(
 
 const details = computed(() => dayDetails.data || null)
 const displayStatus = computed(() => details.value?.status || props.fallbackStatus)
+const displayStatusLabel = computed(() => {
+	const status = displayStatus.value
+	if (status === "Leave Pending") return __("Pending Leave")
+	if (status === "On Leave") return __("Approved Leave")
+	if (status === "Leave Rejected") return __("Rejected Leave")
+	return status ? __(status) : ""
+})
+const leaveChip = computed(() => {
+	if (!details.value) return null
+	const app = details.value.flags?.leave_app_status
+	const status = details.value.status
+	const isLeave =
+		details.value.flags?.leave ||
+		["On Leave", "Leave Pending", "Leave Rejected"].includes(status)
+	if (!isLeave) return null
+	if (app === "Pending" || status === "Leave Pending") {
+		return {
+			label: __("Pending Leave"),
+			className: "bg-orange-50 text-orange-700 ring-orange-200",
+			dot: "bg-orange-600",
+		}
+	}
+	if (app === "Rejected" || status === "Leave Rejected") {
+		return {
+			label: __("Rejected Leave"),
+			className: "bg-rose-50 text-rose-700 ring-rose-200",
+			dot: "bg-rose-600",
+		}
+	}
+	return {
+		label: __("Approved Leave"),
+		className: "bg-blue-50 text-blue-700 ring-blue-200",
+		dot: "bg-blue-600",
+	}
+})
 const hasFlags = computed(
 	() =>
 		details.value &&
 		(details.value.flags?.late ||
 			details.value.flags?.early ||
 			details.value.flags?.ooo_required ||
-			details.value.flags?.leave ||
+			leaveChip.value ||
 			details.value.attendance?.shift)
 )
 

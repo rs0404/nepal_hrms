@@ -1,5 +1,5 @@
 <template>
-	<BaseLayout pageTitle="Attendance">
+	<BaseLayout pageTitle="Attendance" @viewWillEnter="refreshAttendanceView">
 		<template #header-extra>
 			<div class="flex items-center gap-1 ml-1">
 				<div
@@ -86,17 +86,21 @@
 
 				<AttendanceCalendar
 					v-if="activeCalendar === 'English'"
+					ref="adCalendar"
 					:key="'ad-' + calendarEmployee"
 					:employee="calendarEmployee"
 					@select-day="onCalendarDaySelect"
 					@create-leave="onCreateLeave"
+					@refresh="refreshAttendanceView"
 				/>
 				<NepaliAttendanceCalendar
 					v-else
+					ref="bsCalendar"
 					:key="'bs-' + calendarEmployee"
 					:employee="calendarEmployee"
 					@select-day="onCalendarDaySelect"
 					@create-leave="onCreateLeave"
+					@refresh="refreshAttendanceView"
 				/>
 
 				<ion-modal
@@ -217,81 +221,44 @@
 					</div>
 				</div>
 
-				<!-- Applications: Late / Early / OOO + Leave -->
+				<!-- Applications this month: compact rows -->
 				<div
-					v-if="appCounts.data || leaveCounts.data"
-					class="bg-white border border-gray-100 rounded-lg shadow-sm p-3 flex flex-col gap-3"
+					v-if="monthAppRows.length"
+					class="bg-white border border-gray-100 rounded-lg shadow-sm px-3 py-2"
 				>
-					<div class="text-sm font-semibold text-gray-800">
-						{{ __("Late / Early / OOO / Leave this month") }}
+					<div
+						class="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem] items-end gap-1 text-[9px] font-semibold text-gray-400 mb-1 leading-tight"
+					>
+						<span>{{ __("This month") }}</span>
+						<span class="text-center text-green-600">{{ __("Approved") }}</span>
+						<span class="text-center text-red-600">{{ __("Rejected") }}</span>
+						<span class="text-center text-amber-600">{{ __("Pending") }}</span>
 					</div>
-					<template v-if="appCounts.data">
-						<div
-							v-for="key in ['late_entry', 'early_exit', 'out_of_office']"
-							:key="key"
-							class="flex flex-col gap-1"
-						>
-							<div class="text-xs font-medium text-gray-700">
-								{{ __(appCounts.data[key].label) }}
-								<span class="text-gray-400 font-normal">
-									({{ appCounts.data[key].total }})
-								</span>
-							</div>
-							<div class="grid grid-cols-3 gap-2 text-[11px]">
-								<div class="rounded-md bg-green-50 px-2 py-1.5 text-center">
-									<div class="text-green-700 font-semibold">
-										{{ appCounts.data[key].approved }}
-									</div>
-									<div class="text-green-600">{{ __("Approved") }}</div>
-								</div>
-								<div class="rounded-md bg-red-50 px-2 py-1.5 text-center">
-									<div class="text-red-700 font-semibold">
-										{{ appCounts.data[key].rejected }}
-									</div>
-									<div class="text-red-600">{{ __("Rejected") }}</div>
-								</div>
-								<div class="rounded-md bg-amber-50 px-2 py-1.5 text-center">
-									<div class="text-amber-700 font-semibold">
-										{{ appCounts.data[key].pending }}
-									</div>
-									<div class="text-amber-600">{{ __("Pending") }}</div>
-								</div>
-							</div>
-						</div>
-					</template>
-					<div v-if="leaveCounts.data" class="flex flex-col gap-1">
-						<div class="text-xs font-medium text-gray-700">
-							{{ __("Leave Application") }}
-							<span class="text-gray-400 font-normal">
-								({{ leaveCounts.data.total }})
-							</span>
-						</div>
-						<div class="grid grid-cols-3 gap-2 text-[11px]">
-							<div class="rounded-md bg-green-50 px-2 py-1.5 text-center">
-								<div class="text-green-700 font-semibold">
-									{{ leaveCounts.data.approved }}
-								</div>
-								<div class="text-green-600">{{ __("Approved") }}</div>
-							</div>
-							<div class="rounded-md bg-red-50 px-2 py-1.5 text-center">
-								<div class="text-red-700 font-semibold">
-									{{ leaveCounts.data.rejected }}
-								</div>
-								<div class="text-red-600">{{ __("Rejected") }}</div>
-							</div>
-							<div class="rounded-md bg-amber-50 px-2 py-1.5 text-center">
-								<div class="text-amber-700 font-semibold">
-									{{ leaveCounts.data.pending }}
-								</div>
-								<div class="text-amber-600">{{ __("Pending") }}</div>
-							</div>
-						</div>
-						<div v-if="leaveCounts.data.days" class="text-[11px] text-gray-500">
-							{{ __("Approved leave days") }}:
-							<span class="font-semibold text-gray-700">{{
-								leaveCounts.data.days
-							}}</span>
-						</div>
+					<div
+						v-for="row in monthAppRows"
+						:key="row.key"
+						class="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem] items-center gap-1 py-0.5 text-[11px]"
+					>
+						<span class="min-w-0 truncate text-gray-700 font-medium">
+							{{ __(row.label) }}
+							<span class="text-gray-400 font-normal">({{ row.total }})</span>
+						</span>
+						<span class="text-center rounded bg-green-50 text-green-700 font-semibold py-0.5">
+							{{ row.approved }}
+						</span>
+						<span class="text-center rounded bg-red-50 text-red-700 font-semibold py-0.5">
+							{{ row.rejected }}
+						</span>
+						<span class="text-center rounded bg-amber-50 text-amber-700 font-semibold py-0.5">
+							{{ row.pending }}
+						</span>
+					</div>
+					<div
+						v-if="leaveCounts.data?.days"
+						class="text-[10px] text-gray-500 pt-0.5"
+					>
+						{{ __("Approved leave days") }}:
+						<span class="font-semibold text-gray-700">{{ leaveCounts.data.days }}</span>
 					</div>
 				</div>
 
@@ -478,10 +445,14 @@ import NepaliAttendanceCalendar from "@/components/NepaliAttendanceCalendar.vue"
 import AttendanceDaySheet from "@/components/AttendanceDaySheet.vue"
 import LiveAttendanceBoard from "@/components/LiveAttendanceBoard.vue"
 import { getBsMonthAdRange, formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
+import { encodeLeaveRanges } from "@/utils/leave_ranges"
+import { consumeAttendanceRefresh } from "@/utils/attendance_refresh"
 import { pwaAccess } from "@/data/pwa_access"
 
 const activeCalendar = ref("Nepali")
 const attendanceView = ref("calendar")
+const adCalendar = ref(null)
+const bsCalendar = ref(null)
 const employee = inject("$employee")
 const dayjs = inject("$dayjs")
 const socket = inject("$socket")
@@ -612,17 +583,82 @@ const leaveCounts = createResource({
 	],
 })
 
+const attRequestCounts = createResource({
+	url: "nepal_hrms.api.attendance_calendar.get_attendance_request_counts",
+	makeParams: () => ({
+		employee: calendarEmployee.value,
+		from_date: monthRange.value.from_date,
+		to_date: monthRange.value.to_date,
+	}),
+	auto: true,
+	cache: [
+		"nepal_hrms:att-request-counts",
+		() => calendarEmployee.value,
+		() => monthRange.value.from_date,
+	],
+})
+
+const monthAppRows = computed(() => {
+	const rows = []
+	if (appCounts.data) {
+		for (const key of ["late_entry", "early_exit", "out_of_office"]) {
+			const d = appCounts.data[key]
+			if (d) {
+				rows.push({
+					key,
+					...d,
+					label: d.doctype || __("{0} Application", [d.label]),
+				})
+			}
+		}
+	}
+	if (leaveCounts.data) {
+		rows.push({
+			key: "leave",
+			label: __("Leave Application"),
+			total: leaveCounts.data.total,
+			approved: leaveCounts.data.approved,
+			rejected: leaveCounts.data.rejected,
+			pending: leaveCounts.data.pending,
+		})
+	}
+	if (attRequestCounts.data) {
+		rows.push({
+			key: "attendance_request",
+			label: __("Attendance Request"),
+			total: attRequestCounts.data.total,
+			approved: attRequestCounts.data.approved,
+			rejected: attRequestCounts.data.rejected,
+			pending: attRequestCounts.data.pending,
+		})
+	}
+	return rows
+})
+
 watch(monthRange, () => {
 	poolSummary.reload()
 	appCounts.reload()
 	leaveCounts.reload()
+	attRequestCounts.reload()
 })
 
 watch(calendarEmployee, () => {
 	poolSummary.reload()
 	appCounts.reload()
 	leaveCounts.reload()
+	attRequestCounts.reload()
 })
+
+function refreshAttendanceView() {
+	adCalendar.value?.reload?.()
+	bsCalendar.value?.reload?.()
+	poolSummary.reload()
+	appCounts.reload()
+	leaveCounts.reload()
+	attRequestCounts.reload()
+	myAttendanceRequests?.reload?.()
+	recentAttendance?.reload?.()
+}
 
 function onCalendarDaySelect({ date, late, early, status }) {
 	if (!date) return
@@ -641,22 +677,42 @@ function onDaySheetDismiss() {
 	selectedDay.value = null
 }
 
-async function onCreateLeave({ from_date, to_date, half_day }) {
-	if (!from_date || !to_date) return
+async function onCreateLeave({ from_date, to_date, half_day, ranges }) {
+	const leaveRanges = (
+		ranges?.length
+			? ranges
+			: from_date && to_date
+				? [{ from_date, to_date }]
+				: []
+	).filter((r) => r.from_date && r.to_date)
+	if (!leaveRanges.length) return
 	showDaySheet.value = false
-	pendingLeaveRange.value = { from_date, to_date, half_day: half_day ? 1 : 0 }
-
-	let response = null
-	try {
-		response = await call("nepal_hrms.api.attendance_calendar.check_leave_sandwich", {
-			from_date,
-			to_date,
-		})
-	} catch (error) {
-		console.warn("Leave sandwich precheck failed", error)
+	const singleDay =
+		leaveRanges.length === 1 && leaveRanges[0].from_date === leaveRanges[0].to_date
+	pendingLeaveRange.value = {
+		ranges: leaveRanges,
+		half_day: singleDay && half_day ? 1 : 0,
 	}
-	if (response?.enabled && response?.violation && !response?.escape) {
-		sandwichInfo.value = response
+
+	let worst = null
+	for (const range of leaveRanges) {
+		let response = null
+		try {
+			response = await call("nepal_hrms.api.attendance_calendar.check_leave_sandwich", {
+				from_date: range.from_date,
+				to_date: range.to_date,
+			})
+		} catch (error) {
+			console.warn("Leave sandwich precheck failed", error)
+		}
+		if (response?.enabled && response?.violation && !response?.escape) {
+			if (!worst || (response.block && !worst.block)) {
+				worst = response
+			}
+		}
+	}
+	if (worst) {
+		sandwichInfo.value = worst
 		showSandwichDialog.value = true
 		return
 	}
@@ -666,15 +722,19 @@ async function onCreateLeave({ from_date, to_date, half_day }) {
 function proceedWithLeave() {
 	showSandwichDialog.value = false
 	const range = pendingLeaveRange.value
-	if (!range) return
+	if (!range?.ranges?.length) return
+	const first = range.ranges[0]
 	const query = {
 		prefill: "1",
-		from_date: range.from_date,
-		to_date: range.to_date,
+		from_date: first.from_date,
+		to_date: first.to_date,
+	}
+	if (range.ranges.length > 1) {
+		query.ranges = encodeLeaveRanges(range.ranges)
 	}
 	if (range.half_day) {
 		query.half_day = "1"
-		query.half_day_date = range.from_date
+		query.half_day_date = first.from_date
 	}
 	pendingLeaveRange.value = null
 	router.push({ name: "LeaveApplicationFormView", query })
@@ -749,6 +809,7 @@ const upcomingShifts = computed(() => {
 })
 
 onMounted(() => {
+	if (consumeAttendanceRefresh()) refreshAttendanceView()
 	useListUpdate(socket, "Attendance", () => {
 		recentAttendance.reload()
 		poolSummary.reload()
@@ -757,6 +818,10 @@ onMounted(() => {
 	useListUpdate(socket, "Late Entry Application", () => appCounts.reload())
 	useListUpdate(socket, "Early Exit Application", () => appCounts.reload())
 	useListUpdate(socket, "Out of Office Application", () => appCounts.reload())
-	useListUpdate(socket, "Leave Application", () => leaveCounts.reload())
+	useListUpdate(socket, "Leave Application", () => refreshAttendanceView())
+	useListUpdate(socket, "Attendance Request", () => {
+		attRequestCounts.reload()
+		myAttendanceRequests.reload()
+	})
 })
 </script>
