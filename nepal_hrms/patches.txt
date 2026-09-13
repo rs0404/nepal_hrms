@@ -8,3 +8,4 @@ nepal_hrms.patches.v1.migrate_salary_to_ssa
 nepal_hrms.patches.v1.setup_flexible_cit_tax
 nepal_hrms.patches.v1.split_assignment_allowances
 nepal_hrms.patches.v1.configure_salary_slip_print
+nepal_hrms.patches.v1.configure_attendance_sheet_leave_groups

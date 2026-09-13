@@ -738,6 +738,39 @@ def occurrence_half_days(count, initial_grace, subsequent_step):
 	return 1 + ((count - initial_grace - 1) // (subsequent_step + 1))
 
 
+def split_occurrence_penalty(
+	minor_count,
+	major_count,
+	initial_grace,
+	subsequent_step,
+	enable_full_day_escalation=0,
+	full_day_after_occurrences=5,
+):
+	"""Return payroll-aligned half/full-day penalty equivalents for one pool."""
+	minor_count = cint(minor_count)
+	major_count = cint(major_count)
+	minor_penalty = occurrence_half_days(
+		minor_count, initial_grace, subsequent_step
+	)
+	escalated = bool(
+		cint(enable_full_day_escalation)
+		and minor_count > cint(full_day_after_occurrences)
+	)
+	if escalated:
+		return frappe._dict(
+			half_days=float(major_count),
+			full_days=float(minor_penalty),
+			minor_penalty=float(minor_penalty),
+			escalated=True,
+		)
+	return frappe._dict(
+		half_days=float(major_count + minor_penalty),
+		full_days=0.0,
+		minor_penalty=float(minor_penalty),
+		escalated=False,
+	)
+
+
 def free_occurrences_remaining(count, initial_grace, subsequent_step):
 	"""How many more free pool slots before the next half-day penalty."""
 	count = cint(count)

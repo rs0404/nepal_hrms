@@ -462,6 +462,367 @@
     font-weight: 500;
 }
 
+/* Monthly Attendance Sheet BS — summary / totals columns */
+.sheet-bs-summary-cell {
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+.sheet-bs-summary-cell--total {
+    font-weight: 700;
+    color: #111827;
+}
+
+.datatable:has(.attendance-cell-container) .dt-cell__content .sheet-bs-period-days {
+    background: #fff7ed;
+    box-shadow: inset 0 0 0 2px #fb923c;
+    border-radius: 6px;
+    color: #9a3412;
+    margin: 4px 2px;
+    min-height: calc(100% - 8px);
+}
+
+.datatable:has(.attendance-cell-container) .dt-cell__content .sheet-bs-payable-days {
+    background: #ecfdf5;
+    box-shadow: inset 0 0 0 2px #34d399;
+    border-radius: 6px;
+    font-weight: 600;
+    color: #065f46;
+    margin: 4px 2px;
+    min-height: calc(100% - 8px);
+    position: relative;
+    gap: 4px;
+}
+
+.datatable:has(.attendance-cell-container) .dt-cell__content .sheet-bs-payable-days--mismatch {
+    background: #fef2f2;
+    box-shadow: inset 0 0 0 2px #ef4444;
+    color: #991b1b;
+}
+
+.sheet-bs-audit-cell {
+    position: relative;
+    cursor: help;
+}
+
+.sheet-bs-audit-main {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+}
+
+.sheet-bs-audit-cell--pending {
+    background: #fffbeb;
+    box-shadow: inset 0 0 0 2px #f59e0b;
+    border-radius: 6px;
+    color: #92400e;
+    margin: 4px 2px;
+    min-height: calc(100% - 8px);
+}
+
+.sheet-bs-audit-cell--rejected {
+    background: #fef2f2;
+    box-shadow: inset 0 0 0 2px #ef4444;
+    border-radius: 6px;
+    color: #991b1b;
+    margin: 4px 2px;
+    min-height: calc(100% - 8px);
+}
+
+.sheet-bs-audit-cell--approved:not(.sheet-bs-payable-days) {
+    background: #f0fdf4;
+    box-shadow: inset 0 0 0 1px #86efac;
+    border-radius: 6px;
+    color: #166534;
+    margin: 4px 2px;
+    min-height: calc(100% - 8px);
+}
+
+.sheet-bs-audit-hover {
+    display: none;
+    position: absolute;
+    z-index: 10030;
+    bottom: calc(100% + 7px);
+    right: -8px;
+    width: min(420px, 80vw);
+    max-height: min(520px, 70vh);
+    overflow: auto;
+    padding: 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    color: #0f172a;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.35;
+    white-space: normal;
+    box-shadow: none;
+}
+
+.sheet-bs-audit-cell > .sheet-bs-audit-hover {
+    display: none !important;
+}
+
+.sheet-bs-hover-host > .sheet-bs-audit-hover,
+.sheet-bs-hover-host .bar-tooltip {
+    display: none !important;
+}
+
+.sheet-bs-audit-hover--portal {
+    display: block !important;
+    position: fixed;
+    inset: auto;
+    z-index: 10050;
+}
+
+.datatable:has(.attendance-cell-container) .dt-row:has(.sheet-bs-audit-cell),
+.datatable:has(.attendance-cell-container) .dt-cell:has(.sheet-bs-audit-cell),
+.datatable:has(.attendance-cell-container) .dt-cell__content:has(.sheet-bs-audit-cell) {
+    overflow: visible !important;
+}
+
+.datatable:has(.attendance-cell-container) .dt-cell:has(.sheet-bs-audit-cell:hover),
+.datatable:has(.attendance-cell-container) .dt-cell:has(.sheet-bs-audit-cell:focus-within) {
+    z-index: 10020 !important;
+}
+
+.sheet-bs-audit-title {
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.sheet-bs-audit-section,
+.sheet-bs-app-counts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sheet-bs-audit-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) auto;
+    gap: 2px 12px;
+    align-items: baseline;
+    padding: 3px 0;
+}
+
+.sheet-bs-audit-label {
+    color: #475569;
+}
+
+.sheet-bs-audit-value {
+    color: #0f172a;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.sheet-bs-audit-note {
+    grid-column: 1 / -1;
+    color: #64748b;
+    font-size: 10px;
+}
+
+.sheet-bs-audit-subtitle {
+    margin-top: 10px;
+    margin-bottom: 4px;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.sheet-bs-audit-empty {
+    padding: 5px 0;
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.sheet-bs-audit-result {
+    margin-top: 10px;
+    padding: 7px 9px;
+    border-radius: 6px;
+    font-weight: 700;
+}
+
+.sheet-bs-audit-result--good {
+    background: #ecfdf5;
+    color: #065f46;
+}
+
+.sheet-bs-audit-result--bad,
+.sheet-bs-audit-warning {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.sheet-bs-audit-causes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.sheet-bs-audit-causes span {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 10px;
+}
+
+.sheet-bs-audit-warning {
+    margin-top: 8px;
+    padding: 7px 9px;
+    border-radius: 6px;
+}
+
+.sheet-bs-app-section {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.sheet-bs-app-section-title {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    color: #334155;
+    font-weight: 700;
+}
+
+.sheet-bs-app-section--pending .sheet-bs-app-section-title {
+    color: #92400e;
+}
+
+.sheet-bs-app-section--rejected .sheet-bs-app-section-title {
+    color: #b91c1c;
+}
+
+.sheet-bs-app-detail {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) auto;
+    gap: 2px 10px;
+    padding: 6px 0;
+    border-top: 1px solid #f1f5f9;
+    color: inherit;
+    text-decoration: none;
+}
+
+.sheet-bs-app-detail:hover .sheet-bs-app-name {
+    text-decoration: underline;
+}
+
+.sheet-bs-app-name {
+    color: #2563eb;
+    font-weight: 600;
+}
+
+.sheet-bs-app-date {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.sheet-bs-app-reason {
+    grid-column: 1 / -1;
+    color: #475569;
+    font-size: 10px;
+}
+
+.sheet-bs-daily-documents {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sheet-bs-daily-doc {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) auto;
+    gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #475569;
+    text-decoration: none;
+}
+
+.sheet-bs-daily-doc strong {
+    color: #2563eb;
+    font-weight: 600;
+}
+
+.sheet-bs-daily-doc:hover strong {
+    text-decoration: underline;
+}
+
+.sheet-bs-occurrence-audit {
+    margin-top: 12px;
+    padding: 9px;
+    border: 1px solid #bfdbfe;
+    border-radius: 7px;
+    background: #eff6ff;
+}
+
+.sheet-bs-audit-info {
+    margin-top: 8px;
+    color: #1e3a8a;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* Work on weekly off / public holiday — extra (blue) */
+.attendance-cell--holiday-extra .attendance-bar:not(.attendance-bar-placeholder) {
+    box-shadow: 0 0 0 1px #2563eb;
+}
+
+.attendance-cell--holiday-extra .cnr-pill-row > div,
+.attendance-cell--holiday-extra .cnr-pill-row > a > div {
+    box-shadow: 0 0 0 1px #1d4ed8;
+}
+
+.datatable:has(.attendance-cell-container) .dt-cell__content .sheet-bs-holiday-extra-col {
+    background: #eff6ff;
+    box-shadow: inset 0 0 0 2px #2563eb;
+    border-radius: 6px;
+    font-weight: 600;
+    color: #1e3a8a;
+    margin: 4px 2px;
+    min-height: calc(100% - 8px);
+}
+
+.datatable:has(.attendance-cell-container) .dt-row:has(.attendance-cell--holiday-extra) .dt-cell__content:has(.attendance-cell--holiday-extra) {
+    background: #f8fafc;
+}
+
+.sheet-bs-payable-warn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
 /* --- Status Labels (for WO/Leave/No Shift) --- */
 .attendance-status-label {
     display: flex;

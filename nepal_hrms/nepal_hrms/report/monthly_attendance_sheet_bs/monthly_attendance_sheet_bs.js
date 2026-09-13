@@ -31,6 +31,362 @@ function sheetBsMarkReportPage() {
 	document.body.classList.add("sheet-bs-report-page");
 }
 
+const SHEET_BS_TOTAL_SUMMARY_COLUMNS = new Set([
+	"total_days_in_period",
+	"payable_days",
+	"total_absent",
+	"lwp_days",
+	"paid_leave_days",
+]);
+
+const SHEET_BS_SUMMARY_FLOAT_FIELDS = new Set([
+	"total_holiday", "total_present", "total_absent", "payable_days",
+	"present_full", "present_half", "absent_full", "absent_half",
+	"lwp_days", "lwp_full", "lwp_half",
+	"paid_leave_days", "paid_leave_full", "paid_leave_half",
+	"annual_home_leave_days", "sick_leave_days", "other_paid_leave_days",
+	"holiday_extra_present", "holiday_extra_hours", "total_no_of_days",
+]);
+const SHEET_BS_DAILY_HOVER_DATA = new Map();
+const SHEET_BS_AUDIT_HOVER_DATA = new Map();
+let sheetBsAuditHoverSeq = 0;
+
+function sheetBsFormatOneDecimal(n) {
+	const num = parseFloat(n);
+	if (Number.isNaN(num)) return n;
+	const rounded = Math.round(num * 10) / 10;
+	if (Math.abs(rounded - Math.round(rounded)) < 1e-9) {
+		return String(Math.round(rounded));
+	}
+	return rounded.toFixed(1);
+}
+
+function sheetBsFormatSummaryNumber(fieldname, raw, column) {
+	if (raw === null || raw === undefined || raw === "") {
+		return "0";
+	}
+	const num = parseFloat(raw);
+	if (Number.isNaN(num)) {
+		return raw;
+	}
+	if (fieldname && fieldname.endsWith("_full")) {
+		return String(Math.round(num));
+	}
+	if (fieldname && fieldname.endsWith("_half")) {
+		return sheetBsFormatOneDecimal(num);
+	}
+	if (SHEET_BS_SUMMARY_FLOAT_FIELDS.has(fieldname)) {
+		return sheetBsFormatOneDecimal(num);
+	}
+	if (column && column.fieldtype === "Float" && fieldname && !fieldname.startsWith("day_")) {
+		return sheetBsFormatOneDecimal(num);
+	}
+	return null;
+}
+
+function sheetBsEsc(value) {
+	return frappe.utils.escape_html(String(value === null || value === undefined ? "" : value));
+}
+
+function sheetBsAuditRow(label, value, note) {
+	return `<div class="sheet-bs-audit-row">
+		<span class="sheet-bs-audit-label">${sheetBsEsc(label)}</span>
+		<span class="sheet-bs-audit-value">${sheetBsEsc(value)}</span>
+		${note ? `<span class="sheet-bs-audit-note">${sheetBsEsc(note)}</span>` : ""}
+	</div>`;
+}
+
+function sheetBsBreakdownHTML(items, emptyLabel) {
+	const entries = Object.entries(items || {}).filter(([, value]) => (parseFloat(value) || 0) !== 0);
+	if (!entries.length) {
+		return `<div class="sheet-bs-audit-empty">${sheetBsEsc(emptyLabel || __("No entries"))}</div>`;
+	}
+	return entries
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([label, value]) => sheetBsAuditRow(label, sheetBsFormatOneDecimal(value)))
+		.join("");
+}
+
+function sheetBsAuditCell(display, title, body, options) {
+	options = options || {};
+	const classes = [
+		"sheet-bs-summary-cell",
+		"sheet-bs-audit-cell",
+		options.cellClass || "",
+		options.tone ? `sheet-bs-audit-cell--${options.tone}` : "",
+	].filter(Boolean).join(" ");
+	// Keep hover HTML out of the cell so DataTable does not flatten it into a native title tooltip.
+	const key = `audit-${++sheetBsAuditHoverSeq}`;
+	SHEET_BS_AUDIT_HOVER_DATA.set(key, { title, body });
+	return `<div class="${classes}" tabindex="0" data-sheet-bs-audit-key="${sheetBsEsc(key)}">
+		<span class="sheet-bs-audit-main">${sheetBsEsc(display)}</span>
+	</div>`;
+}
+
+function sheetBsStripNativeTitles(root) {
+	if (!root || !root.querySelectorAll) return;
+	root.querySelectorAll(
+		".sheet-bs-audit-cell[title], .sheet-bs-hover-host[title], .sheet-bs-summary-cell[title], .attendance-cell-container[title]"
+	).forEach((el) => el.removeAttribute("title"));
+}
+
+function sheetBsPaidDaysCell(row) {
+	const daily = parseFloat(row.paid_days_daily_method ?? row.payable_days) || 0;
+	const period = parseFloat(row.paid_days_period_method) || 0;
+	const components = parseFloat(row.paid_days_component_method) || 0;
+	const mismatch = cint(row.payable_days_mismatch) === 1;
+	const difference = (value) => sheetBsFormatOneDecimal(value - daily);
+	let body = `<div class="sheet-bs-audit-section">
+		${sheetBsAuditRow(__("Period − LWP − Absent"), sheetBsFormatOneDecimal(period), __("Difference {0}", [difference(period)]))}
+		${sheetBsAuditRow(__("Present + Paid Leave + Holidays"), sheetBsFormatOneDecimal(components), __("Difference {0}", [difference(components)]))}
+		${sheetBsAuditRow(__("Canonical daily paid flags"), sheetBsFormatOneDecimal(daily), __("Displayed value"))}
+	</div>`;
+	const causes = [];
+	if (cint(row.unmarked)) causes.push(__("{0} unmarked day(s)", [cint(row.unmarked)]));
+	if (cint(row.unclassified_leave)) causes.push(__("{0} leave day(s) without a configured Leave Type", [cint(row.unclassified_leave)]));
+	if ((parseFloat(row.sandwich) || 0) > 0) causes.push(__("{0} sandwich-adjusted day(s)", [sheetBsFormatOneDecimal(row.sandwich)]));
+	if (cint(row.future_days_excluded)) causes.push(__("{0} future day(s) excluded", [cint(row.future_days_excluded)]));
+	if (cint(row.unmarked_today_excluded)) causes.push(__("Today is pending and excluded until attendance is marked"));
+	if (mismatch && !causes.length) causes.push(__("Check overlapping or unsupported attendance statuses."));
+	body += `<div class="sheet-bs-audit-result sheet-bs-audit-result--${mismatch ? "bad" : "good"}">
+		${mismatch ? __("Checks do not reconcile") : __("All three checks reconcile within 0.05")}
+	</div>`;
+	if (causes.length) {
+		body += `<div class="sheet-bs-audit-causes">${causes.map((cause) => `<span>${sheetBsEsc(cause)}</span>`).join("")}</div>`;
+	}
+	return sheetBsAuditCell(
+		sheetBsFormatOneDecimal(daily),
+		__("Total Paid Days audit"),
+		body,
+		{
+			cellClass: `sheet-bs-payable-days${mismatch ? " sheet-bs-payable-days--mismatch" : ""}`,
+			tone: mismatch ? "rejected" : "approved",
+		}
+	);
+}
+
+function sheetBsPeriodDaysCell(row) {
+	const included = cint(row.total_days_in_period);
+	const selected = cint(row.selected_period_days || included);
+	const body = `<div class="sheet-bs-audit-section">
+		${sheetBsAuditRow(__("Selected period days"), selected)}
+		${sheetBsAuditRow(__("Days included in paid-day audit"), included)}
+		${sheetBsAuditRow(__("Audit through"), row.audit_through_date || __("No eligible day yet"))}
+		${sheetBsAuditRow(__("Future days excluded"), cint(row.future_days_excluded))}
+		${sheetBsAuditRow(__("Unmarked today excluded"), cint(row.unmarked_today_excluded) ? __("Yes") : __("No"))}
+	</div>
+	<div class="sheet-bs-audit-info">${__("Past unmarked days remain included so genuine attendance gaps are still reported.")}</div>`;
+	return sheetBsAuditCell(included, __("Total Period Days used for paid-day audit"), body, {
+		cellClass: "sheet-bs-summary-cell--total sheet-bs-period-days",
+	});
+}
+
+function sheetBsLeaveSummaryCell(row, fieldname) {
+	const value = sheetBsFormatOneDecimal(row[fieldname] || 0);
+	let title = "";
+	let body = "";
+	if (fieldname === "total_absent") {
+		title = __("Absent Days");
+		body = `<div class="sheet-bs-audit-section">
+			${sheetBsAuditRow(__("Full-day absences"), sheetBsFormatOneDecimal(row.absent_full || 0))}
+			${sheetBsAuditRow(__("Half-day absence entries"), sheetBsFormatOneDecimal((parseFloat(row.absent_half) || 0) * 2), __("{0} day units", [sheetBsFormatOneDecimal(row.absent_half || 0)]))}
+			${sheetBsAuditRow(__("Sandwich absences"), sheetBsFormatOneDecimal(row.sandwich_absent || 0))}
+		</div>`;
+	} else if (fieldname === "lwp_days") {
+		title = __("Leave Without Pay");
+		body = `<div class="sheet-bs-audit-section">
+			${sheetBsAuditRow(__("Full day"), sheetBsFormatOneDecimal(row.lwp_full || 0))}
+			${sheetBsAuditRow(__("Half-day entries"), sheetBsFormatOneDecimal((parseFloat(row.lwp_half) || 0) * 2), __("{0} day units", [sheetBsFormatOneDecimal(row.lwp_half || 0)]))}
+		</div>
+		<div class="sheet-bs-audit-subtitle">${__("By leave type")}</div>
+		${sheetBsBreakdownHTML(row.lwp_breakdown, __("No unpaid leave"))}`;
+	} else if (fieldname === "paid_leave_days") {
+		title = __("Paid Leaves");
+		body = `<div class="sheet-bs-audit-section">
+			${sheetBsAuditRow(__("Full day"), sheetBsFormatOneDecimal(row.paid_leave_full || 0))}
+			${sheetBsAuditRow(__("Half-day entries"), sheetBsFormatOneDecimal((parseFloat(row.paid_leave_half) || 0) * 2), __("{0} day units", [sheetBsFormatOneDecimal(row.paid_leave_half || 0)]))}
+			${sheetBsAuditRow(__("Annual/Home"), sheetBsFormatOneDecimal(row.annual_home_leave_days || 0))}
+			${sheetBsAuditRow(__("Sick"), sheetBsFormatOneDecimal(row.sick_leave_days || 0))}
+			${sheetBsAuditRow(__("Other Paid"), sheetBsFormatOneDecimal(row.other_paid_leave_days || 0))}
+		</div>
+		<div class="sheet-bs-audit-subtitle">${__("By leave type")}</div>
+		${sheetBsBreakdownHTML(row.leave_breakdown, __("No paid leave"))}`;
+		const unconfigured = sheetBsBreakdownHTML(row.unconfigured_paid_leave_breakdown, "");
+		if (Object.keys(row.unconfigured_paid_leave_breakdown || {}).length) {
+			body += `<div class="sheet-bs-audit-warning">
+				<div class="sheet-bs-audit-subtitle">${__("Unconfigured (fallback: Other Paid)")}</div>${unconfigured}
+			</div>`;
+		}
+	} else if (fieldname === "other_paid_leave_days") {
+		title = __("Other Paid Leaves");
+		body = `<div class="sheet-bs-audit-subtitle">${__("By leave type")}</div>
+			${sheetBsBreakdownHTML(row.other_paid_breakdown, __("No other paid leave"))}`;
+	}
+	return sheetBsAuditCell(value, title, body, {
+		cellClass: ["total_absent", "lwp_days", "paid_leave_days"].includes(fieldname)
+			? "sheet-bs-summary-cell--total"
+			: "",
+	});
+}
+
+function sheetBsApplicationDetail(detail, doctype) {
+	const slug = String(doctype || "").toLowerCase().replace(/\s+/g, "-");
+	const date = detail.attendance_date
+		? detail.attendance_date
+		: `${detail.from_date || "?"} → ${detail.to_date || "?"}`;
+	const reason = detail.custom_rejection_reason || detail.reason || detail.type_of_work || "";
+	return `<a class="sheet-bs-app-detail" href="/app/${sheetBsEsc(slug)}/${encodeURIComponent(detail.name)}" target="_blank" onclick="event.stopPropagation();">
+		<span class="sheet-bs-app-name">${sheetBsEsc(detail.name)}</span>
+		<span class="sheet-bs-app-date">${sheetBsEsc(date)}</span>
+		${reason ? `<span class="sheet-bs-app-reason">${sheetBsEsc(reason)}</span>` : ""}
+	</a>`;
+}
+
+function sheetBsApplicationSection(label, kind, details, doctype) {
+	if (!details.length) return "";
+	return `<div class="sheet-bs-app-section sheet-bs-app-section--${kind}">
+		<div class="sheet-bs-app-section-title">${sheetBsEsc(label)} <span>${details.length}</span></div>
+		${details.map((detail) => sheetBsApplicationDetail(detail, doctype)).join("")}
+	</div>`;
+}
+
+function sheetBsOccurrenceHTML(audit, kind) {
+	if (!audit || !Object.keys(audit).length || !["late_entry", "early_exit"].includes(kind)) return "";
+	const prefix = kind === "late_entry" ? "late" : "early";
+	const free = typeof audit.free_remaining === "object"
+		? audit.free_remaining[prefix]
+		: audit.free_remaining;
+	return `<div class="sheet-bs-occurrence-audit">
+		<div class="sheet-bs-audit-subtitle">${__("Occurrence pool audit")}${cint(audit.combine_pools) ? ` · ${__("Combined late/early")}` : ""}</div>
+		${sheetBsAuditRow(__("Penalty policy enabled"), cint(audit.penalty_enabled) ? __("Yes") : __("No"))}
+		${sheetBsAuditRow(__("Pool occurrences"), cint(audit[`${prefix}_minor`]))}
+		${sheetBsAuditRow(__("Major occurrences"), cint(audit[`${prefix}_major`]))}
+		${sheetBsAuditRow(__("Initial free threshold"), cint(audit.initial_grace_occurrences))}
+		${sheetBsAuditRow(__("Subsequent free step"), cint(audit.subsequent_grace_step_occurrences))}
+		${sheetBsAuditRow(__("Free remaining"), cint(free))}
+		${sheetBsAuditRow(__("Half-day equivalents"), sheetBsFormatOneDecimal(audit[`${prefix}_half_days`] || 0))}
+		${sheetBsAuditRow(__("Full-day escalation equivalents"), sheetBsFormatOneDecimal(audit[`${prefix}_full_days`] || 0), __("Threshold {0}", [cint(audit.full_day_escalation_threshold)]))}
+		${sheetBsAuditRow(__("Full-day escalation active"), audit[`${prefix}_escalated`] ? __("Yes") : __("No"))}
+		<div class="sheet-bs-audit-info">${cint(audit.penalty_enabled)
+			? __("Audit only — occurrence-pool penalties are monetary deductions and are not subtracted from Total Paid Days.")
+			: __("Penalty policy is disabled. Values are audit projections only and are not subtracted from Total Paid Days.")}</div>
+	</div>`;
+}
+
+function sheetBsApplicationCell(row, kind) {
+	const stats = (row.application_audits || {})[kind] || {};
+	const approved = cint(stats.approved);
+	const pending = cint(stats.pending);
+	const rejected = cint(stats.rejected);
+	const details = Array.isArray(stats.details) ? stats.details : [];
+	const grouped = {
+		approved: details.filter((item) => item.status === "approved"),
+		pending: details.filter((item) => item.status === "pending"),
+		rejected: details.filter((item) => item.status === "rejected"),
+	};
+	let tone = approved ? "approved" : "neutral";
+	if (pending) tone = "pending";
+	if (rejected) tone = "rejected";
+	const body = `<div class="sheet-bs-app-counts">
+		${sheetBsAuditRow(__("Approved"), approved)}
+		${sheetBsAuditRow(__("Applied / Pending"), pending)}
+		${sheetBsAuditRow(__("Rejected"), rejected)}
+	</div>
+	${sheetBsApplicationSection(__("Approved"), "approved", grouped.approved, stats.doctype)}
+	${sheetBsApplicationSection(__("Applied / Pending"), "pending", grouped.pending, stats.doctype)}
+	${sheetBsApplicationSection(__("Rejected"), "rejected", grouped.rejected, stats.doctype)}
+	${sheetBsOccurrenceHTML(row.occurrence_audit, kind)}`;
+	return sheetBsAuditCell(approved, stats.label || __("Applications"), body, { tone });
+}
+
+function sheetBsDailyDocumentRow(label, doctypeSlug, name) {
+	if (!name) return "";
+	return `<a class="sheet-bs-daily-doc" href="/app/${sheetBsEsc(doctypeSlug)}/${encodeURIComponent(name)}" target="_blank" onclick="event.stopPropagation();">
+		<span>${sheetBsEsc(label)}</span>
+		<strong>${sheetBsEsc(name)}</strong>
+	</a>`;
+}
+
+function sheetBsDailyHoverHTML(cellData, attendanceDate) {
+	const statusLabels = {
+		P: __("Present"),
+		Ab: __("Absent"),
+		Lv: __("On Leave"),
+		"HD/P": __("Half Day · other half present"),
+		"HD/A": __("Half Day · other half absent"),
+		WFH: __("Work From Home"),
+		WO: __("Weekly Off"),
+		Hol: __("Holiday"),
+		NONE: __("Not Marked"),
+	};
+	const status = cellData.status || "NONE";
+	const barData = cellData.bar_data || {};
+	const lateMins = cint(cellData.late_mins || barData.late_mins);
+	const earlyMins = cint(cellData.early_mins || barData.early_mins);
+	const logs = cellData.checks
+		? String(cellData.checks).split(",").filter(Boolean).join(" → ")
+		: __("No check-in logs");
+	let body = `<div class="sheet-bs-audit-section">
+		${sheetBsAuditRow(__("Status"), statusLabels[status] || status)}
+		${sheetBsAuditRow(__("Worked"), cellData.wh || "0h")}
+		${sheetBsAuditRow(__("Target"), `${sheetBsFormatOneDecimal(cellData.target || 0)}h`)}
+		${cellData.leave_type ? sheetBsAuditRow(__("Leave Type"), cellData.leave_type) : ""}
+		${cellData.other_half_label ? sheetBsAuditRow(__("Other Half"), cellData.other_half_title || cellData.other_half_label) : ""}
+		${sheetBsAuditRow(__("Logs"), logs)}
+	</div>`;
+
+	if (lateMins || earlyMins || cint(barData.ooo_mins) || cint(barData.extra_mins) || cellData.worked_on_holiday) {
+		body += `<div class="sheet-bs-audit-subtitle">${__("Time audit")}</div>
+		<div class="sheet-bs-audit-section">
+			${lateMins ? sheetBsAuditRow(__("Late"), formatMins(lateMins), lateKindLabel(cellData.late_kind)) : ""}
+			${earlyMins ? sheetBsAuditRow(__("Early"), formatMins(earlyMins), lateKindLabel(cellData.early_kind)) : ""}
+			${cint(barData.ooo_mins) ? sheetBsAuditRow(__("Out of Office Work"), formatMins(barData.ooo_mins)) : ""}
+			${cint(barData.extra_mins) ? sheetBsAuditRow(__("Extra Work"), formatMins(barData.extra_mins)) : ""}
+			${cellData.worked_on_holiday ? sheetBsAuditRow(__("WO/Holiday Work"), __("Counted as extra work")) : ""}
+		</div>`;
+	}
+	const segmentLabels = {
+		normal: __("In Office"),
+		ooo: __("Out of Office Work"),
+		wfh: __("Work From Home"),
+		halfday: __("Half Day Leave"),
+		gap: __("Attendance Gap"),
+		extra: __("Extra Work"),
+		holiday: __("Holiday / Weekly Off"),
+	};
+	if (Array.isArray(barData.segments) && barData.segments.length) {
+		body += `<div class="sheet-bs-audit-subtitle">${__("Time segments")}</div>
+			<div class="sheet-bs-audit-section">${barData.segments.map((segment) => {
+				const start = timeToMinutes(segment.start);
+				let end = timeToMinutes(segment.end);
+				if (end < start) end += 1440;
+				return sheetBsAuditRow(
+					segmentLabels[segment.type] || segment.type,
+					formatMins(Math.max(0, end - start)),
+					`${segment.start} → ${segment.end}`
+				);
+			}).join("")}</div>`;
+	}
+
+	const documents = [
+		sheetBsDailyDocumentRow(__("Attendance"), "attendance", cellData.attendance_doc),
+		sheetBsDailyDocumentRow(__("Late Entry Application"), "late-entry-application", cellData.late_entry_app),
+		sheetBsDailyDocumentRow(__("Early Exit Application"), "early-exit-application", cellData.early_exit_app),
+		sheetBsDailyDocumentRow(__("Out of Office Application"), "out-of-office-application", cellData.ooo_app),
+	].filter(Boolean).join("");
+	if (documents) {
+		body += `<div class="sheet-bs-audit-subtitle">${__("Documents")}</div>
+			<div class="sheet-bs-daily-documents">${documents}</div>`;
+	}
+	if (cellData.paid_day_audit_included === false) {
+		body += `<div class="sheet-bs-audit-info">${__("Pending/future day — excluded from the paid-day audit.")}</div>`;
+	}
+	return `<div class="sheet-bs-audit-hover sheet-bs-daily-audit" role="tooltip">
+		<div class="sheet-bs-audit-title">${sheetBsEsc(__("Attendance details · {0}", [attendanceDate]))}</div>
+		${body}
+	</div>`;
+}
+
 function sheetBsTimeBarLegendHtml(leaveLegendRows) {
 	const timeBar = `
 		<div class="attendance-bar-legend-section">
@@ -43,6 +399,7 @@ function sheetBsTimeBarLegendHtml(leaveLegendRows) {
 				<span class="legend-item"><span class="legend-swatch legend-swatch--pill-leave"></span>${__("Other half — leave (acronym pill)")}</span>
 				<span class="legend-item"><span class="legend-swatch legend-swatch--pill-absent"></span>${__("Other half — absent (Ab)")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background:#1e40af;"></span>${__("Extra")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#2563eb;border:1px solid #1d4ed8;"></span>${__("Worked on WO/Hol (in Holiday count, not in Present)")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background:#ef4444;"></span>${__("Gap")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background:#94a3b8;"></span>${__("Holiday / WO")}</span>
 			</div>
@@ -100,6 +457,9 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 		// Recreate datatable on each refresh so inlineFilters: false and HTML formatters re-run.
 		const refreshReport = report.refresh.bind(report);
 		report.refresh = function (have_filters_changed) {
+			SHEET_BS_DAILY_HOVER_DATA.clear();
+			SHEET_BS_AUDIT_HOVER_DATA.clear();
+			sheetBsAuditHoverSeq = 0;
 			if (report.datatable && typeof report.datatable.destroy === "function") {
 				try {
 					report.datatable.destroy();
@@ -325,60 +685,39 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 
 			try {
 				let {
-					status, wh, checks, target, leave_type, leave_acronym, half_day, late_entry, early_exit,
+					status, wh, checks, target, leave_type, leave_acronym, half_day,
 					bar_data, attendance_doc, late_entry_app, early_exit_app, ooo_app,
 					late_mins, early_mins, late_kind, early_kind,
-					other_half_label, other_half_kind, other_half_title,
+					other_half_label, other_half_kind, worked_on_holiday,
 				} = cellData;
 
-				let logDetails = checks ? `\nLogs: ${checks.split(",").join(" -> ")}` : "";
-				let leaveDetails = leave_type ? `\nLeave: ${leave_type}${half_day ? " (Half Day)" : ""}` : "";
-				if (other_half_label) {
-					leaveDetails += `\nOther half: ${other_half_title || other_half_label}`;
-				}
-
-				let extraDetails = "";
 				const lateMinsVal = late_mins || (bar_data && bar_data.late_mins) || 0;
 				const earlyMinsVal = early_mins || (bar_data && bar_data.early_mins) || 0;
-				if (lateMinsVal > 0) extraDetails += `\nLate: ${formatMins(lateMinsVal)} (${lateKindLabel(late_kind)})`;
-				if (earlyMinsVal > 0) extraDetails += `\nEarly: ${formatMins(earlyMinsVal)} (${lateKindLabel(early_kind)})`;
-				if (bar_data) {
-					if (bar_data.ooo_mins > 0) extraDetails += `\nOOO Work: ${formatMins(bar_data.ooo_mins)}`;
-					if (bar_data.extra_mins > 0) extraDetails += `\nExtra Work: ${formatMins(bar_data.extra_mins)}`;
-				}
-				if (late_entry_app) extraDetails += `\nLate Entry App: ${late_entry_app}`;
-				if (early_exit_app) extraDetails += `\nEarly Exit App: ${early_exit_app}`;
-				if (ooo_app) extraDetails += `\nOOO App: ${ooo_app}`;
-
 				const isHalfDay = isHalfDayCell(status, half_day, target);
-				const halfDayLabel = status === "HD/A" ? "Half Day (Absent half)" : status === "HD/P" ? "Half Day (Present half)" : "Half Day";
-				const hoverTitle = isHalfDay
-					? `${halfDayLabel} · Target: ${target} hr${leaveDetails}${extraDetails}${logDetails}`
-					: `Target: ${target} hr${leaveDetails}${extraDetails}${logDetails}`;
-				let hoverAttr = ` title="${frappe.utils.escape_html(hoverTitle)}" `;
-				const cellClass = isHalfDay ? "attendance-cell-container attendance-cell--half-day" : "attendance-cell-container";
+				let cellClass = "attendance-cell-container sheet-bs-hover-host";
+				if (worked_on_holiday) cellClass += " attendance-cell--holiday-extra";
+				if (isHalfDay) cellClass += " attendance-cell--half-day";
 
 				let barHTML = "";
 				if (bar_data) {
 					try {
-						barHTML = renderTimeBar(bar_data, status, wh, checks, target, leave_type, half_day, late_entry, early_exit);
+						barHTML = renderTimeBar(bar_data, status);
 					} catch (barErr) { console.error(barErr); }
 				}
 
 				let appLinks = { late_entry_app, early_exit_app, ooo_app, late_kind, early_kind, late_mins: lateMinsVal, early_mins: earlyMinsVal };
-				let lateBadge = cnrKindBadge("L", appLinks.late_kind, appLinks.late_entry_app, "late-entry-application", appLinks.late_mins);
-				let earlyBadge = cnrKindBadge("E", appLinks.early_kind, appLinks.early_exit_app, "early-exit-application", appLinks.early_mins);
+				let lateBadge = cnrKindBadge("L", appLinks.late_kind, appLinks.late_entry_app, "late-entry-application");
+				let earlyBadge = cnrKindBadge("E", appLinks.early_kind, appLinks.early_exit_app, "early-exit-application");
 				let oooBadge = appLinks.ooo_app
 					? cnrDocLink(
 						"out-of-office-application",
 						appLinks.ooo_app,
-						`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`,
-						appLinks.ooo_app
+						`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`
 					)
 					: "";
 				let pillHTML = getHalfDayPillsHTML(
 					status, wh, target, attendance_doc, half_day, leave_acronym,
-					other_half_label, other_half_kind, other_half_title
+					other_half_label, other_half_kind
 				);
 				let badgeRow = (lateBadge || earlyBadge || oooBadge)
 					? `<div class="cnr-badge-row">
@@ -391,8 +730,17 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				const pillRow = pillHTML.includes("cnr-pill-row--dual")
 					? pillHTML
 					: `<div class="cnr-pill-row">${pillHTML}</div>`;
+				const attendanceDate = colId.slice(4).replaceAll("_", "-");
+				const hoverKey = `${(rowData && (rowData.employee || rowData.employee_name)) || row}:${colId}`;
+				SHEET_BS_DAILY_HOVER_DATA.set(hoverKey, {
+					attendanceDate,
+					cellData: Object.assign({}, cellData, {
+						late_mins: lateMinsVal,
+						early_mins: earlyMinsVal,
+					}),
+				});
 
-				return `<div ${hoverAttr} class="${cellClass}">
+				return `<div class="${cellClass}" tabindex="0" data-sheet-bs-hover-key="${sheetBsEsc(hoverKey)}">
 					${barHTML || `<div class="attendance-bar attendance-bar-placeholder"></div>`}
 					${pillRow}
 					${badgeRow}
@@ -407,30 +755,53 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 			}
 		}
 
+		if ((colId === "holiday_extra_present" || colId === "holiday_extra_hours") && rowData) {
+			const raw = rowData[colId];
+			const num = parseFloat(raw) || 0;
+			const display =
+				colId === "holiday_extra_hours"
+					? (num > 0 ? `${sheetBsFormatOneDecimal(num)}h` : "0")
+					: sheetBsFormatOneDecimal(num);
+			return `<div class="sheet-bs-summary-cell sheet-bs-holiday-extra-col">${frappe.utils.escape_html(display)}</div>`;
+		}
+
+		if (colId === "payable_days" && rowData) {
+			return sheetBsPaidDaysCell(rowData);
+		}
+
+		if (["total_absent", "lwp_days", "paid_leave_days", "other_paid_leave_days"].includes(colId) && rowData) {
+			return sheetBsLeaveSummaryCell(rowData, colId);
+		}
+
+		const applicationFields = {
+			attendance_request_apps: "attendance_request",
+			late_entry_apps: "late_entry",
+			early_exit_apps: "early_exit",
+			out_of_office_apps: "out_of_office",
+		};
+		if (applicationFields[colId] && rowData) {
+			return sheetBsApplicationCell(rowData, applicationFields[colId]);
+		}
+
+		if (colId === "total_days_in_period" && rowData) {
+			return sheetBsPeriodDaysCell(rowData);
+		}
+
+		const summaryFormatted = sheetBsFormatSummaryNumber(
+			colId,
+			rowData && rowData[colId] !== undefined ? rowData[colId] : value,
+			column
+		);
+		if (summaryFormatted !== null) {
+			const totalCls = SHEET_BS_TOTAL_SUMMARY_COLUMNS.has(colId)
+				? " sheet-bs-summary-cell--total"
+				: "";
+			return `<div class="sheet-bs-summary-cell${totalCls}">${frappe.utils.escape_html(summaryFormatted)}</div>`;
+		}
+
 		value = default_formatter(value, row, column, data);
 
-		const appCountCols = {
-			total_late_entry_apps: "Late Entry Application",
-			total_early_exit_apps: "Early Exit Application",
-			total_ooo_apps: "Out of Office Application",
-		};
-		if (appCountCols[column.fieldname] && data) {
-			const count = cint(data[column.fieldname]);
-			const link = count
-				? cnrAppListLink(appCountCols[column.fieldname], data.employee, data.period_start, data.period_end, count)
-				: `<span style="text-align:center; display:block; width:100%;">${count || 0}</span>`;
-			return `<div style="height: 68px; display: flex; align-items: center; justify-content: center;">${link}</div>`;
-		}
-
-		if ([
-			"total_present", "total_absent", "total_holiday", "total_leave", "payable_days",
-			"present_full", "present_half", "absent_full", "absent_half", "leave_full", "leave_half",
-			"total_late_entry", "total_early_exit", "total_grace_late", "total_unexcused_late",
-		].includes(column.fieldname)) {
-			value = `<div style="text-align:center; font-weight:bold;">${value}</div>`;
-		}
-
-		return `<div style="height: 68px; display: flex; align-items: center;">${value}</div>`;
+		return `<div class="sheet-bs-summary-cell" style="height: 68px; display: flex; align-items: center;">${value}</div>`;
 	},
 	"get_datatable_options": function (options) {
 		(options.columns || []).forEach((col) => {
@@ -452,6 +823,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 	},
 	after_datatable_render: function (datatable) {
 		bind_sheet_bs_frozen_columns(datatable);
+		bind_sheet_bs_audit_hovers(datatable);
 		if (datatable.style && typeof datatable.style.refreshColumnWidth === "function") {
 			datatable.style.refreshColumnWidth();
 		}
@@ -507,11 +879,89 @@ function bind_sheet_bs_frozen_columns(datatable) {
 	paint();
 }
 
+function bind_sheet_bs_audit_hovers(datatable) {
+	if (!datatable || !datatable.wrapper || datatable.__sheet_bs_audit_bound) return;
+	datatable.__sheet_bs_audit_bound = true;
+	const wrapper = datatable.wrapper;
+	let portal = null;
+	let closeTimer = null;
+
+	const close = () => {
+		if (portal) portal.remove();
+		portal = null;
+	};
+	const scheduleClose = () => {
+		window.clearTimeout(closeTimer);
+		closeTimer = window.setTimeout(close, 120);
+	};
+	const open = (cell) => {
+		sheetBsStripNativeTitles(cell);
+		let content = null;
+		if (cell.dataset.sheetBsAuditKey) {
+			const payload = SHEET_BS_AUDIT_HOVER_DATA.get(cell.dataset.sheetBsAuditKey);
+			if (payload) {
+				const holder = document.createElement("div");
+				holder.innerHTML = `<div class="sheet-bs-audit-hover" role="tooltip">
+					<div class="sheet-bs-audit-title">${sheetBsEsc(payload.title)}</div>
+					${payload.body}
+				</div>`;
+				content = holder.firstElementChild;
+			}
+		} else if (cell.dataset.sheetBsHoverKey) {
+			const payload = SHEET_BS_DAILY_HOVER_DATA.get(cell.dataset.sheetBsHoverKey);
+			if (payload) {
+				const holder = document.createElement("div");
+				holder.innerHTML = sheetBsDailyHoverHTML(payload.cellData, payload.attendanceDate);
+				content = holder.firstElementChild;
+			}
+		} else {
+			content = cell.querySelector(".sheet-bs-audit-hover");
+		}
+		if (!content) return;
+		window.clearTimeout(closeTimer);
+		close();
+		portal = content.cloneNode(true);
+		portal.classList.add("sheet-bs-audit-hover--portal");
+		document.body.appendChild(portal);
+		const rect = cell.getBoundingClientRect();
+		const width = Math.min(420, window.innerWidth - 24);
+		portal.style.width = `${width}px`;
+		portal.style.left = `${Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12))}px`;
+		portal.style.top = `${rect.bottom + 8}px`;
+		portal.style.maxHeight = `${Math.max(48, window.innerHeight - rect.bottom - 20)}px`;
+		portal.addEventListener("mouseenter", () => window.clearTimeout(closeTimer));
+		portal.addEventListener("mouseleave", scheduleClose);
+	};
+
+	sheetBsStripNativeTitles(wrapper);
+	// DataTable injects title= from flattened cell textContent; keep stripping after paint/scroll.
+	const stripObserver = new MutationObserver(() => sheetBsStripNativeTitles(wrapper));
+	stripObserver.observe(wrapper, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
+	datatable.__sheet_bs_title_stripper = stripObserver;
+
+	wrapper.addEventListener("mouseover", (event) => {
+		const cell = event.target.closest(".sheet-bs-audit-cell, .sheet-bs-hover-host");
+		if (cell && !cell.contains(event.relatedTarget)) open(cell);
+	});
+	wrapper.addEventListener("mouseout", (event) => {
+		const cell = event.target.closest(".sheet-bs-audit-cell, .sheet-bs-hover-host");
+		if (cell && !cell.contains(event.relatedTarget)) scheduleClose();
+	});
+	wrapper.addEventListener("focusin", (event) => {
+		const cell = event.target.closest(".sheet-bs-audit-cell, .sheet-bs-hover-host");
+		if (cell) open(cell);
+	});
+	wrapper.addEventListener("focusout", scheduleClose);
+	if (datatable.bodyScrollable) {
+		datatable.bodyScrollable.addEventListener("scroll", close, { passive: true });
+	}
+}
+
 // ============================================================================
 // TIME BAR RENDERER
 // ============================================================================
 
-function renderTimeBar(barData, status, wh, checks, targetAmount, leaveType, halfDay, lateEntry, earlyExit) {
+function renderTimeBar(barData, status) {
 	// No shift assigned
 	if (barData.no_shift) return "";
 
@@ -533,16 +983,14 @@ function renderTimeBar(barData, status, wh, checks, targetAmount, leaveType, hal
 	let totalBarMins = barEnd - barStart;
 
 	let segmentHTML = "";
-	let tooltipLines = [];
-	let colorTotals = { normal: 0, ooo: 0, halfday: 0, gap: 0, extra: 0 };
 	let colorMap = {
-		normal: { bg: "#22c55e", label: "In Office" },
-		ooo: { bg: "#3b82f6", label: "OOO Work" },
-		wfh: { bg: "#0d9488", label: "Work From Home" },
-		halfday: { bg: "#a855f7", label: "Half Day Leave" },
-		gap: { bg: "#ef4444", label: "Gap (Absent)" },
-		extra: { bg: "#1e40af", label: "Extra Work" },
-		holiday: { bg: "#94a3b8", label: "Holiday / WO" }
+		normal: "#22c55e",
+		ooo: "#3b82f6",
+		wfh: "#0d9488",
+		halfday: "#a855f7",
+		gap: "#ef4444",
+		extra: "#1e40af",
+		holiday: "#94a3b8",
 	};
 
 	if (barData.segments && barData.segments.length) {
@@ -557,23 +1005,8 @@ function renderTimeBar(barData, status, wh, checks, targetAmount, leaveType, hal
 
 			if (leftPct + widthPct > 100) widthPct = 100 - leftPct;
 
-			let colors = colorMap[seg.type] || colorMap.normal;
-			segmentHTML += `<div class="bar-segment bar-segment-${seg.type}" style="position:absolute;left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(1)}%;background:${colors.bg};"></div>`;
-
-			let durMins = duration;
-			let durH = Math.floor(durMins / 60);
-			let durM = durMins % 60;
-			let durStr = durH > 0 ? `${durH}h ${durM}m` : `${durM}m`;
-
-			tooltipLines.push({
-				color: colors.bg,
-				label: colors.label,
-				start: seg.start,
-				end: seg.end,
-				duration: durStr
-			});
-
-			colorTotals[seg.type] = (colorTotals[seg.type] || 0) + durMins;
+			let color = colorMap[seg.type] || colorMap.normal;
+			segmentHTML += `<div class="bar-segment bar-segment-${seg.type}" style="position:absolute;left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(1)}%;background:${color};"></div>`;
 		});
 	}
 
@@ -584,46 +1017,9 @@ function renderTimeBar(barData, status, wh, checks, targetAmount, leaveType, hal
 		<div style="position:absolute;left:${shiftEndPct.toFixed(1)}%;top:0;bottom:0;width:1px;background:#94a3b8;z-index:2;opacity:0.5;"></div>
 	`;
 
-	let tooltipHTML = "";
-	if (tooltipLines.length) {
-		let lines = tooltipLines.map(t =>
-			`<div class="tooltip-line">
-				<span class="tooltip-color-dot" style="background:${t.color};"></span>
-				<span class="tooltip-time">${t.start} - ${t.end}</span>
-				<span class="tooltip-label">${t.label}</span>
-				<span class="tooltip-duration">${t.duration}</span>
-			</div>`
-		).join("");
-
-		let summaryItems = Object.entries(colorTotals)
-			.filter(([, v]) => v > 0)
-			.map(([k, v]) => {
-				let h = Math.floor(v / 60);
-				let m = v % 60;
-				let total = h > 0 ? `${h}h ${m}m` : `${m}m`;
-				let c = colorMap[k];
-				return `<span class="tooltip-summary-item">
-					<span class="tooltip-color-dot" style="background:${c.bg};"></span>
-					${c.label}: ${total}
-				</span>`;
-			}).join("");
-
-		const halfDayHeader = halfDay || isHalfDayCell(status, false, targetAmount)
-			? `<div class="bar-tooltip-half-day">Half Day · Target: ${targetAmount}h</div>`
-			: "";
-		const targetLineColor = halfDay || isHalfDayCell(status, false, targetAmount) ? "#c084fc" : "#67e8f9";
-		tooltipHTML = `<div class="bar-tooltip">
-			${halfDayHeader}
-			${lines}
-			${summaryItems ? `<div class="tooltip-summary">${summaryItems}</div>` : ""}
-			${wh ? `<div style="margin-top:4px;font-size:10px;color:${targetLineColor};">Total: ${wh} | Target: ${targetAmount}h</div>` : ""}
-		</div>`;
-	}
-
 	return `<div class="attendance-bar" style="height:8px; border-radius:4px;">
 		${shiftMarkers}
 		${segmentHTML}
-		${tooltipHTML}
 	</div>`;
 }
 
@@ -631,10 +1027,10 @@ function renderTimeBar(barData, status, wh, checks, targetAmount, leaveType, hal
 // PILL RENDERER
 // ============================================================================
 
-function cnrDocLink(doctypeSlug, name, innerHTML, title) {
+function cnrDocLink(doctypeSlug, name, innerHTML) {
 	if (!name) return innerHTML;
 	const href = `/app/${doctypeSlug}/${encodeURIComponent(name)}`;
-	return `<a href="${href}" target="_blank" title="${frappe.utils.escape_html(title || name)}" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;" onclick="event.stopPropagation();">${innerHTML}</a>`;
+	return `<a href="${href}" target="_blank" style="text-decoration:none;color:inherit;display:inline-flex;align-items:center;" onclick="event.stopPropagation();">${innerHTML}</a>`;
 }
 
 function cnrAppListLink(doctype, employee, periodStart, periodEnd, count) {
@@ -664,7 +1060,7 @@ function lateKindLabel(kind) {
 	return "—";
 }
 
-function cnrKindBadge(prefix, kind, appName, doctypeSlug, mins) {
+function cnrKindBadge(prefix, kind, appName, doctypeSlug) {
 	if (!kind) return "";
 	const styles = {
 		grace: "background:#fbbf24;color:#78350f;",
@@ -676,10 +1072,9 @@ function cnrKindBadge(prefix, kind, appName, doctypeSlug, mins) {
 		unexcused: `${prefix}!`,
 		excused: `${prefix}✓`,
 	};
-	const title = `${prefix === "L" ? "Late" : "Early"} ${lateKindLabel(kind)}${mins ? ` · ${formatMins(mins)}` : ""}${appName ? ` · ${appName}` : ""}`;
-	const badge = `<span style="${styles[kind] || ""}font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;white-space:nowrap;display:inline-block;margin:0;" title="${frappe.utils.escape_html(title)}">${labels[kind] || prefix}</span>`;
+	const badge = `<span style="${styles[kind] || ""}font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;white-space:nowrap;display:inline-block;margin:0;">${labels[kind] || prefix}</span>`;
 	if (appName) {
-		return cnrDocLink(doctypeSlug, appName, badge, title);
+		return cnrDocLink(doctypeSlug, appName, badge);
 	}
 	return badge;
 }
@@ -690,26 +1085,25 @@ function isHalfDayCell(status, halfDayFlag, targetAmount) {
 	return targetHours > 0 && targetHours < 8;
 }
 
-function getOtherHalfPillHTML(label, kind, title, attendance_doc) {
+function getOtherHalfPillHTML(label, kind, attendance_doc) {
 	if (!label) return "";
 	const isLeave = kind === "leave";
 	const bg = isLeave ? "#dae5ff" : "#fecdd3";
 	const color = isLeave ? "#1e293b" : "#450a0a";
-	const tip = title || (isLeave ? __("Leave half") : __("Absent half"));
 	let linkStart = attendance_doc ? `<a href="/app/attendance/${attendance_doc}" target="_blank" style="text-decoration:none;color:inherit;">` : "";
 	let linkEnd = attendance_doc ? `</a>` : "";
-	return `${linkStart}<div class="cnr-pill-other cnr-pill-other--${kind || "absent"}" title="${frappe.utils.escape_html(tip)}" style="display:flex;align-items:center;justify-content:center;background:${bg};color:${color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;border:1px solid rgba(0,0,0,0.08);min-width:28px;line-height:1;margin:0;${attendance_doc ? "cursor:pointer;" : ""}">
+	return `${linkStart}<div class="cnr-pill-other cnr-pill-other--${kind || "absent"}" style="display:flex;align-items:center;justify-content:center;background:${bg};color:${color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;border:1px solid rgba(0,0,0,0.08);min-width:28px;line-height:1;margin:0;${attendance_doc ? "cursor:pointer;" : ""}">
 		<span style="line-height:1;">${frappe.utils.escape_html(String(label).slice(0, 3))}</span>
 	</div>${linkEnd}`;
 }
 
-function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind, otherHalfTitle) {
+function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind) {
 	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym);
 	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
 	if (!isHalfDay || !otherHalfLabel) {
 		return main;
 	}
-	const other = getOtherHalfPillHTML(otherHalfLabel, otherHalfKind, otherHalfTitle, attendance_doc);
+	const other = getOtherHalfPillHTML(otherHalfLabel, otherHalfKind, attendance_doc);
 	return `<div class="cnr-pill-row cnr-pill-row--dual">${main}${other}</div>`;
 }
 
@@ -754,30 +1148,22 @@ function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_
 
 function renderLegacyCell(status, wh, checks, targetAmount, leaveType, halfDay, lateEntry, earlyExit, fieldname, data, attendance_doc, appLinks) {
 	appLinks = appLinks || {};
-	let logDetails = checks ? `\nLogs: ${checks.split(",").join(" -> ")}` : "";
-	let leaveDetails = leaveType ? `\nLeave: ${leaveType}${halfDay ? " (Half Day)" : ""}` : "";
 	const isHalfDay = isHalfDayCell(status, halfDay, targetAmount);
-	const halfDayLabel = status === "HD/A" ? "Half Day (Absent half)" : status === "HD/P" ? "Half Day (Present half)" : "Half Day";
-	const hoverTitle = isHalfDay
-		? `${halfDayLabel} · Target: ${targetAmount} hr${leaveDetails}${logDetails}`
-		: `Target: ${targetAmount} hr${leaveDetails}${logDetails}`;
-	let hoverAttr = ` title="${frappe.utils.escape_html(hoverTitle)}" `;
 	const cellClass = isHalfDay ? "attendance-cell-container attendance-cell--half-day" : "attendance-cell-container";
 
-	let lateBadge = cnrKindBadge("L", appLinks.late_kind, appLinks.late_entry_app, "late-entry-application", appLinks.late_mins);
-	let earlyBadge = cnrKindBadge("E", appLinks.early_kind, appLinks.early_exit_app, "early-exit-application", appLinks.early_mins);
+	let lateBadge = cnrKindBadge("L", appLinks.late_kind, appLinks.late_entry_app, "late-entry-application");
+	let earlyBadge = cnrKindBadge("E", appLinks.early_kind, appLinks.early_exit_app, "early-exit-application");
 	let oooBadge = appLinks.ooo_app
 		? cnrDocLink(
 			"out-of-office-application",
 			appLinks.ooo_app,
-			`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`,
-			appLinks.ooo_app
+			`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`
 		)
 		: "";
 	let legacyAcronym = data[fieldname + "_leave_acronym"] || "";
 	let pillHTML = getHalfDayPillsHTML(
 		status, wh, targetAmount, attendance_doc, halfDay, legacyAcronym,
-		data[fieldname + "_other_half_label"], data[fieldname + "_other_half_kind"], data[fieldname + "_other_half_title"]
+		data[fieldname + "_other_half_label"], data[fieldname + "_other_half_kind"]
 	);
 
 	const badgeRow = (lateBadge || earlyBadge || oooBadge)
@@ -788,7 +1174,7 @@ function renderLegacyCell(status, wh, checks, targetAmount, leaveType, halfDay, 
 		</div>`
 		: "";
 
-	return `<div ${hoverAttr} class="${cellClass}" style="cursor:help;">
+	return `<div class="${cellClass}">
 		<div class="attendance-bar attendance-bar-placeholder"></div>
 		<div class="cnr-pill-row">${pillHTML}</div>
 		${badgeRow}

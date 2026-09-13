@@ -313,7 +313,7 @@ def compute_nepal_hr_variables(doc, data):
 
     from nepal_hrms.custom_code.attendance_policy import (
         get_approved_application,
-        occurrence_half_days,
+        split_occurrence_penalty,
     )
 
     late_entry_half_days = 0.0
@@ -425,28 +425,42 @@ def compute_nepal_hr_variables(doc, data):
                 elif result == "major":
                     major_early_count += 1
 
-        def _split_pool_penalty(minor_count, major_count):
-            """Return (half_days, full_days) for one pool + majors."""
-            minor_penalty = occurrence_half_days(minor_count, initial_grace, subsequent_step)
-            if escalate_full and minor_count > escalate_after:
-                return flt(major_count), flt(minor_penalty)
-            return flt(major_count + minor_penalty), 0.0
-
         if cint(getattr(settings, "combine_late_and_early_pool", 0)):
             combined_minor = minor_late_count + minor_early_count
             combined_major = major_late_count + major_early_count
-            hd, fd = _split_pool_penalty(combined_minor, combined_major)
-            late_entry_half_days = hd
-            late_entry_full_days = fd
+            penalty = split_occurrence_penalty(
+                combined_minor,
+                combined_major,
+                initial_grace,
+                subsequent_step,
+                escalate_full,
+                escalate_after,
+            )
+            late_entry_half_days = penalty.half_days
+            late_entry_full_days = penalty.full_days
             early_exit_half_days = 0.0
             early_exit_full_days = 0.0
         else:
-            late_entry_half_days, late_entry_full_days = _split_pool_penalty(
-                minor_late_count, major_late_count
+            late_penalty = split_occurrence_penalty(
+                minor_late_count,
+                major_late_count,
+                initial_grace,
+                subsequent_step,
+                escalate_full,
+                escalate_after,
             )
-            early_exit_half_days, early_exit_full_days = _split_pool_penalty(
-                minor_early_count, major_early_count
+            early_penalty = split_occurrence_penalty(
+                minor_early_count,
+                major_early_count,
+                initial_grace,
+                subsequent_step,
+                escalate_full,
+                escalate_after,
             )
+            late_entry_half_days = late_penalty.half_days
+            late_entry_full_days = late_penalty.full_days
+            early_exit_half_days = early_penalty.half_days
+            early_exit_full_days = early_penalty.full_days
 
     # 2. Out of Office Overages
     # Personal Work OOO Application over max paid hours => half-day.

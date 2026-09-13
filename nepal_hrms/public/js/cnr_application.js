@@ -1,6 +1,3 @@
-// Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
-// For license information, please see license.txt
-
 function cnr_time_from_datetime(dt) {
 	if (!dt) return null;
 	const s = String(dt);

@@ -13,12 +13,49 @@ from __future__ import annotations
 
 import json
 import re
+from copy import copy
+from io import BytesIO
 
 import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, getdate
 
 import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
+
+
+SUMMARY_EXPORT_FIELDS = (
+	("total_days_in_period", "Total Period Days"),
+	("payable_days", "Total Paid Days"),
+	("total_absent", "Absent Days"),
+	("lwp_days", "Leave Without Pay"),
+	("paid_leave_days", "Paid Leaves"),
+	("annual_home_leave_days", "Annual/Home Leaves"),
+	("sick_leave_days", "Sick Leaves"),
+	("other_paid_leave_days", "Other Paid Leaves"),
+	("holiday_extra_present", "Present on WO/Hol"),
+	("holiday_extra_hours", "Extra Hrs (WO/Hol)"),
+	("attendance_request_apps", "Attendance Request"),
+	("late_entry_apps", "Late Entry"),
+	("early_exit_apps", "Early Exit"),
+	("out_of_office_apps", "Out of Office"),
+)
+
+BOLD_TOTAL_EXPORT_FIELDS = {
+	"total_days_in_period",
+	"payable_days",
+	"total_absent",
+	"lwp_days",
+	"paid_leave_days",
+	"holiday_extra_present",
+	"holiday_extra_hours",
+}
+
+APPLICATION_EXPORT_KINDS = (
+	("attendance_request", "Attendance Request"),
+	("late_entry", "Late Entry"),
+	("early_exit", "Early Exit"),
+	("out_of_office", "Out of Office"),
+)
 
 
 def _strip_html(label) -> str:
@@ -138,10 +175,9 @@ def build_export_table(filters, export_mode="daily"):
 		frappe.throw(_("Invalid export mode. Use daily or full."))
 
 	filters = frappe._dict(filters or {})
-	# Force detail fields to be populated even if UI checkbox is off
-	filters["show_details"] = 1
+	show_details = bool(cint(filters.get("show_details")))
 
-	columns, data, _message = execute(filters)
+	_columns, data, _message = execute(filters)
 	if not data:
 		frappe.throw(_("No data found for the selected filters."))
 
@@ -149,45 +185,72 @@ def build_export_table(filters, export_mode="daily"):
 	day_fields = _day_fieldnames(start_ad, end_ad)
 
 	headers = [_("Employee"), _("Employee Name"), _("Summary")]
-	for day in day_fields:
-		prefix = day["label_prefix"]
-		headers.append(f"{prefix} {_('Status')}")
-		headers.append(f"{prefix} {_('Check In')}")
-		headers.append(f"{prefix} {_('Check Out')}")
-		headers.append(f"{prefix} {_('Worked Hrs')}")
-		if export_mode == "full":
-			headers.extend(
-				[
-					f"{prefix} {_('Logs')}",
-					f"{prefix} {_('Late Mins')}",
-					f"{prefix} {_('Early Mins')}",
-					f"{prefix} {_('Leave')}",
-					f"{prefix} {_('Late App')}",
-					f"{prefix} {_('Early App')}",
-					f"{prefix} {_('OOO App')}",
-				]
-			)
+	headers.extend(_(label) for _fieldname, label in SUMMARY_EXPORT_FIELDS)
 
-	# Totals / leave columns from report (skip day_* and detail suffixes)
-	skip_prefixes = ("day_",)
-	skip_exact = {
-		"employee",
-		"employee_name",
-		"summary",
-		"period_start",
-		"period_end",
-	}
-	extra_cols = []
-	for col in columns:
-		fname = col.get("fieldname")
-		if not fname or fname in skip_exact:
-			continue
-		if fname.startswith(skip_prefixes):
-			continue
-		if fname.endswith(("_in", "_out", "_wh", "_checks")):
-			continue
-		extra_cols.append(col)
-		headers.append(_strip_html(col.get("label") or fname))
+	paid_leave_types = sorted(
+		{
+			leave_type
+			for row in data
+			for leave_type in (row.get("leave_breakdown") or {})
+		}
+	)
+	if show_details:
+		for day in day_fields:
+			prefix = day["label_prefix"]
+			headers.append(f"{prefix} {_('Status')}")
+			headers.append(f"{prefix} {_('Check In')}")
+			headers.append(f"{prefix} {_('Check Out')}")
+			headers.append(f"{prefix} {_('Worked Hrs')}")
+			if export_mode == "full":
+				headers.extend(
+					[
+						f"{prefix} {_('Logs')}",
+						f"{prefix} {_('Late Mins')}",
+						f"{prefix} {_('Early Mins')}",
+						f"{prefix} {_('Leave')}",
+						f"{prefix} {_('Late App')}",
+						f"{prefix} {_('Early App')}",
+						f"{prefix} {_('OOO App')}",
+					]
+				)
+		headers.extend(
+			[
+				_("Absent Full"),
+				_("Absent Half"),
+				_("LWP Full"),
+				_("LWP Half"),
+				_("Paid Leave Full"),
+				_("Paid Leave Half"),
+			]
+		)
+		headers.extend(f"{_('Paid Leave')}: {leave_type}" for leave_type in paid_leave_types)
+		headers.extend(
+			[
+				_("Paid Days: Period - LWP - Absent"),
+				_("Paid Days: Present + Paid Leave + Holidays"),
+				_("Paid Days: Canonical Daily Flags"),
+			]
+		)
+		for _kind, label in APPLICATION_EXPORT_KINDS:
+			headers.extend([f"{_(label)} {_('Pending')}", f"{_(label)} {_('Rejected')}"])
+		headers.extend(
+			[
+				_("Late Pool Occurrences"),
+				_("Late Major Occurrences"),
+				_("Early Pool Occurrences"),
+				_("Early Major Occurrences"),
+				_("Initial Grace Occurrences"),
+				_("Subsequent Grace Step"),
+				_("Free Occurrences Remaining"),
+				_("Late Half-Day Equivalents"),
+				_("Late Full-Day Equivalents"),
+				_("Early Half-Day Equivalents"),
+				_("Early Full-Day Equivalents"),
+				_("Full-Day Escalation Threshold"),
+				_("Combined Late/Early Pool"),
+				_("Occurrence Penalty Treatment"),
+			]
+		)
 
 	out_rows = []
 	for row in data:
@@ -196,46 +259,127 @@ def build_export_table(filters, export_mode="daily"):
 			row.get("employee_name") or "",
 			row.get("summary") or "",
 		]
-		for day in day_fields:
-			fname = day["fieldname"]
-			cell = _parse_day_cell(row.get(fname))
-			status = cell.get("status") or ""
-			if status == "NONE":
-				status = ""
-			check_in = _time_display(row.get(f"{fname}_in") or "")
-			check_out = _time_display(row.get(f"{fname}_out") or "")
-			if not check_in and cell.get("checks"):
-				parts = [p.strip() for p in str(cell.get("checks")).split(",") if p.strip()]
-				if parts:
-					check_in = parts[0]
-					check_out = parts[-1] if len(parts) > 1 else ""
-			worked = _worked_hours(row, fname, cell)
-			line.extend([status, check_in, check_out, worked])
-			if export_mode == "full":
-				line.extend(
-					[
-						cell.get("checks") or row.get(f"{fname}_checks") or "",
-						cint(cell.get("late_mins") or 0) or "",
-						cint(cell.get("early_mins") or 0) or "",
-						cell.get("leave_type") or "",
-						cell.get("late_entry_app") or "",
-						cell.get("early_exit_app") or "",
-						cell.get("ooo_app") or "",
+		line.extend(row.get(fieldname) for fieldname, _label in SUMMARY_EXPORT_FIELDS)
+		if show_details:
+			for day in day_fields:
+				fname = day["fieldname"]
+				cell = _parse_day_cell(row.get(fname))
+				status = cell.get("status") or ""
+				if status == "NONE":
+					status = ""
+				check_in = _time_display(row.get(f"{fname}_in") or "")
+				check_out = _time_display(row.get(f"{fname}_out") or "")
+				if not check_in and cell.get("checks"):
+					parts = [
+						part.strip()
+						for part in str(cell.get("checks")).split(",")
+						if part.strip()
 					]
+					if parts:
+						check_in = parts[0]
+						check_out = parts[-1] if len(parts) > 1 else ""
+				worked = _worked_hours(row, fname, cell)
+				line.extend([status, check_in, check_out, worked])
+				if export_mode == "full":
+					line.extend(
+						[
+							cell.get("checks") or row.get(f"{fname}_checks") or "",
+							cint(cell.get("late_mins") or 0) or "",
+							cint(cell.get("early_mins") or 0) or "",
+							cell.get("leave_type") or "",
+							cell.get("late_entry_app") or "",
+							cell.get("early_exit_app") or "",
+							cell.get("ooo_app") or "",
+						]
+					)
+			line.extend(
+				[
+					row.get("absent_full"),
+					row.get("absent_half"),
+					row.get("lwp_full"),
+					row.get("lwp_half"),
+					row.get("paid_leave_full"),
+					row.get("paid_leave_half"),
+				]
+			)
+			line.extend(
+				(row.get("leave_breakdown") or {}).get(leave_type, 0)
+				for leave_type in paid_leave_types
+			)
+			line.extend(
+				[
+					row.get("paid_days_period_method"),
+					row.get("paid_days_component_method"),
+					row.get("paid_days_daily_method"),
+				]
+			)
+			app_audits = row.get("application_audits") or {}
+			for kind, _label in APPLICATION_EXPORT_KINDS:
+				stats = app_audits.get(kind) or {}
+				line.extend([cint(stats.get("pending")), cint(stats.get("rejected"))])
+			occurrence = row.get("occurrence_audit") or {}
+			free_remaining = occurrence.get("free_remaining")
+			if isinstance(free_remaining, dict):
+				free_remaining = (
+					f"Late {cint(free_remaining.get('late'))}; "
+					f"Early {cint(free_remaining.get('early'))}"
 				)
-
-		for col in extra_cols:
-			line.append(row.get(col.get("fieldname")))
+			line.extend(
+				[
+					cint(occurrence.get("late_minor")),
+					cint(occurrence.get("late_major")),
+					cint(occurrence.get("early_minor")),
+					cint(occurrence.get("early_major")),
+					cint(occurrence.get("initial_grace_occurrences")),
+					cint(occurrence.get("subsequent_grace_step_occurrences")),
+					free_remaining if free_remaining is not None else "",
+					flt(occurrence.get("late_half_days")),
+					flt(occurrence.get("late_full_days")),
+					flt(occurrence.get("early_half_days")),
+					flt(occurrence.get("early_full_days")),
+					cint(occurrence.get("full_day_escalation_threshold")),
+					_("Yes") if cint(occurrence.get("combine_pools")) else _("No"),
+					_(
+						"Monetary deduction only; not subtracted from Total Paid Days"
+						if cint(occurrence.get("penalty_enabled"))
+						else "Policy disabled; audit projection only"
+					),
+				]
+			)
 		out_rows.append(line)
 
 	return headers, out_rows
+
+
+def _styled_xlsx_bytes(headers, rows):
+	from openpyxl import load_workbook
+	from frappe.utils.xlsxutils import make_xlsx
+
+	content = make_xlsx([headers] + rows, "Attendance Sheet BS").getvalue()
+	workbook = load_workbook(BytesIO(content))
+	sheet = workbook.active
+	bold_labels = {
+		str(_(label))
+		for fieldname, label in SUMMARY_EXPORT_FIELDS
+		if fieldname in BOLD_TOTAL_EXPORT_FIELDS
+	}
+	for column_index, header in enumerate(headers, start=1):
+		if str(header) not in bold_labels:
+			continue
+		for row_index in range(2, sheet.max_row + 1):
+			cell = sheet.cell(row=row_index, column=column_index)
+			font = copy(cell.font)
+			font.bold = True
+			cell.font = font
+	output = BytesIO()
+	workbook.save(output)
+	return output.getvalue()
 
 
 @frappe.whitelist()
 def download_monthly_attendance_sheet_bs(filters=None, export_mode="daily", file_format="Excel"):
 	"""Download Monthly Attendance Sheet BS with expanded daily columns (no JSON)."""
 	from frappe.desk.utils import get_csv_bytes, provide_binary_file, pop_csv_params
-	from frappe.utils.xlsxutils import make_xlsx
 
 	if isinstance(filters, str):
 		filters = frappe.parse_json(filters) or {}
@@ -257,5 +401,5 @@ def download_monthly_attendance_sheet_bs(filters=None, export_mode="daily", file
 		)
 		provide_binary_file(report_name, "csv", content)
 	else:
-		content = make_xlsx(xlsx_data, "Attendance Sheet BS").getvalue()
+		content = _styled_xlsx_bytes(headers, rows)
 		provide_binary_file(report_name, "xlsx", content)

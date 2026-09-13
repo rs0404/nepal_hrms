@@ -22,7 +22,9 @@ CANONICAL_ACRONYMS = {
 }
 
 
-def leave_type_acronym(leave_type: str | None) -> str:
+def format_leave_type_acronym(
+	leave_type: str | None, custom_acronym: str | None = None
+) -> str:
 	if not leave_type:
 		return "Lv"
 	name = (leave_type or "").strip()
@@ -30,11 +32,8 @@ def leave_type_acronym(leave_type: str | None) -> str:
 		return "Lv"
 	if name in CANONICAL_ACRONYMS:
 		return CANONICAL_ACRONYMS[name]
-
-	if frappe.get_meta("Leave Type").has_field("custom_attendance_sheet_acronym"):
-		custom = frappe.db.get_value("Leave Type", name, "custom_attendance_sheet_acronym")
-		if custom:
-			return str(custom).strip().upper()[:3]
+	if custom_acronym:
+		return str(custom_acronym).strip().upper()[:3]
 
 	# Initials from words (slashes/hyphens split like words)
 	parts = re.split(r"[\s/\-]+", name)
@@ -44,10 +43,35 @@ def leave_type_acronym(leave_type: str | None) -> str:
 	return name.upper()[:3]
 
 
+def leave_type_acronym(leave_type: str | None) -> str:
+	if not leave_type:
+		return "Lv"
+	name = (leave_type or "").strip()
+	if not name:
+		return "Lv"
+	if name in CANONICAL_ACRONYMS:
+		return CANONICAL_ACRONYMS[name]
+
+	custom = None
+	if frappe.get_meta("Leave Type").has_field("custom_attendance_sheet_acronym"):
+		custom = frappe.db.get_value("Leave Type", name, "custom_attendance_sheet_acronym")
+	return format_leave_type_acronym(name, custom)
+
+
 @frappe.whitelist()
 def get_attendance_sheet_leave_legend():
 	"""All leave types with acronyms for the attendance sheet legend dialog."""
-	rows = frappe.get_all("Leave Type", fields=["name"], order_by="name")
+	fields = ["name"]
+	acronym_field = "custom_attendance_sheet_acronym"
+	if frappe.get_meta("Leave Type").has_field(acronym_field):
+		fields.append(acronym_field)
+	rows = frappe.get_all("Leave Type", fields=fields, order_by="name")
 	return [
-		{"leave_type": row.name, "acronym": leave_type_acronym(row.name)} for row in rows
+		{
+			"leave_type": row.name,
+			"acronym": format_leave_type_acronym(
+				row.name, getattr(row, acronym_field, None)
+			),
+		}
+		for row in rows
 	]

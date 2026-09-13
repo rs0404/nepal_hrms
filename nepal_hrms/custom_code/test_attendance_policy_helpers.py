@@ -6,6 +6,7 @@ from frappe import _dict
 from nepal_hrms.custom_code.attendance_policy import (
 	max_out_in_gap_mins,
 	ooo_required_from_checkins,
+	split_occurrence_penalty,
 )
 
 
@@ -31,3 +32,13 @@ class TestAttendancePolicyHelpers(TestCase):
 
 		self.assertEqual(max_out_in_gap_mins(checkins), 0)
 		self.assertEqual(max_out_in_gap_mins([]), 0)
+
+	def test_occurrence_penalty_split_matches_payroll_units(self):
+		regular = split_occurrence_penalty(3, 1, 2, 2)
+		self.assertEqual((regular.half_days, regular.full_days), (2, 0))
+
+		escalated = split_occurrence_penalty(
+			6, 1, 2, 2, enable_full_day_escalation=1, full_day_after_occurrences=5
+		)
+		self.assertEqual((escalated.half_days, escalated.full_days), (1, 2))
+		self.assertTrue(escalated.escalated)

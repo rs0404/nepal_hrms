@@ -1,11 +1,52 @@
-import frappe
 import json
+from collections import defaultdict
+
+import frappe
 from frappe import _
-from frappe.utils import cint, getdate, add_days, get_datetime, get_time
+from frappe.utils import cint, flt, getdate, add_days, get_datetime, get_time, today
 
 import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
 
-from nepal_hrms.custom_code.leave_type_acronym import leave_type_acronym
+from nepal_hrms.custom_code.attendance_policy import (
+    free_occurrences_remaining,
+    get_hr_settings,
+    split_occurrence_penalty,
+)
+from nepal_hrms.custom_code.leave_type_acronym import (
+    format_leave_type_acronym,
+    leave_type_acronym,
+)
+
+
+LEAVE_GROUP_ANNUAL_HOME = "Annual/Home"
+LEAVE_GROUP_SICK = "Sick"
+LEAVE_GROUP_OTHER = "Other Paid"
+APPLICATION_SPECS = {
+    "attendance_request": {
+        "doctype": "Attendance Request",
+        "label": _("Attendance Request"),
+        "fieldname": "attendance_request_apps",
+        "width": 125,
+    },
+    "late_entry": {
+        "doctype": "Late Entry Application",
+        "label": _("Late Entry"),
+        "fieldname": "late_entry_apps",
+        "width": 100,
+    },
+    "early_exit": {
+        "doctype": "Early Exit Application",
+        "label": _("Early Exit"),
+        "fieldname": "early_exit_apps",
+        "width": 100,
+    },
+    "out_of_office": {
+        "doctype": "Out of Office Application",
+        "label": _("Out of Office"),
+        "fieldname": "out_of_office_apps",
+        "width": 110,
+    },
+}
 
 
 def execute(filters=None):
@@ -68,7 +109,7 @@ def execute(filters=None):
     return columns, data, message
 
 
-def get_columns(filters, start_ad, end_ad, leave_types):
+def get_columns(filters, start_ad, end_ad, leave_types=None):
     show_details = filters.get("show_details")
     columns = [
         {"label": _("Employee Name"), "fieldname": "employee_name", "fieldtype": "Data", "width": 140, "sticky": 1},
@@ -97,35 +138,79 @@ def get_columns(filters, start_ad, end_ad, leave_types):
         columns.append({"label": f"{day} Logs", "fieldname": f"{fieldname}_checks", "fieldtype": "Data", "width": 120, "hidden": not show_details})
         curr = add_days(curr, 1)
 
-    columns.extend([
-        {"label": _("Total Days in Period"), "fieldname": "total_days_in_period", "fieldtype": "Int", "width": 140},
-        {"label": _("Holiday"), "fieldname": "total_holiday", "fieldtype": "Float", "width": 70},
-        {"label": _("Present"), "fieldname": "total_present", "fieldtype": "Float", "width": 70},
-        {"label": _("Present (Full)"), "fieldname": "present_full", "fieldtype": "Float", "width": 90},
-        {"label": _("Present (Half)"), "fieldname": "present_half", "fieldtype": "Float", "width": 90},
-        {"label": _("Absent"), "fieldname": "total_absent", "fieldtype": "Float", "width": 70},
-        {"label": _("Absent (Full)"), "fieldname": "absent_full", "fieldtype": "Float", "width": 90},
-        {"label": _("Absent (Half)"), "fieldname": "absent_half", "fieldtype": "Float", "width": 90},
-        {"label": _("Leave"), "fieldname": "total_leave", "fieldtype": "Float", "width": 70},
-        {"label": _("Leave (Full)"), "fieldname": "leave_full", "fieldtype": "Float", "width": 90},
-        {"label": _("Leave (Half)"), "fieldname": "leave_half", "fieldtype": "Float", "width": 90},
-        {"label": _("Payable Days"), "fieldname": "payable_days", "fieldtype": "Float", "width": 100},
-    ])
-
-    for lt in sorted(leave_types):
-        columns.append({"label": lt, "fieldname": frappe.scrub(lt), "fieldtype": "Float", "width": 90})
-
-    columns.extend([
-        {"label": _("Late (flag)"), "fieldname": "total_late_entry", "fieldtype": "Int", "width": 90},
-        {"label": _("Late in grace"), "fieldname": "total_grace_late", "fieldtype": "Int", "width": 100},
-        {"label": _("Late no app"), "fieldname": "total_unexcused_late", "fieldtype": "Int", "width": 100},
-        {"label": _("Late Entry Apps"), "fieldname": "total_late_entry_apps", "fieldtype": "Int", "width": 110},
-        {"label": _("Early (flag)"), "fieldname": "total_early_exit", "fieldtype": "Int", "width": 90},
-        {"label": _("Early Exit Apps"), "fieldname": "total_early_exit_apps", "fieldtype": "Int", "width": 110},
-        {"label": _("OOO Apps"), "fieldname": "total_ooo_apps", "fieldtype": "Int", "width": 90},
-        {"label": _("Total Days Present"), "fieldname": "total_no_of_days", "fieldtype": "Float", "width": 120},
-        {"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 120},
-    ])
+    columns.extend(
+        [
+            {
+                "label": _("Total Period Days"),
+                "fieldname": "total_days_in_period",
+                "fieldtype": "Int",
+                "width": 115,
+            },
+            {
+                "label": _("Total Paid Days"),
+                "fieldname": "payable_days",
+                "fieldtype": "Float",
+                "width": 110,
+            },
+            {
+                "label": _("Absent Days"),
+                "fieldname": "total_absent",
+                "fieldtype": "Float",
+                "width": 95,
+            },
+            {
+                "label": _("Leave Without Pay"),
+                "fieldname": "lwp_days",
+                "fieldtype": "Float",
+                "width": 120,
+            },
+            {
+                "label": _("Paid Leaves"),
+                "fieldname": "paid_leave_days",
+                "fieldtype": "Float",
+                "width": 95,
+            },
+            {
+                "label": _("Annual/Home Leaves"),
+                "fieldname": "annual_home_leave_days",
+                "fieldtype": "Float",
+                "width": 125,
+            },
+            {
+                "label": _("Sick Leaves"),
+                "fieldname": "sick_leave_days",
+                "fieldtype": "Float",
+                "width": 90,
+            },
+            {
+                "label": _("Other Paid Leaves"),
+                "fieldname": "other_paid_leave_days",
+                "fieldtype": "Float",
+                "width": 120,
+            },
+            {
+                "label": _("Present on WO/Hol"),
+                "fieldname": "holiday_extra_present",
+                "fieldtype": "Float",
+                "width": 115,
+            },
+            {
+                "label": _("Extra Hrs (WO/Hol)"),
+                "fieldname": "holiday_extra_hours",
+                "fieldtype": "Float",
+                "width": 115,
+            },
+        ]
+    )
+    for spec in APPLICATION_SPECS.values():
+        columns.append(
+            {
+                "label": spec["label"],
+                "fieldname": spec["fieldname"],
+                "fieldtype": "Int",
+                "width": spec["width"],
+            }
+        )
     return columns
 
 
@@ -176,7 +261,7 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         "Employee",
         filters=emp_conditions,
         or_filters=relieving_or_filters,
-        fields=["name", "employee_name", "holiday_list"],
+        fields=["name", "employee_name", "holiday_list", "default_shift"],
         ignore_permissions=True,
     )
     if not employees: return {"employees": []}, set()
@@ -188,7 +273,14 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         "half_day_status", "late_entry", "early_exit", "in_time", "out_time", "shift",
     ]
     att_meta = frappe.get_meta("Attendance")
-    for fname in ("custom_late_mins", "custom_early_mins", "custom_cnr_unexcused_late", "custom_cnr_unexcused_early"):
+    for fname in (
+        "custom_late_mins",
+        "custom_early_mins",
+        "custom_cnr_unexcused_late",
+        "custom_cnr_unexcused_early",
+        "custom_cnr_late_in_pool",
+        "custom_cnr_early_in_pool",
+    ):
         if att_meta.has_field(fname):
             att_fields.append(fname)
 
@@ -228,6 +320,8 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
 
     # Fetch shift type details
     shift_types_used = set(sa.shift_type for sa in shift_assignments)
+    shift_types_used.update(e.default_shift for e in employees if e.default_shift)
+    shift_types_used.update(att.shift for att in attendances if att.shift)
     shift_type_details = {}
     for st_name in shift_types_used:
         try:
@@ -236,17 +330,10 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         except Exception:
             pass
 
-    # Fetch leave applications for half-day detection
-    leave_apps = frappe.get_all(
-        "Leave Application",
-        filters={"employee": ["in", emp_names], "from_date": ["<=", end_ad], "to_date": [">=", start_ad], "docstatus": 1, "half_day": 1},
-        fields=["employee", "from_date", "to_date", "half_day", "half_day_date"],
-        ignore_permissions=True
+    application_audits, approved_day_maps = _load_application_audits(
+        emp_names, start_ad, end_ad
     )
-
-    lea_map = _cnr_application_map("Late Entry Application", emp_names, start_ad, end_ad)
-    eea_map = _cnr_application_map("Early Exit Application", emp_names, start_ad, end_ad)
-    ooo_map = _cnr_application_map("Out of Office Application", emp_names, start_ad, end_ad)
+    leave_type_details = _get_leave_type_details()
 
     attendance_map = {}
     for att in attendances:
@@ -267,90 +354,661 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         "checkin_map": checkin_map,
         "shift_map": shift_map,
         "shift_type_details": shift_type_details,
-        "leave_apps": leave_apps,
-        "lea_map": lea_map,
-        "eea_map": eea_map,
-        "ooo_map": ooo_map,
+        "leave_apps": [],
+        "leave_type_details": leave_type_details,
+        "application_audits": application_audits,
+        "lea_map": approved_day_maps.get("late_entry", {}),
+        "eea_map": approved_day_maps.get("early_exit", {}),
+        "ooo_map": approved_day_maps.get("out_of_office", {}),
     }, leave_types
 
 
-def _cnr_application_map(doctype, emp_names, start_ad, end_ad):
-    """Map (employee, attendance_date) -> list of approved application names."""
-    if not emp_names or not frappe.db.exists("DocType", doctype):
-        return {}
-    rows = frappe.get_all(
-        doctype,
-        filters={
+def _get_leave_type_details():
+    fields = ["name", "is_lwp"]
+    meta = frappe.get_meta("Leave Type")
+    group_field = "custom_attendance_sheet_leave_group"
+    acronym_field = "custom_attendance_sheet_acronym"
+    if meta.has_field(group_field):
+        fields.append(group_field)
+    if meta.has_field(acronym_field):
+        fields.append(acronym_field)
+    rows = frappe.get_all("Leave Type", fields=fields, ignore_permissions=True)
+    details = {}
+    for row in rows:
+        group = getattr(row, group_field, None) or LEAVE_GROUP_OTHER
+        details[row.name] = frappe._dict(
+            is_lwp=bool(cint(row.is_lwp)),
+            group=group,
+            configured=bool(getattr(row, group_field, None)),
+            acronym=format_leave_type_acronym(
+                row.name, getattr(row, acronym_field, None)
+            ),
+        )
+    return details
+
+
+def _empty_application_stats(spec):
+    return {
+        "doctype": spec["doctype"],
+        "label": str(spec["label"]),
+        "approved": 0,
+        "pending": 0,
+        "rejected": 0,
+        "details": [],
+    }
+
+
+def _application_bucket(row):
+    status = (getattr(row, "status", None) or "").strip()
+    if status == "Rejected":
+        return "rejected"
+    if cint(row.docstatus) == 1 and status in ("Approved", ""):
+        return "approved"
+    if status == "Approved" and cint(row.docstatus) == 1:
+        return "approved"
+    return "pending"
+
+
+def _application_detail(row, kind):
+    detail = {
+        "name": row.name,
+        "status": _application_bucket(row),
+        "status_label": (getattr(row, "status", None) or "").strip(),
+    }
+    if kind == "attendance_request":
+        detail["from_date"] = str(row.from_date)
+        detail["to_date"] = str(row.to_date)
+    else:
+        detail["attendance_date"] = str(row.attendance_date)
+    for fieldname in ("reason", "type_of_work", "custom_rejection_reason"):
+        value = getattr(row, fieldname, None)
+        if value:
+            detail[fieldname] = str(value)
+    return detail
+
+
+def _application_fields(doctype, ranged=False):
+    meta = frappe.get_meta(doctype)
+    fields = ["name", "employee", "docstatus", "status"]
+    fields.extend(["from_date", "to_date"] if ranged else ["attendance_date"])
+    for fieldname in ("reason", "type_of_work", "custom_rejection_reason"):
+        if meta.has_field(fieldname):
+            fields.append(fieldname)
+    return fields
+
+
+def _load_application_audits(emp_names, start_ad, end_ad):
+    audits = {
+        employee: {
+            kind: _empty_application_stats(spec)
+            for kind, spec in APPLICATION_SPECS.items()
+        }
+        for employee in emp_names
+    }
+    approved_day_maps = {
+        "late_entry": {},
+        "early_exit": {},
+        "out_of_office": {},
+    }
+    if not emp_names:
+        return audits, approved_day_maps
+
+    for kind, spec in APPLICATION_SPECS.items():
+        doctype = spec["doctype"]
+        if not frappe.db.exists("DocType", doctype):
+            continue
+        ranged = kind == "attendance_request"
+        filters = {
             "employee": ["in", emp_names],
-            "attendance_date": ["between", [start_ad, end_ad]],
-            "docstatus": 1,
-            "status": "Approved",
-        },
-        fields=["name", "employee", "attendance_date"],
-        ignore_permissions=True,
-    )
-    app_map = {}
-    for r in rows:
-        key = (r.employee, getdate(r.attendance_date))
-        app_map.setdefault(key, []).append(r.name)
-    return app_map
+            "docstatus": ["<", 2],
+        }
+        if ranged:
+            filters.update({"from_date": ["<=", end_ad], "to_date": [">=", start_ad]})
+        else:
+            filters["attendance_date"] = ["between", [start_ad, end_ad]]
+        rows = frappe.get_all(
+            doctype,
+            filters=filters,
+            fields=_application_fields(doctype, ranged),
+            order_by="employee asc, modified asc",
+            ignore_permissions=True,
+        )
+        for app in rows:
+            bucket = _application_bucket(app)
+            stats = audits[app.employee][kind]
+            stats[bucket] += 1
+            stats["details"].append(_application_detail(app, kind))
+            if not ranged and bucket == "approved":
+                key = (app.employee, getdate(app.attendance_date))
+                approved_day_maps[kind].setdefault(key, []).append(app.name)
+    return audits, approved_day_maps
 
 
-def _half_day_other_half(status_abbr, leave_type):
+def _leave_acronym(leave_type, leave_type_details):
+    details = leave_type_details.get(leave_type) if leave_type else None
+    if details and details.get("acronym"):
+        return details.acronym
+    return leave_type_acronym(leave_type)
+
+
+def _half_day_other_half(status_abbr, leave_type, leave_type_details):
     """Label for the non-worked half of a half-day attendance cell."""
     if leave_type:
-        return leave_type_acronym(leave_type), "leave", leave_type
+        return _leave_acronym(leave_type, leave_type_details), "leave", leave_type
     if status_abbr == "HD/A":
         return "Ab", "absent", _("Absent (half day)")
     return "Ab", "absent", _("Absent / unpaid half")
 
 
-def _accumulate_attendance_totals(row, status, status_abbr, leave_type, wh):
-    """Full vs half-day present, absent, and leave counts (in day units, 0.5 for a half)."""
-    half = 0.5
-    if status == "Present" or status == "Work From Home":
-        row["present_full"] += 1.0
+def _new_day_classification():
+    return {
+        "present_full": 0.0,
+        "present_half": 0.0,
+        "absent_full": 0.0,
+        "absent_half": 0.0,
+        "lwp_full": 0.0,
+        "lwp_half": 0.0,
+        "paid_leave_full": 0.0,
+        "paid_leave_half": 0.0,
+        "annual_home_leave": 0.0,
+        "sick_leave": 0.0,
+        "other_paid_leave": 0.0,
+        "holiday": 0.0,
+        "holiday_extra_present": 0.0,
+        "holiday_extra_hours": 0.0,
+        "paid_flag": 0.0,
+        "unmarked": 0,
+        "unclassified_leave": 0,
+        "sandwich": 0,
+        "sandwich_absent": 0.0,
+        "leave_breakdown": {},
+        "lwp_breakdown": {},
+        "other_paid_breakdown": {},
+        "unconfigured_paid_leave_breakdown": {},
+    }
+
+
+def _include_in_paid_day_audit(
+    attendance_date,
+    current_date,
+    *,
+    has_attendance=False,
+    is_holiday=False,
+    is_sandwich=False,
+):
+    """Exclude future days and an unmarked current working day from paid totals."""
+    attendance_date = getdate(attendance_date)
+    current_date = getdate(current_date)
+    if attendance_date > current_date:
+        return False
+    if attendance_date < current_date:
+        return True
+    return bool(has_attendance or is_holiday or is_sandwich)
+
+
+def _add_leave_unit(day, leave_type, amount, leave_type_details, full=False):
+    details = leave_type_details.get(leave_type) if leave_type else None
+    if not details:
+        day["unclassified_leave"] += 1
         return
-    if status == "Absent":
-        row["absent_full"] += 1.0
-        return
-    if status == "On Leave":
-        row["leave_full"] += 1.0
-        if leave_type:
-            row[frappe.scrub(leave_type)] = row.get(frappe.scrub(leave_type), 0) + 1.0
-        return
-    if status != "Half Day":
+    suffix = "full" if full else "half"
+    target_breakdown = (
+        day["lwp_breakdown"] if details.is_lwp else day["leave_breakdown"]
+    )
+    target_breakdown[leave_type] = target_breakdown.get(leave_type, 0) + amount
+    if details.is_lwp:
+        day[f"lwp_{suffix}"] += amount
         return
 
-    worked_half = wh and wh > 0
-    if status_abbr == "HD/P":
-        row["present_half"] += half
-        if leave_type:
-            row["leave_half"] += half
-            row[frappe.scrub(leave_type)] = row.get(frappe.scrub(leave_type), 0) + half
+    day[f"paid_leave_{suffix}"] += amount
+    group = details.group or LEAVE_GROUP_OTHER
+    if group == LEAVE_GROUP_ANNUAL_HOME:
+        day["annual_home_leave"] += amount
+    elif group == LEAVE_GROUP_SICK:
+        day["sick_leave"] += amount
+    else:
+        day["other_paid_leave"] += amount
+        day["other_paid_breakdown"][leave_type] = (
+            day["other_paid_breakdown"].get(leave_type, 0) + amount
+        )
+    if not details.configured:
+        day["unconfigured_paid_leave_breakdown"][leave_type] = (
+            day["unconfigured_paid_leave_breakdown"].get(leave_type, 0) + amount
+        )
+
+
+def classify_attendance_day(
+    *,
+    status=None,
+    half_day_status=None,
+    leave_type=None,
+    working_hours=0,
+    is_holiday=False,
+    is_sandwich=False,
+    sandwich_leave_type=None,
+    leave_type_details=None,
+):
+    """Return mutually exclusive paid/unpaid units for one employee-date."""
+    leave_type_details = leave_type_details or {}
+    status = (status or "").strip()
+    day = _new_day_classification()
+
+    if is_holiday and is_sandwich:
+        day["sandwich"] = 1
+        effective_leave = sandwich_leave_type or (
+            leave_type if status == "On Leave" else None
+        )
+        if effective_leave:
+            _add_leave_unit(
+                day, effective_leave, 1.0, leave_type_details, full=True
+            )
         else:
-            row["absent_half"] += half
-    elif status_abbr == "HD/A":
-        row["absent_half"] += half
-        if worked_half:
-            row["present_half"] += half
+            day["absent_full"] = 1.0
+            day["sandwich_absent"] = 1.0
+        day["paid_flag"] = (
+            day["paid_leave_full"] + day["paid_leave_half"]
+        )
+        return day
+
+    if is_holiday or status in ("Holiday", "Weekly Off"):
+        day["holiday"] = 1.0
+        day["paid_flag"] = 1.0
+        if status in ("Present", "Work From Home"):
+            day["holiday_extra_present"] = 1.0
+            day["holiday_extra_hours"] = flt(working_hours)
+        elif status == "Half Day" and half_day_status == "Present":
+            day["holiday_extra_present"] = 0.5
+            day["holiday_extra_hours"] = flt(working_hours)
+        return day
+
+    if status in ("Present", "Work From Home"):
+        day["present_full"] = 1.0
+        day["paid_flag"] = 1.0
+        return day
+    if status == "Absent":
+        day["absent_full"] = 1.0
+        return day
+    if status == "On Leave":
+        _add_leave_unit(day, leave_type, 1.0, leave_type_details, full=True)
+        day["paid_flag"] = day["paid_leave_full"]
+        return day
+    if status == "Half Day":
+        if half_day_status == "Present":
+            day["present_half"] = 0.5
+        else:
+            day["absent_half"] = 0.5
         if leave_type:
-            row["leave_half"] += half
-            row[frappe.scrub(leave_type)] = row.get(frappe.scrub(leave_type), 0) + half
+            _add_leave_unit(day, leave_type, 0.5, leave_type_details, full=False)
+        else:
+            day["absent_half"] += 0.5
+        day["paid_flag"] = (
+            day["present_half"] + day["paid_leave_half"]
+        )
+        return day
+
+    day["unmarked"] = 1
+    return day
 
 
-def _day_payable_days(status_abbr, leave_type, lwp_leave_types):
-    """Paid days for one calendar day: holiday/present/paid leave count; absent and LWP do not."""
-    is_lwp = bool(leave_type and leave_type in lwp_leave_types)
-    if status_abbr in ("P", "WFH", "WO", "Hol"):
-        return 1.0
-    if status_abbr == "Lv":
-        return 0.0 if is_lwp else 1.0
-    if status_abbr == "HD/P":
-        return 0.5 if is_lwp else 1.0
-    if status_abbr == "HD/A":
-        return 0.5
-    return 0.0
+def _merge_breakdown(target, source):
+    for key, value in source.items():
+        target[key] = target.get(key, 0) + flt(value)
+
+
+def _accumulate_day(row, day):
+    fields = (
+        "present_full",
+        "present_half",
+        "absent_full",
+        "absent_half",
+        "lwp_full",
+        "lwp_half",
+        "paid_leave_full",
+        "paid_leave_half",
+        "annual_home_leave",
+        "sick_leave",
+        "other_paid_leave",
+        "holiday",
+        "holiday_extra_present",
+        "holiday_extra_hours",
+        "paid_flag",
+        "unmarked",
+        "unclassified_leave",
+        "sandwich",
+        "sandwich_absent",
+    )
+    for fieldname in fields:
+        row[fieldname] = row.get(fieldname, 0) + day.get(fieldname, 0)
+    _merge_breakdown(row["leave_breakdown"], day["leave_breakdown"])
+    _merge_breakdown(row["lwp_breakdown"], day["lwp_breakdown"])
+    _merge_breakdown(
+        row["other_paid_breakdown"], day["other_paid_breakdown"]
+    )
+    _merge_breakdown(
+        row["unconfigured_paid_leave_breakdown"],
+        day["unconfigured_paid_leave_breakdown"],
+    )
+
+
+def _finalize_paid_days(row, tolerance=0.05):
+    row["total_present"] = flt(row["present_full"]) + flt(row["present_half"])
+    row["total_absent"] = flt(row["absent_full"]) + flt(row["absent_half"])
+    row["lwp_days"] = flt(row["lwp_full"]) + flt(row["lwp_half"])
+    row["paid_leave_days"] = flt(row["paid_leave_full"]) + flt(
+        row["paid_leave_half"]
+    )
+    row["total_holiday"] = flt(row["holiday"])
+    row["annual_home_leave_days"] = flt(row["annual_home_leave"])
+    row["sick_leave_days"] = flt(row["sick_leave"])
+    row["other_paid_leave_days"] = flt(row["other_paid_leave"])
+
+    method_period = (
+        flt(row["total_days_in_period"])
+        - flt(row["lwp_days"])
+        - flt(row["total_absent"])
+    )
+    method_components = (
+        flt(row["total_present"])
+        + flt(row["paid_leave_days"])
+        + flt(row["total_holiday"])
+    )
+    method_daily = flt(row["paid_flag"])
+    row["paid_days_period_method"] = method_period
+    row["paid_days_component_method"] = method_components
+    row["paid_days_daily_method"] = method_daily
+    row["payable_days"] = method_daily
+    row["payable_days_policy"] = method_daily
+    row["payable_days_mismatch"] = int(
+        abs(method_period - method_daily) > tolerance
+        or abs(method_components - method_daily) > tolerance
+    )
+
+
+def _occurrence_audits(attendance_map, settings, employee_names=None):
+    counts = defaultdict(
+        lambda: {
+            "late_minor": 0,
+            "late_major": 0,
+            "early_minor": 0,
+            "early_major": 0,
+        }
+    )
+    for att in attendance_map.values():
+        item = counts[att.employee]
+        item["late_minor"] += cint(
+            getattr(att, "custom_cnr_late_in_pool", 0) or 0
+        )
+        item["early_minor"] += cint(
+            getattr(att, "custom_cnr_early_in_pool", 0) or 0
+        )
+        item["late_major"] += cint(
+            getattr(att, "custom_cnr_unexcused_late", 0) or 0
+        )
+        item["early_major"] += cint(
+            getattr(att, "custom_cnr_unexcused_early", 0) or 0
+        )
+    for employee in employee_names or []:
+        counts[employee]
+
+    initial = cint(getattr(settings, "initial_grace_occurrences", 2) or 2)
+    step = cint(getattr(settings, "subsequent_grace_step_occurrences", 2) or 2)
+    combine = cint(getattr(settings, "combine_late_and_early_pool", 0) or 0)
+    escalation_enabled = cint(
+        getattr(settings, "enable_late_full_day_escalation", 0) or 0
+    )
+    escalation_after = cint(
+        getattr(settings, "late_full_day_after_occurrences", 5) or 5
+    )
+    penalty_enabled = cint(
+        getattr(settings, "enable_late_early_penalty", 0) or 0
+    )
+
+    result = {}
+    for employee, item in counts.items():
+        if combine:
+            minor = item["late_minor"] + item["early_minor"]
+            major = item["late_major"] + item["early_major"]
+            combined_penalty = split_occurrence_penalty(
+                minor,
+                major,
+                initial,
+                step,
+                escalation_enabled,
+                escalation_after,
+            )
+            late_penalty = combined_penalty
+            early_penalty = combined_penalty
+            free_remaining = free_occurrences_remaining(minor, initial, step)
+        else:
+            late_penalty = split_occurrence_penalty(
+                item["late_minor"],
+                item["late_major"],
+                initial,
+                step,
+                escalation_enabled,
+                escalation_after,
+            )
+            early_penalty = split_occurrence_penalty(
+                item["early_minor"],
+                item["early_major"],
+                initial,
+                step,
+                escalation_enabled,
+                escalation_after,
+            )
+            free_remaining = {
+                "late": free_occurrences_remaining(
+                    item["late_minor"], initial, step
+                ),
+                "early": free_occurrences_remaining(
+                    item["early_minor"], initial, step
+                ),
+            }
+        result[employee] = {
+            **item,
+            "penalty_enabled": penalty_enabled,
+            "combine_pools": combine,
+            "initial_grace_occurrences": initial,
+            "subsequent_grace_step_occurrences": step,
+            "full_day_escalation_enabled": escalation_enabled,
+            "full_day_escalation_threshold": escalation_after,
+            "free_remaining": free_remaining,
+            "late_half_days": flt(late_penalty.half_days),
+            "late_full_days": flt(late_penalty.full_days),
+            "late_escalated": bool(late_penalty.escalated),
+            "early_half_days": flt(early_penalty.half_days),
+            "early_full_days": flt(early_penalty.full_days),
+            "early_escalated": bool(early_penalty.escalated),
+        }
+    return result
+
+
+def _covering_leave_from_rows(leave_rows, day):
+    day = getdate(day)
+    for leave in leave_rows:
+        if getdate(leave.from_date) <= day <= getdate(leave.to_date):
+            return leave
+    return None
+
+
+def _is_full_day_leave_row(leave, day):
+    if not leave:
+        return False
+    if not cint(leave.half_day):
+        return True
+    return not (
+        leave.half_day_date
+        and getdate(leave.half_day_date) == getdate(day)
+    )
+
+
+def _escape_covers_day(escape, day):
+    day = getdate(day)
+    return (
+        (not escape.from_date or getdate(escape.from_date) <= day)
+        and (not escape.to_date or getdate(escape.to_date) >= day)
+    )
+
+
+def _build_sandwich_map(
+    employees,
+    start_ad,
+    end_ad,
+    holidays_by_list,
+    company_holiday_list,
+    settings,
+):
+    """Batch-resolve sandwich holidays without per-employee/day SQL queries."""
+    if not cint(getattr(settings, "enable_leave_sandwich_rule", 0) or 0):
+        return {}
+
+    employee_names = [employee.name for employee in employees]
+    if not employee_names:
+        return {}
+    buffer_start = add_days(start_ad, -40)
+    buffer_end = add_days(end_ad, 40)
+    anchor_rows = frappe.get_all(
+        "Attendance",
+        filters={
+            "employee": ["in", employee_names],
+            "attendance_date": ["between", [buffer_start, buffer_end]],
+            "docstatus": ["<", 2],
+        },
+        fields=[
+            "employee",
+            "attendance_date",
+            "status",
+            "half_day_status",
+            "leave_type",
+        ],
+        ignore_permissions=True,
+    )
+    anchor_map = {
+        (row.employee, getdate(row.attendance_date)): row for row in anchor_rows
+    }
+
+    leave_rows = frappe.get_all(
+        "Leave Application",
+        filters={
+            "employee": ["in", employee_names],
+            "from_date": ["<=", buffer_end],
+            "to_date": [">=", buffer_start],
+            "docstatus": 1,
+            "status": "Approved",
+        },
+        fields=[
+            "employee",
+            "from_date",
+            "to_date",
+            "leave_type",
+            "half_day",
+            "half_day_date",
+            "modified",
+        ],
+        order_by="modified desc",
+        ignore_permissions=True,
+    )
+    leaves_by_employee = defaultdict(list)
+    for leave in leave_rows:
+        leaves_by_employee[leave.employee].append(leave)
+
+    escapes_by_employee = defaultdict(list)
+    if frappe.db.exists("DocType", "Attendance Policy Escape"):
+        escape_rows = frappe.get_all(
+            "Attendance Policy Escape",
+            filters={
+                "employee": ["in", employee_names],
+                "is_active": 1,
+                "escape_sandwich": 1,
+            },
+            fields=["employee", "from_date", "to_date"],
+            ignore_permissions=True,
+        )
+        for escape in escape_rows:
+            escapes_by_employee[escape.employee].append(escape)
+
+    result = {}
+    for employee in employees:
+        holiday_list = employee.holiday_list or company_holiday_list
+        holidays = holidays_by_list.get(holiday_list, {})
+        if not holidays:
+            continue
+        employee_leaves = leaves_by_employee.get(employee.name, [])
+
+        def adjacent_working_day(day, direction):
+            candidate = add_days(day, direction)
+            for _ in range(40):
+                if candidate not in holidays:
+                    return candidate
+                candidate = add_days(candidate, direction)
+            return None
+
+        def full_leave_or_absent(day):
+            attendance = anchor_map.get((employee.name, day))
+            if attendance:
+                status = (attendance.status or "").strip()
+                if status in ("Present", "Work From Home", "Half Day"):
+                    return False
+                return status in ("Absent", "On Leave")
+            leave = _covering_leave_from_rows(employee_leaves, day)
+            return _is_full_day_leave_row(leave, day)
+
+        day = getdate(start_ad)
+        while day <= getdate(end_ad):
+            if day not in holidays:
+                day = add_days(day, 1)
+                continue
+            if any(
+                _escape_covers_day(escape, day)
+                for escape in escapes_by_employee.get(employee.name, [])
+            ):
+                day = add_days(day, 1)
+                continue
+            previous_day = adjacent_working_day(day, -1)
+            next_day = adjacent_working_day(day, 1)
+            if not previous_day or not next_day:
+                is_sandwich, leave_type = _sandwich_day(
+                    employee.name, day, True, settings
+                )
+                if is_sandwich:
+                    result[(employee.name, day)] = leave_type
+                day = add_days(day, 1)
+                continue
+            if (
+                previous_day
+                and next_day
+                and full_leave_or_absent(previous_day)
+                and full_leave_or_absent(next_day)
+            ):
+                covering_leave = _covering_leave_from_rows(employee_leaves, day)
+                result[(employee.name, day)] = (
+                    covering_leave.leave_type if covering_leave else None
+                )
+            day = add_days(day, 1)
+    return result
+
+
+def _sandwich_day(employee, day, is_holiday, settings):
+    if not is_holiday or not cint(
+        getattr(settings, "enable_leave_sandwich_rule", 0) or 0
+    ):
+        return False, None
+    try:
+        from nepal_hrms.custom_code.attendance_holiday import (
+            covering_leave_application,
+            is_sandwiched,
+        )
+
+        if not is_sandwiched(employee, day):
+            return False, None
+        leave = covering_leave_application(employee, day)
+        return True, leave.leave_type if leave else None
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"Monthly Attendance Sheet sandwich audit: {employee} {day}",
+        )
+        return False, None
 
 
 def _delay_badge_kind(mins, grace, has_app, unexcused_flag=0):
@@ -462,36 +1120,61 @@ def calculate_attendance_hours(employee, date, status, checkins, shift_map, shif
 
 
 def get_data(filters, start_ad, end_ad, att_data, leave_types):
+    show_details = bool(cint(filters.get("show_details")))
     employees = att_data["employees"]
     attendance_map = att_data["attendance_map"]
     checkin_map = att_data["checkin_map"]
     shift_map = att_data.get("shift_map", {})
     shift_type_details = att_data.get("shift_type_details", {})
     leave_apps = att_data.get("leave_apps", [])
+    leave_type_details = att_data.get("leave_type_details", {})
+    application_audits = att_data.get("application_audits", {})
     lea_map = att_data.get("lea_map", {})
     eea_map = att_data.get("eea_map", {})
     ooo_map = att_data.get("ooo_map", {})
 
     try:
-        settings = frappe.get_cached_doc("Nepal Compliance Settings", "Nepal Compliance Settings")
+        settings = get_hr_settings()
         grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
     except Exception:
+        settings = frappe._dict()
         grace_mins = 15
+    occurrence_audits = _occurrence_audits(
+        attendance_map, settings, [employee.name for employee in employees]
+    )
 
     company_holiday_list = frappe.db.get_value('Company', filters.get('company'), 'default_holiday_list')
     holiday_lists = set(e.holiday_list for e in employees if e.holiday_list)
     if company_holiday_list: holiday_lists.add(company_holiday_list)
 
     holidays_by_list = {}
+    holiday_buffer_start = add_days(start_ad, -40)
+    holiday_buffer_end = add_days(end_ad, 40)
     for hl in holiday_lists:
-        h_records = frappe.get_all("Holiday", filters={"parent": hl, "holiday_date": ["between", [start_ad, end_ad]]}, fields=["holiday_date", "weekly_off"], ignore_permissions=True)
+        h_records = frappe.get_all(
+            "Holiday",
+            filters={
+                "parent": hl,
+                "holiday_date": [
+                    "between",
+                    [holiday_buffer_start, holiday_buffer_end],
+                ],
+            },
+            fields=["holiday_date", "weekly_off"],
+            ignore_permissions=True,
+        )
         holidays_by_list[hl] = {getdate(h.holiday_date): bool(h.weekly_off) for h in h_records}
-
-    lwp_leave_types = set(
-        frappe.get_all("Leave Type", filters={"is_lwp": 1}, pluck="name", ignore_permissions=True) or []
+    sandwich_map = _build_sandwich_map(
+        employees,
+        start_ad,
+        end_ad,
+        holidays_by_list,
+        company_holiday_list,
+        settings,
     )
 
-    days_in_period = (end_ad - start_ad).days + 1
+    selected_days_in_period = (end_ad - start_ad).days + 1
+    current_date = getdate(today())
     data = []
     period_start = str(start_ad)
     period_end = str(end_ad)
@@ -500,17 +1183,37 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
         row = {
             "employee": emp.name, "employee_name": emp.employee_name,
             "period_start": period_start, "period_end": period_end,
-            "total_days_in_period": days_in_period, "total_late_entry": 0, "total_early_exit": 0,
+            "selected_period_days": selected_days_in_period,
+            "total_days_in_period": 0,
+            "audit_through_date": None,
+            "future_days_excluded": 0,
+            "unmarked_today_excluded": 0,
+            "total_late_entry": 0, "total_early_exit": 0,
             "total_grace_late": 0, "total_unexcused_late": 0,
-            "total_late_entry_apps": 0, "total_early_exit_apps": 0, "total_ooo_apps": 0,
             "total_no_of_days": 0, "total_present": 0, "total_absent": 0,
-            "total_holiday": 0, "total_leave": 0, "payable_days": 0,
+            "total_holiday": 0, "payable_days": 0, "payable_days_policy": 0,
+            "payable_days_mismatch": 0, "lwp_days": 0, "paid_leave_days": 0,
             "present_full": 0, "present_half": 0,
             "absent_full": 0, "absent_half": 0,
-            "leave_full": 0, "leave_half": 0,
+            "lwp_full": 0, "lwp_half": 0,
+            "paid_leave_full": 0, "paid_leave_half": 0,
+            "annual_home_leave": 0, "sick_leave": 0, "other_paid_leave": 0,
+            "annual_home_leave_days": 0, "sick_leave_days": 0,
+            "other_paid_leave_days": 0,
+            "holiday": 0, "paid_flag": 0, "unmarked": 0,
+            "unclassified_leave": 0, "sandwich": 0, "sandwich_absent": 0,
+            "holiday_extra_present": 0, "holiday_extra_hours": 0,
+            "leave_breakdown": {}, "lwp_breakdown": {},
+            "other_paid_breakdown": {},
+            "unconfigured_paid_leave_breakdown": {},
+            "application_audits": application_audits.get(emp.name, {}),
+            "occurrence_audit": occurrence_audits.get(emp.name, {}),
         }
-        for lt in leave_types:
-            row[frappe.scrub(lt)] = 0
+        for kind, spec in APPLICATION_SPECS.items():
+            stats = row["application_audits"].get(kind) or _empty_application_stats(
+                spec
+            )
+            row[spec["fieldname"]] = cint(stats.get("approved"))
 
         total_worked = 0.0
         total_target = 0.0
@@ -525,7 +1228,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             fieldname = f"day_{curr.strftime('%Y_%m_%d')}"
 
             # Extract in/out times
-            if day_checkins:
+            if show_details and day_checkins:
                 times = [get_datetime(c.time) for c in day_checkins]
                 row[f"{fieldname}_in"] = times[0].strftime("%H:%M:%S")
                 row[f"{fieldname}_out"] = times[-1].strftime("%H:%M:%S")
@@ -537,11 +1240,11 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             target_hours = 8.0
             leave_type = ""
             is_half_day = 0
+            status = ""
 
             is_holiday = curr in emp_holidays
             if is_holiday:
                 status_abbr = "WO" if emp_holidays[curr] else "Hol"
-                row["total_holiday"] += 1
                 target_hours = 0.0
 
             late_entry = False
@@ -551,12 +1254,6 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             day_lea = lea_map.get(key) or []
             day_eea = eea_map.get(key) or []
             day_ooo = ooo_map.get(key) or []
-            if day_lea:
-                row["total_late_entry_apps"] += len(day_lea)
-            if day_eea:
-                row["total_early_exit_apps"] += len(day_eea)
-            if day_ooo:
-                row["total_ooo_apps"] += len(day_ooo)
 
             if att:
                 wh = att.working_hours or 0.0
@@ -590,13 +1287,10 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                     except Exception:
                         pass
 
-                row[f"{fieldname}_wh"] = wh
-                total_worked += wh
+                if show_details:
+                    row[f"{fieldname}_wh"] = wh
                 leave_type = att.leave_type or ""
                 is_half_day = 1 if status == "Half Day" else 0
-
-                if late_entry: row["total_late_entry"] += 1
-                if early_exit: row["total_early_exit"] += 1
 
                 if status == "Present":
                     status_abbr = "P"
@@ -613,24 +1307,77 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                     status_abbr = "WFH"
                 elif status in ["Weekly Off", "Holiday"]:
                     status_abbr = "WO" if status == "Weekly Off" else "Hol"
-                    if not is_holiday:
-                        row["total_holiday"] += 1
-                        target_hours = 0.0
-
-                _accumulate_attendance_totals(row, status, status_abbr, leave_type, wh)
+                    target_hours = 0.0
 
                 if wh > 0:
                     wh_str = f"{int(wh)}h" if wh == int(wh) else f"{round(wh, 1)}h"
 
+            is_sandwich = key in sandwich_map
+            sandwich_leave_type = sandwich_map.get(key)
+            if is_sandwich:
+                if sandwich_leave_type:
+                    leave_type = sandwich_leave_type
+                    status_abbr = "Lv"
+                else:
+                    leave_type = ""
+                    status_abbr = "Ab"
+                target_hours = 0.0
+                is_half_day = 0
+
+            day_classification = classify_attendance_day(
+                status=status,
+                half_day_status=getattr(att, "half_day_status", None) if att else None,
+                leave_type=leave_type,
+                working_hours=wh,
+                is_holiday=is_holiday,
+                is_sandwich=is_sandwich,
+                sandwich_leave_type=sandwich_leave_type,
+                leave_type_details=leave_type_details,
+            )
+            include_in_paid_audit = _include_in_paid_day_audit(
+                curr,
+                current_date,
+                has_attendance=bool(att),
+                is_holiday=is_holiday,
+                is_sandwich=is_sandwich,
+            )
+            if include_in_paid_audit:
+                row["total_days_in_period"] += 1
+                row["audit_through_date"] = str(curr)
+                _accumulate_day(row, day_classification)
+                total_worked += wh
+                if late_entry:
+                    row["total_late_entry"] += 1
+                if early_exit:
+                    row["total_early_exit"] += 1
+            elif curr > current_date:
+                row["future_days_excluded"] += 1
+            else:
+                row["unmarked_today_excluded"] = 1
+            worked_on_holiday = bool(
+                day_classification["holiday_extra_present"]
+            )
+
             if not att and not is_holiday:
                 target_hours = 0.0
 
-            total_target += target_hours
+            if include_in_paid_audit:
+                total_target += target_hours
             # Build bar data for this day
-            bar_data = build_bar_data(
-                emp.name, curr, day_checkins, att, is_holiday,
-                emp_holidays.get(curr), shift_map, shift_type_details, leave_apps, status_abbr
-            )
+            if not att and not day_checkins:
+                bar_data = {
+                    "is_weekly_off": bool(emp_holidays.get(curr))
+                    if is_holiday
+                    else False,
+                    "is_leave": False,
+                    "segments": [],
+                }
+            else:
+                bar_data = build_bar_data(
+                    emp.name, curr, day_checkins, att, is_holiday,
+                    emp_holidays.get(curr), shift_map, shift_type_details, leave_apps,
+                    status_abbr, emp.default_shift
+                )
 
             unexcused_late = cint(getattr(att, "custom_cnr_unexcused_late", 0) or 0) if att else 0
             unexcused_early = cint(getattr(att, "custom_cnr_unexcused_early", 0) or 0) if att else 0
@@ -642,17 +1389,15 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             if not early_kind and early_exit:
                 early_kind = "excused" if day_eea else "unexcused"
 
-            if late_kind == "grace":
+            if include_in_paid_audit and late_kind == "grace":
                 row["total_grace_late"] += 1
-            elif late_kind == "unexcused":
+            elif include_in_paid_audit and late_kind == "unexcused":
                 row["total_unexcused_late"] += 1
-
-            row["payable_days"] += _day_payable_days(status_abbr, leave_type, lwp_leave_types)
 
             other_half_label, other_half_kind, other_half_title = "", "", ""
             if is_half_day and status_abbr in ("HD/P", "HD/A"):
                 other_half_label, other_half_kind, other_half_title = _half_day_other_half(
-                    status_abbr, leave_type
+                    status_abbr, leave_type, leave_type_details
                 )
 
             # Store EVERYTHING in the main field as JSON for the formatter
@@ -662,16 +1407,17 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "checks": checks_str,
                 "target": target_hours,
                 "leave_type": leave_type,
-                "leave_acronym": leave_type_acronym(leave_type) if leave_type else "",
+                "leave_acronym": (
+                    _leave_acronym(leave_type, leave_type_details)
+                    if leave_type
+                    else ""
+                ),
                 "other_half_label": other_half_label,
                 "other_half_kind": other_half_kind,
                 "other_half_title": other_half_title,
                 "half_day": is_half_day,
-                "late_entry": 1 if late_entry else 0,
-                "early_exit": 1 if early_exit else 0,
                 "late_mins": late_mins,
                 "early_mins": early_mins,
-                "grace_mins": grace_mins,
                 "late_kind": late_kind,
                 "early_kind": early_kind,
                 "bar_data": bar_data,
@@ -679,18 +1425,17 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "late_entry_app": day_lea[0] if day_lea else None,
                 "early_exit_app": day_eea[0] if day_eea else None,
                 "ooo_app": day_ooo[0] if day_ooo else None,
-                "has_lea": 1 if day_lea else 0,
-                "has_eea": 1 if day_eea else 0,
-                "has_ooo": 1 if day_ooo else 0,
+                "worked_on_holiday": worked_on_holiday,
+                "sandwich": is_sandwich,
+                "paid_day_audit_included": include_in_paid_audit,
             })
 
             curr = add_days(curr, 1)
 
-        row["total_present"] = row["present_full"] + row["present_half"]
-        row["total_absent"] = row["absent_full"] + row["absent_half"]
-        row["total_leave"] = row["leave_full"] + row["leave_half"]
-        # Same as total_present (full + half-day worked portions); never exceeds days in period
-        row["total_no_of_days"] = row["total_present"]
+        _finalize_paid_days(row)
+        row["total_no_of_days"] = (
+            row["total_present"] + row["holiday_extra_present"]
+        )
 
         w_h, w_m = divmod(int(total_worked * 60), 60)
         t_h, t_m = divmod(int(total_target * 60), 60)
@@ -700,17 +1445,26 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
     return data
 
 
-def build_bar_data(employee, date, checkins, att, is_holiday, is_weekly_off, shift_map, shift_type_details, leave_apps, status_abbr):
+def build_bar_data(
+    employee,
+    date,
+    checkins,
+    att,
+    is_holiday,
+    is_weekly_off,
+    shift_map,
+    shift_type_details,
+    leave_apps,
+    status_abbr,
+    default_shift=None,
+):
     """Build time bar segment data for a single employee-day."""
     result = {
-        "has_shift": False,
         "shift_start": None,
         "shift_end": None,
         "is_weekly_off": bool(is_weekly_off) if is_holiday else False,
-        "is_holiday": is_holiday and not is_weekly_off if is_holiday else False,
         "is_leave": status_abbr == "Lv",
         "is_half_day": status_abbr in ("HD/P", "HD/A"),
-        "status": status_abbr,
         "segments": [],
     }
 
@@ -730,8 +1484,8 @@ def build_bar_data(employee, date, checkins, att, is_holiday, is_weekly_off, shi
     else:
         # Fall back when Shift Assignment ended/inactive but Attendance/Employee still has a shift
         # (e.g. Sabina Thapa: assignment ended 2026-03-27, Attendance.shift still "Full Time")
-        shift_type_name = (getattr(att, "shift", None) if att else None) or frappe.db.get_value(
-            "Employee", employee, "default_shift"
+        shift_type_name = (
+            (getattr(att, "shift", None) if att else None) or default_shift
         )
 
     if not shift_type_name:
@@ -748,10 +1502,8 @@ def build_bar_data(employee, date, checkins, att, is_holiday, is_weekly_off, shi
             result["no_shift"] = True
             return result
 
-    result["has_shift"] = True
     result["shift_start"] = st_detail["start_time"]
     result["shift_end"] = st_detail["end_time"]
-    result["shift_name"] = shift_type_name
     result["no_shift"] = False
 
     # Don't build segments for weekly off or full leave

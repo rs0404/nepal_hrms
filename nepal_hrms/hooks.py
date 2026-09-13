@@ -27,6 +27,7 @@ app_include_css = [
 ]
 
 app_include_js = [
+	"/assets/nepal_hrms/js/date_approval_hint.js",
 	"/assets/nepal_hrms/js/employee_benefit_claim.js",
 	"/assets/nepal_hrms/js/attendance_cnr_bulk.js",
 	"/assets/nepal_hrms/js/attendance_policy_escape_list.js",

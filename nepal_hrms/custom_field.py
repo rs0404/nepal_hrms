@@ -102,6 +102,7 @@ def create_custom_fields():
 		],
 		"Leave Type": [
 			{"fieldname": "custom_attendance_sheet_acronym", "label": "Attendance Sheet Acronym", "fieldtype": "Data", "insert_after": "leave_type_name", "length": 3, "description": "Up to 3 letters on Monthly Attendance Sheet BS (e.g. LWP, SL, AHL). Leave blank for automatic initials."},
+			{"fieldname": "custom_attendance_sheet_leave_group", "label": "Attendance Sheet Leave Group", "fieldtype": "Select", "options": "Annual/Home\nSick\nOther Paid", "insert_after": "custom_attendance_sheet_acronym", "description": "Groups paid leave totals on Monthly Attendance Sheet BS. Leave Without Pay types are always grouped as LWP, regardless of this value."},
 			{"fieldname": "allocate_leave_on_start_of_bs_month", "label": "Allocate Leave on Start of BS Month", "fieldtype": "Check", "insert_after": "max_continuous_days_allowed", "description": "Make sure Is Earned Leave is unchecked if you check it.", "allow_on_submit": 1},
 			{"fieldname": "bs_monthly_allocation_amount", "label": "BS Monthly Allocation Amount", "fieldtype": "Float", "insert_after": "allocate_leave_on_start_of_bs_month", "depends_on": "eval:doc.allocate_leave_on_start_of_bs_month == 1", "mandatory_depends_on": "eval:doc.allocate_leave_on_start_of_bs_month == 1", "description": "Amount of leave to be allocated at the start of each BS month eg: 0.5 for half day, 1.0 for full day.", "allow_on_submit": 1},
 		],
