@@ -25,7 +25,12 @@ def update_tax_and_submit(doc):
     ]
 
     total_earnings = sum(flt(e.amount) for e in doc.earnings if e.salary_component in selected_earning_components)
-    total_deductions = sum(flt(d.amount) for d in doc.deductions if d.salary_component in deduction_components)
+    total_deductions = sum(
+        flt(d.amount)
+        for d in doc.deductions
+        if d.salary_component in deduction_components
+        and not cint(d.do_not_include_in_total)
+    )
     taxable_salary = flt(total_earnings) - flt(total_deductions)
     doc.taxable_salary = taxable_salary
 

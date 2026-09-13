@@ -260,7 +260,7 @@ def create_multiple_salary_components():
                 "salary_component": "Leave and Late Deduction",
                 "salary_component_abbr": "leave_and_late_deduction",
                 "type": "Deduction",
-                "description": "C&R: late/early/OOO half-days (basic); LWP (basic or gross if ASR continuous LWP); unapproved absence + escalated late full-days (gross)",
+                "description": "C&R attendance amount. Informational only when earned-salary attendance deductions are enabled; otherwise posted as an actual deduction.",
             },
             {
                 "amount_based_on_formula": 1,
@@ -273,7 +273,7 @@ def create_multiple_salary_components():
                 "salary_component": "Leaves and Late Comings",
                 "salary_component_abbr": "leaves_and_late_comings",
                 "type": "Deduction",
-                "description": "C&R: late/early/OOO half-days (basic); LWP (basic or gross if ASR continuous LWP); unapproved absence + escalated late full-days (gross)",
+                "description": "Legacy C&R attendance amount. Informational only when earned-salary attendance deductions are enabled; otherwise posted as an actual deduction.",
             },
         ]
 

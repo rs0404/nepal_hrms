@@ -15,9 +15,13 @@ def create_custom_fields():
 		"Salary Component": [
 			{"fieldname": "include_in_taxable_salary", "label": "Include In Taxable Salary", "fieldtype": "Check", "insert_after": "is_income_tax_component", "allow_on_submit": 1, "description": "Check this if this component is to be included in taxable salary calculation of Nepal HRMS."},
 		],
+		"Salary Detail": [
+			{"fieldname": "custom_fixed_amount", "label": "Fixed Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "abbr", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1, "columns": 2, "depends_on": "", "description": "Contractual amount before attendance deductions. Amount is the salary actually earned for the period."},
+		],
 		"Salary Slip": [
 			{"fieldname": "nepali_start_date", "label": "Nepali Start Date", "fieldtype": "Data", "insert_after": "start_date", "allow_on_submit": 1},
 			{"fieldname": "nepali_end_date", "label": "Nepali End Date", "fieldtype": "Data", "insert_after": "end_date", "allow_on_submit": 1},
+			{"fieldname": "custom_fixed_gross_pay", "label": "Fixed Gross", "fieldtype": "Currency", "options": "currency", "insert_after": "totals", "read_only": 1, "allow_on_submit": 1, "description": "Gross salary before attendance deductions. Standard Gross Pay is the earned gross after attendance deductions."},
 			{"fieldname": "taxable_salary", "label": "Taxable Salary", "fieldtype": "Currency", "insert_after": "total_deduction", "hidden": 1, "allow_on_submit": 1},
 			{"fieldname": "custom_annual_tax_projection_section", "label": "Annual Tax and Retirement Projection", "fieldtype": "Section Break", "insert_after": "base_total_deduction", "description": "Current-period TDS = (Projected Annual TDS - TDS Already Paid) / Remaining Payroll Periods. Retirement deductions are limited by Nepal's statutory cap."},
 			{"fieldname": "custom_projected_annual_tds", "label": "Projected Annual TDS", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_annual_tax_projection_section", "read_only": 1, "allow_on_submit": 1, "description": "Estimated income tax for the full fiscal year after projected earnings and allowed deductions."},
@@ -97,6 +101,7 @@ def create_custom_fields():
 			{"fieldname": "to_nepali_date_leave_allocation", "label": "To Date BS", "fieldtype": "Data", "insert_after": "to_date", "allow_on_submit": 1},
 		],
 		"Leave Type": [
+			{"fieldname": "custom_attendance_sheet_acronym", "label": "Attendance Sheet Acronym", "fieldtype": "Data", "insert_after": "leave_type_name", "length": 3, "description": "Up to 3 letters on Monthly Attendance Sheet BS (e.g. LWP, SL, AHL). Leave blank for automatic initials."},
 			{"fieldname": "allocate_leave_on_start_of_bs_month", "label": "Allocate Leave on Start of BS Month", "fieldtype": "Check", "insert_after": "max_continuous_days_allowed", "description": "Make sure Is Earned Leave is unchecked if you check it.", "allow_on_submit": 1},
 			{"fieldname": "bs_monthly_allocation_amount", "label": "BS Monthly Allocation Amount", "fieldtype": "Float", "insert_after": "allocate_leave_on_start_of_bs_month", "depends_on": "eval:doc.allocate_leave_on_start_of_bs_month == 1", "mandatory_depends_on": "eval:doc.allocate_leave_on_start_of_bs_month == 1", "description": "Amount of leave to be allocated at the start of each BS month eg: 0.5 for half day, 1.0 for full day.", "allow_on_submit": 1},
 		],
@@ -131,7 +136,7 @@ def create_custom_fields():
 			{"fieldname": "custom_nepal_salary_section", "label": "Nepal Salary Breakdown", "fieldtype": "Section Break", "insert_after": "payroll_payable_account", "description": "Base is kept in sync with this breakdown automatically. Fill Basic, Dearness Allowance, Grade and Other Allowances; Base is updated from the total."},
 			{"fieldname": "custom_basic_salary", "label": "Basic Salary", "fieldtype": "Currency", "insert_after": "custom_nepal_salary_section", "options": "currency", "description": "\u0906\u0927\u093e\u0930\u092d\u0942\u0924 \u0924\u0932\u092c. Base for SSF/PF, gratuity, festival allowance, overtime and leave encashment."},
 			{"fieldname": "custom_dearness_allowance", "label": "Dearness Allowance", "fieldtype": "Currency", "insert_after": "custom_basic_salary", "options": "currency", "description": "\u092e\u0939\u0901\u0917\u0940 \u092d\u0924\u094d\u0924\u093e. Counts toward the statutory minimum wage. Excluded from the SSF/PF base unless enabled in Nepal HRMS Settings."},
-			{"fieldname": "custom_grade_amount", "label": "Grade", "fieldtype": "Currency", "insert_after": "custom_dearness_allowance", "options": "currency", "description": "\u0917\u094d\u0930\u0947\u0921. Annual increment. Included in the SSF/PF base by default."},
+			{"fieldname": "custom_grade_amount", "label": "Grade Amount", "fieldtype": "Currency", "insert_after": "custom_dearness_allowance", "options": "currency", "description": "\u0917\u094d\u0930\u0947\u0921. Annual increment. Included in the SSF/PF base by default."},
 			{"fieldname": "custom_nepal_salary_cb", "label": "", "fieldtype": "Column Break", "insert_after": "custom_grade_amount"},
 			{"fieldname": "custom_basic_remuneration", "label": "Basic Remuneration", "fieldtype": "Currency", "insert_after": "custom_nepal_salary_cb", "options": "currency", "read_only": 1, "description": "Contribution base for SSF / PF / Gratuity, per Nepal HRMS Settings."},
 			{"fieldname": "custom_total_allowances", "label": "Total Other Allowances", "fieldtype": "Currency", "insert_after": "custom_basic_remuneration", "options": "currency", "read_only": 1, "description": "Sum of the Other Allowances table below. Included in Base / Total Fixed Remuneration."},
@@ -307,6 +312,7 @@ def create_custom_fields():
 					"permlevel",
 					"in_list_view",
 					"in_standard_filter",
+					"columns",
 				}
 				updates = {
 					key: value

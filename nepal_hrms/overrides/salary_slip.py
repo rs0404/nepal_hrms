@@ -178,6 +178,124 @@ def lwp_should_use_gross(
     return bool(is_continuous or is_period), is_continuous, is_period
 
 
+ATTENDANCE_DEDUCTION_COMPONENTS = (
+    "Leave and Late Deduction",
+    "Leaves and Late Comings",
+)
+BASIC_EARNING_COMPONENTS = ("Basic Salary",)
+DA_EARNING_COMPONENTS = ("Dearness Allowance",)
+GRADE_EARNING_COMPONENTS = ("Grade", "Grade Amount", "Employee Grade Amount")
+OTHER_ALLOWANCE_COMPONENTS = (
+    "Other Allowance",
+    "Miscellaneous Allowance",
+    "Blog Allowance",
+)
+EMPLOYER_CONTRIBUTION_EARNINGS = (
+    "Employer's Contribution SSF",
+    "Provident Fund Employer",
+    "Gratuity",
+)
+CONTRIBUTION_DEDUCTIONS = (
+    "Employee's Contribution SSF",
+    "Employer's Contribution SSF Deduction",
+    "Provident Fund Employee",
+    "Provident Fund Employer Deduction",
+    "Gratuity Deduction",
+)
+
+
+def _matches_component(name, roots):
+    name = (name or "").strip()
+    return any(name == root or name.startswith(f"{root} - ") for root in roots)
+
+
+def _check_setting(settings, fieldname, default=0):
+    value = settings.get(fieldname)
+    return cint(default if value is None else value)
+
+
+def allocate_attendance_deduction(components, deduction_amount, proportional=False):
+    """Allocate a deduction without making any earned component negative.
+
+    ``components`` is a list of dictionaries containing a unique ``key``, a
+    fixed ``amount`` and whether the component ``contributes`` to the
+    SSF/PF/Gratuity base.
+
+    Allowances-first mode consumes non-contribution earnings first, then spills
+    into the contribution base. Proportional mode treats every fixed component
+    as one pool.
+    """
+    normalized = [
+        {
+            "key": component["key"],
+            "amount": max(flt(component.get("amount")), 0.0),
+            "contributes": bool(component.get("contributes")),
+        }
+        for component in components
+    ]
+    earned = {component["key"]: component["amount"] for component in normalized}
+    requested = max(flt(deduction_amount, 2), 0.0)
+    remaining = requested
+
+    def consume(group):
+        nonlocal remaining
+        group = [component for component in group if earned[component["key"]] > 0]
+        amounts_in_cents = {
+            component["key"]: int(round(earned[component["key"]] * 100))
+            for component in group
+        }
+        available_in_cents = sum(amounts_in_cents.values())
+        target_in_cents = min(int(round(remaining * 100)), available_in_cents)
+        if not group or target_in_cents <= 0:
+            return
+
+        shares = {}
+        remainders = []
+        allocated_in_cents = 0
+        for component in group:
+            key = component["key"]
+            numerator = target_in_cents * amounts_in_cents[key]
+            share, remainder = divmod(numerator, available_in_cents)
+            shares[key] = share
+            allocated_in_cents += share
+            remainders.append((remainder, key))
+
+        for _remainder, key in sorted(
+            remainders, key=lambda item: item[0], reverse=True
+        )[
+            : target_in_cents - allocated_in_cents
+        ]:
+            shares[key] += 1
+
+        for component in group:
+            key = component["key"]
+            earned[key] = flt((amounts_in_cents[key] - shares[key]) / 100, 2)
+        remaining = flt(remaining - target_in_cents / 100, 2)
+
+    if proportional:
+        consume(normalized)
+    else:
+        consume([component for component in normalized if not component["contributes"]])
+        consume([component for component in normalized if component["contributes"]])
+
+    fixed_contribution_base = flt(
+        sum(component["amount"] for component in normalized if component["contributes"]),
+        2,
+    )
+    earned_contribution_base = flt(
+        sum(earned[component["key"]] for component in normalized if component["contributes"]),
+        2,
+    )
+    return {
+        "earned_amounts": earned,
+        "requested_deduction": requested,
+        "applied_deduction": flt(requested - remaining, 2),
+        "unapplied_deduction": remaining,
+        "fixed_contribution_base": fixed_contribution_base,
+        "earned_contribution_base": earned_contribution_base,
+    }
+
+
 def compute_nepal_hr_variables(doc, data):
     if isinstance(doc, dict):
         doc = frappe._dict(doc)
@@ -518,6 +636,21 @@ def compute_nepal_hr_variables(doc, data):
     data["half_day_deduction_base"] = half_day_base_name
     data["lwp_deduction_base"] = lwp_base_name
     data["unapproved_absence_deduction_base"] = absent_base_name
+    earned_salary_mode = _check_setting(
+        settings,
+        "calculate_attendance_deductions_through_earned_salary",
+        default=1,
+    )
+    proportional_earning_reduction = _check_setting(
+        settings,
+        "proportionally_reduce_earnings_for_attendance_deductions",
+        default=0,
+    )
+    data["calculate_attendance_deductions_through_earned_salary"] = earned_salary_mode
+    data["proportionally_reduce_earnings_for_attendance_deductions"] = (
+        proportional_earning_reduction
+    )
+    data["leave_late_deduction_total"] = leave_late_deduction_total
     visible_values = {
         "custom_paid_leave_days": paid_leave_days,
         "custom_late_entry_half_days": late_entry_half_days,
@@ -567,6 +700,11 @@ def compute_nepal_hr_variables(doc, data):
         "late_deduction_rate": late_deduction_rate,
         "is_continuous_lwp_gross": is_continuous_lwp_gross,
         "is_period_leave_gross": is_period_leave_gross,
+        "leave_late_deduction_total": leave_late_deduction_total,
+        "calculate_attendance_deductions_through_earned_salary": earned_salary_mode,
+        "proportionally_reduce_earnings_for_attendance_deductions": (
+            proportional_earning_reduction
+        ),
     }
 
 class CustomSalarySlip(SalarySlip):
@@ -641,6 +779,331 @@ class CustomSalarySlip(SalarySlip):
                 default_amount=amount,
                 remove_if_zero_valued=True,
             )
+
+    def calculate_component_amounts(self, component_type):
+        for row in self.get(component_type) or []:
+            row.flags.nepal_earned_salary_adjusted = False
+
+        super().calculate_component_amounts(component_type)
+        if component_type != "earnings":
+            return
+
+        self._populate_fixed_earning_amounts()
+        if self._earned_salary_mode_enabled():
+            self._apply_attendance_deduction_to_earnings()
+        self._set_fixed_gross_pay()
+
+    def get_amount_based_on_payment_days(self, row):
+        if getattr(
+            getattr(row, "flags", None),
+            "nepal_earned_salary_adjusted",
+            False,
+        ):
+            return flt(row.amount), flt(row.additional_amount)
+        return super().get_amount_based_on_payment_days(row)
+
+    def set_totals(self):
+        super().set_totals()
+        if self.salary_slip_based_on_timesheet:
+            return
+
+        # Stock set_totals() blindly sums every row and is also called by the
+        # editable grids. Keep informational attendance rows out on manual
+        # amount/exchange-rate edits just as calculate_net_pay() does.
+        self.gross_pay = self.get_component_totals("earnings")
+        self.total_deduction = self.get_component_totals("deductions")
+        self.net_pay = (
+            flt(self.gross_pay)
+            - flt(self.total_deduction)
+            - flt(self.get("total_loan_repayment"))
+        )
+        self.set_base_totals()
+
+    def add_tax_components(self):
+        # Stock calls this only after every regular deduction has been added.
+        # Scale contributions and neutralise the informational attendance row
+        # before TDS reads the current earnings and deductions.
+        self._restore_attendance_deduction_flags()
+        self._populate_fixed_deduction_amounts()
+        if self._earned_salary_mode_enabled():
+            self._scale_contribution_deductions()
+            self._make_attendance_deduction_informational()
+        return super().add_tax_components()
+
+    def _earned_salary_mode_enabled(self):
+        from nepal_hrms.custom_code.attendance_policy import get_hr_settings
+
+        return bool(
+            _check_setting(
+                get_hr_settings(),
+                "calculate_attendance_deductions_through_earned_salary",
+                default=1,
+            )
+        )
+
+    @staticmethod
+    def _regular_component_amount(row):
+        if row.additional_salary:
+            # An overwrite row carries default_amount plus a positive or
+            # negative delta. Its effective amount is the allocatable salary;
+            # an additional-only row (default_amount == 0) is not contractual
+            # fixed salary and must remain untouched.
+            if flt(row.default_amount):
+                return flt(max(flt(row.amount), 0), 2)
+            return 0.0
+        if flt(row.default_amount):
+            return flt(max(flt(row.default_amount), 0), 2)
+        return flt(max(flt(row.amount) - flt(row.additional_amount), 0), 2)
+
+    @staticmethod
+    def _preserved_additional_amount(row):
+        if row.additional_salary:
+            return flt(row.amount) if not flt(row.default_amount) else 0.0
+        return flt(row.additional_amount)
+
+    @staticmethod
+    def _set_fixed_amount(row, amount):
+        if row.meta.has_field("custom_fixed_amount"):
+            row.custom_fixed_amount = flt(amount, row.precision("amount"))
+
+    def _populate_fixed_earning_amounts(self):
+        for row in self.get("earnings") or []:
+            self._set_fixed_amount(row, self._regular_component_amount(row))
+
+    def _populate_fixed_deduction_amounts(self):
+        for row in self.get("deductions") or []:
+            self._set_fixed_amount(row, self._regular_component_amount(row))
+
+    def _set_fixed_gross_pay(self):
+        if not self.meta.has_field("custom_fixed_gross_pay"):
+            return
+        self.custom_fixed_gross_pay = flt(
+            sum(
+                flt(row.custom_fixed_amount)
+                for row in (self.get("earnings") or [])
+                if not cint(row.do_not_include_in_total)
+            ),
+            self.precision("custom_fixed_gross_pay"),
+        )
+
+    def _allowance_component_names(self):
+        if hasattr(self, "_nepal_allowance_component_names"):
+            return self._nepal_allowance_component_names
+
+        from nepal_hrms.custom_code.payroll.salary_breakdown import get_allowance_rows
+
+        assignment = getattr(self, "_salary_structure_assignment", None) or {}
+        self._nepal_allowance_component_names = {
+            row.salary_component
+            for row in get_allowance_rows(assignment.get("name"))
+            if row.salary_component
+        }
+        return self._nepal_allowance_component_names
+
+    def _has_attendance_deduction_component(self):
+        structure = getattr(self, "_salary_structure_doc", None)
+        if not structure:
+            return False
+        return any(
+            _matches_component(
+                row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS
+            )
+            for row in (structure.get("deductions") or [])
+        )
+
+    def _fixed_salary_components(self, settings):
+        allowance_components = self._allowance_component_names()
+        include_grade = bool(
+            _check_setting(settings, "include_grade_in_ssf_base", default=1)
+        )
+        include_da = bool(_check_setting(settings, "include_da_in_ssf_base", default=0))
+        components = []
+        rows = {}
+
+        for index, row in enumerate(self.get("earnings") or []):
+            name = row.salary_component
+            contributes = False
+            is_fixed_salary = False
+
+            if _matches_component(name, BASIC_EARNING_COMPONENTS):
+                is_fixed_salary = contributes = True
+            elif _matches_component(name, DA_EARNING_COMPONENTS):
+                is_fixed_salary = True
+                contributes = include_da
+            elif _matches_component(name, GRADE_EARNING_COMPONENTS):
+                is_fixed_salary = True
+                contributes = include_grade
+            elif (
+                name in allowance_components
+                or _matches_component(name, OTHER_ALLOWANCE_COMPONENTS)
+            ):
+                is_fixed_salary = True
+
+            amount = self._regular_component_amount(row)
+            if not is_fixed_salary or amount <= 0:
+                continue
+
+            key = index
+            rows[key] = row
+            components.append(
+                {"key": key, "amount": amount, "contributes": contributes}
+            )
+
+        return components, rows
+
+    def _apply_attendance_deduction_to_earnings(self):
+        from nepal_hrms.custom_code.attendance_policy import get_hr_settings
+
+        self._earned_salary_result = None
+        if not self._has_attendance_deduction_component():
+            return
+
+        settings = get_hr_settings()
+        variables = getattr(self, "_nepal_hr_vars", {})
+        attendance_deduction = flt(variables.get("leave_late_deduction_total"), 2)
+        components, rows = self._fixed_salary_components(settings)
+        if not components:
+            return
+
+        result = allocate_attendance_deduction(
+            components,
+            attendance_deduction,
+            proportional=bool(
+                _check_setting(
+                    settings,
+                    "proportionally_reduce_earnings_for_attendance_deductions",
+                    default=0,
+                )
+            ),
+        )
+        self._earned_salary_result = frappe._dict(result)
+
+        for key, earned_amount in result["earned_amounts"].items():
+            row = rows[key]
+            row.amount = flt(
+                earned_amount
+                + CustomSalarySlip._preserved_additional_amount(row),
+                row.precision("amount"),
+            )
+            row.flags.nepal_earned_salary_adjusted = True
+
+        fixed_base = flt(result["fixed_contribution_base"])
+        earned_base = flt(result["earned_contribution_base"])
+        ratio = earned_base / fixed_base if fixed_base else 1.0
+        for row in self.get("earnings") or []:
+            if not _matches_component(
+                row.salary_component, EMPLOYER_CONTRIBUTION_EARNINGS
+            ):
+                continue
+            fixed_amount = self._regular_component_amount(row)
+            if fixed_amount <= 0:
+                continue
+            row.amount = flt(
+                fixed_amount * ratio
+                + CustomSalarySlip._preserved_additional_amount(row),
+                row.precision("amount"),
+            )
+            row.flags.nepal_earned_salary_adjusted = True
+
+        variables.update(
+            {
+                "attendance_deduction_applied_to_earnings": result[
+                    "applied_deduction"
+                ],
+                "attendance_deduction_unapplied": result["unapplied_deduction"],
+                "fixed_basic_remuneration": fixed_base,
+                "earned_basic_remuneration": earned_base,
+            }
+        )
+
+    def _scale_contribution_deductions(self):
+        result = getattr(self, "_earned_salary_result", None)
+        if not result:
+            return
+
+        fixed_base = flt(result.get("fixed_contribution_base"))
+        earned_base = flt(result.get("earned_contribution_base"))
+        ratio = earned_base / fixed_base if fixed_base else 1.0
+        for row in self.get("deductions") or []:
+            if not _matches_component(row.salary_component, CONTRIBUTION_DEDUCTIONS):
+                continue
+            fixed_amount = self._regular_component_amount(row)
+            if fixed_amount <= 0:
+                continue
+            row.amount = flt(
+                fixed_amount * ratio
+                + CustomSalarySlip._preserved_additional_amount(row),
+                row.precision("amount"),
+            )
+            row.flags.nepal_earned_salary_adjusted = True
+
+    def _restore_attendance_deduction_flags(self):
+        """Reset row flags before applying the current setting.
+
+        Salary Detail rows are reused when a draft slip recalculates. Stock HRMS
+        does not refresh these metadata flags on an existing row, so a slip that
+        was once informational would otherwise stay excluded after the setting
+        is disabled or an oversized deduction leaves a real residual.
+        """
+        for row in self.get("deductions") or []:
+            if not _matches_component(
+                row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS
+            ):
+                continue
+            values = frappe.get_cached_value(
+                "Salary Component",
+                row.salary_component,
+                [
+                    "do_not_include_in_total",
+                    "do_not_include_in_accounts",
+                    "exempted_from_income_tax",
+                ],
+            ) or (0, 0, 0)
+            (
+                row.do_not_include_in_total,
+                row.do_not_include_in_accounts,
+                row.exempted_from_income_tax,
+            ) = (cint(value) for value in values)
+
+    def _make_attendance_deduction_informational(self):
+        result = getattr(self, "_earned_salary_result", None)
+        if not result:
+            return
+
+        rows = [
+            row
+            for row in self.get("deductions") or []
+            if _matches_component(
+                row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS
+            )
+        ]
+        if not rows:
+            return
+
+        unapplied = flt(result.get("unapplied_deduction"), 2)
+        if unapplied:
+            # A deduction larger than every fixed earning cannot be represented
+            # by non-negative earned rows. Keep only that residual as a real
+            # deduction so the complete penalty is still collected.
+            original_total = flt(sum(flt(row.amount) for row in rows), 2)
+            remaining = unapplied
+            for index, row in enumerate(rows):
+                if index == len(rows) - 1:
+                    amount = remaining
+                else:
+                    amount = (
+                        flt(unapplied * flt(row.amount) / original_total, 2)
+                        if original_total
+                        else 0
+                    )
+                    remaining = flt(max(remaining - amount, 0), 2)
+                row.amount = flt(amount, row.precision("amount"))
+            return
+
+        for row in rows:
+            row.do_not_include_in_total = 1
+            row.do_not_include_in_accounts = 1
+            row.exempted_from_income_tax = 0
 
     def _inject_cit_contribution(self, data):
         """Expose the effective CIT election to formulas and snapshot this period."""

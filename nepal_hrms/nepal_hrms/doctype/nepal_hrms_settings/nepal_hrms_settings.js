@@ -143,6 +143,33 @@ function nh_attach_settings_help(frm) {
 	nh_ensure_dismiss_on_outside();
 }
 
+function nh_set_employee_id_field_options(frm) {
+	const update_options = () => {
+		if (!frm.fields_dict.salary_slip_employee_id_field) return;
+
+		const current = frm.doc.salary_slip_employee_id_field || "name";
+		const supported_types = new Set(["Data", "Link", "Dynamic Link", "Int"]);
+		const options = ["name"];
+
+		for (const field of frappe.get_meta("Employee").fields || []) {
+			if (field.fieldname && supported_types.has(field.fieldtype)) {
+				options.push(field.fieldname);
+			}
+		}
+		if (!options.includes(current)) options.push(current);
+
+		frm.set_df_property(
+			"salary_slip_employee_id_field",
+			"options",
+			[...new Set(options)].join("\n")
+		);
+	};
+
+	frappe.model.with_doctype("Employee", update_options).catch((error) => {
+		console.warn("Unable to load Employee ID source fields", error);
+	});
+}
+
 frappe.ui.form.on("Nepal HRMS Settings", {
 	onload(frm) {
 		frappe.require(NH_SETTINGS_CSS);
@@ -150,6 +177,10 @@ frappe.ui.form.on("Nepal HRMS Settings", {
 
 	refresh(frm) {
 		frappe.require(NH_SETTINGS_CSS, () => nh_attach_settings_help(frm));
+	},
+
+	onload_post_render(frm) {
+		nh_set_employee_id_field_options(frm);
 	},
 
 	setup(frm) {
@@ -190,6 +221,10 @@ frappe.ui.form.on("Nepal HRMS Settings", {
 			if (row.company) filters.company = row.company;
 			return { filters: filters };
 		});
+
+		frm.set_query("salary_slip_additional_earning_components", () => ({
+			filters: { type: "Earning", disabled: 0 },
+		}));
 	},
 
 	run_payroll_setup(frm) {

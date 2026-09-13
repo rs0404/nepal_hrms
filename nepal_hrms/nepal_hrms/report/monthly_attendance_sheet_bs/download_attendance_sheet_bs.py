@@ -51,7 +51,7 @@ def _day_fieldnames(start_ad, end_ad):
 		day = bs["day"]
 		weekday = curr.strftime("%a")
 		fieldname = f"day_{curr.strftime('%Y_%m_%d')}"
-		label_prefix = f"{day:02d} {weekday}"
+		label_prefix = f"{day:02d} {weekday} ({curr.strftime('%d %b %Y')})"
 		fields.append(
 			{
 				"ad": curr,

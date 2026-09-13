@@ -11,14 +11,40 @@ SCHEDULED_ACCOUNT_RULES = {
 	"payroll_payable_account": {"label": "Payroll Payable A/C", "root_type": "Liability"},
 	"payment_account": {"label": "Payment Account", "account_type": ("Bank", "Cash")},
 }
+SALARY_SLIP_ID_FIELD_TYPES = {"Data", "Link", "Dynamic Link", "Int"}
 
 
 class NepalHRMSSettings(Document):
 	def validate(self):
 		self.validate_payroll_period_start_day()
 		self.validate_period_leave_gross_lwp()
+		self.validate_salary_slip_print_settings()
 		self.validate_payroll_accounts()
 		self.validate_scheduled_payroll_runs()
+
+	def validate_salary_slip_print_settings(self):
+		fieldname = self.salary_slip_employee_id_field or "name"
+		if fieldname != "name":
+			field = frappe.get_meta("Employee").get_field(fieldname)
+			if not field or field.fieldtype not in SALARY_SLIP_ID_FIELD_TYPES:
+				frappe.throw(
+					_("{0} is not a supported Employee ID source field.").format(
+						frappe.bold(fieldname)
+					),
+					title=_("Invalid Employee ID Source"),
+				)
+		self.salary_slip_employee_id_field = fieldname
+
+		components = [
+			row.salary_component
+			for row in self.get("salary_slip_additional_earning_components") or []
+			if row.salary_component
+		]
+		if len(components) != len(set(components)):
+			frappe.throw(
+				_("Each Additional Earning Component can be selected only once."),
+				title=_("Duplicate Salary Component"),
+			)
 
 	def validate_period_leave_gross_lwp(self):
 		if not cint(self.enable_period_leave_gross_lwp):

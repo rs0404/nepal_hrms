@@ -5,6 +5,8 @@ from frappe.utils import cint, getdate, add_days, get_datetime, get_time
 
 import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
 
+from nepal_hrms.custom_code.leave_type_acronym import leave_type_acronym
+
 
 def execute(filters=None):
     if not filters:
@@ -60,31 +62,7 @@ def execute(filters=None):
     attendance_data, leave_types = get_attendance_and_leaves(filters, start_ad, end_ad)
     columns = get_columns(filters, start_ad, end_ad, leave_types)
 
-    message = """
-    <div class="attendance-bar-legend" style="display:flex; flex-direction:column; gap:10px; font-size:12px; padding:12px 14px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:8px; color:#334155;">
-      <div style="display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center;">
-        <span style="font-weight:700; color:#0f172a;">Time bar</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:10px; border-radius:3px; background:#22c55e;"></span>Office</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:10px; border-radius:3px; background:#3b82f6;"></span>OOO Work</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:10px; border-radius:3px; background:#0d9488;"></span>WFH</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:10px; border-radius:3px; background:#a855f7;"></span>Half Day Leave</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:10px; border-radius:3px; background:#f97316;"></span>Extra</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:10px; border-radius:3px; background:#ef4444;"></span>Gap</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="width:14px; height:10px; border-radius:3px; background:#94a3b8;"></span>Holiday / WO</span>
-      </div>
-      <div style="display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; border-top:1px solid #e2e8f0; padding-top:8px;">
-        <span style="font-weight:700; color:#0f172a;">Late / Early badges</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="background:#fbbf24;color:#78350f;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Lg</span> Late within grace</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="background:#ef4444;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L!</span> Late — no application</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="background:#16a34a;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L✓</span> Late — app approved</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="background:#fbbf24;color:#78350f;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Eg</span> Early within grace</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="background:#ef4444;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E!</span> Early — no application</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="background:#16a34a;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E✓</span> Early — app approved</span>
-        <span style="display:flex; align-items:center; gap:5px;"><span style="background:#3b82f6;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">O</span> OOO application</span>
-      </div>
-      <div style="color:#64748b; font-size:11px;">Click the status pill to open Attendance. Click a badge to open the linked application. Totals at the right include flag-based late/early and application counts.</div>
-    </div>
-    """
+    message = ""
 
     data = get_data(filters, start_ad, end_ad, attendance_data, leave_types)
     return columns, data, message
@@ -102,9 +80,16 @@ def get_columns(filters, start_ad, end_ad, leave_types):
         bs = nepali_date.ad_to_bs(curr)
         day = bs["day"]
         weekday_abbr = curr.strftime("%a").upper()
-        label_html = f"<div style='text-align:center;'><span style='font-size:13px; font-weight:bold; color:#374151;'>{day:02d}</span><span style='font-size:10px; color:#6b7280; margin-left:4px;'>{weekday_abbr}</span></div>"
+        ad_date = curr.strftime("%d %b %Y")
+        label_html = (
+            "<div style='text-align:center;'>"
+            f"<div><span style='font-size:13px; font-weight:bold; color:#374151;'>{day:02d}</span>"
+            f"<span style='font-size:10px; color:#6b7280; margin-left:4px;'>{weekday_abbr}</span></div>"
+            f"<div style='font-size:9px; color:#6b7280; margin-top:2px;'>{ad_date}</div>"
+            "</div>"
+        )
         fieldname = f"day_{curr.strftime('%Y_%m_%d')}"
-        columns.append({"label": label_html, "fieldname": fieldname, "fieldtype": "Data", "width": 80})
+        columns.append({"label": label_html, "fieldname": fieldname, "fieldtype": "Data", "width": 88})
 
         columns.append({"label": f"{day} In", "fieldname": f"{fieldname}_in", "fieldtype": "Time", "width": 80, "hidden": not show_details})
         columns.append({"label": f"{day} Out", "fieldname": f"{fieldname}_out", "fieldtype": "Time", "width": 80, "hidden": not show_details})
@@ -114,6 +99,17 @@ def get_columns(filters, start_ad, end_ad, leave_types):
 
     columns.extend([
         {"label": _("Total Days in Period"), "fieldname": "total_days_in_period", "fieldtype": "Int", "width": 140},
+        {"label": _("Holiday"), "fieldname": "total_holiday", "fieldtype": "Float", "width": 70},
+        {"label": _("Present"), "fieldname": "total_present", "fieldtype": "Float", "width": 70},
+        {"label": _("Absent"), "fieldname": "total_absent", "fieldtype": "Float", "width": 70},
+        {"label": _("Leave"), "fieldname": "total_leave", "fieldtype": "Float", "width": 70},
+        {"label": _("Payable Days"), "fieldname": "payable_days", "fieldtype": "Float", "width": 100},
+    ])
+
+    for lt in sorted(leave_types):
+        columns.append({"label": lt, "fieldname": frappe.scrub(lt), "fieldtype": "Float", "width": 90})
+
+    columns.extend([
         {"label": _("Late (flag)"), "fieldname": "total_late_entry", "fieldtype": "Int", "width": 90},
         {"label": _("Late in grace"), "fieldname": "total_grace_late", "fieldtype": "Int", "width": 100},
         {"label": _("Late no app"), "fieldname": "total_unexcused_late", "fieldtype": "Int", "width": 100},
@@ -122,16 +118,8 @@ def get_columns(filters, start_ad, end_ad, leave_types):
         {"label": _("Early Exit Apps"), "fieldname": "total_early_exit_apps", "fieldtype": "Int", "width": 110},
         {"label": _("OOO Apps"), "fieldname": "total_ooo_apps", "fieldtype": "Int", "width": 90},
         {"label": _("Total Days Present"), "fieldname": "total_no_of_days", "fieldtype": "Float", "width": 120},
-        {"label": _("Present"), "fieldname": "total_present", "fieldtype": "Float", "width": 70},
-        {"label": _("Absent"), "fieldname": "total_absent", "fieldtype": "Float", "width": 70},
-        {"label": _("Holiday"), "fieldname": "total_holiday", "fieldtype": "Float", "width": 70},
-        {"label": _("Leave"), "fieldname": "total_leave", "fieldtype": "Float", "width": 70},
+        {"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 120},
     ])
-
-    for lt in sorted(leave_types):
-        columns.append({"label": lt, "fieldname": frappe.scrub(lt), "fieldtype": "Float", "width": 90})
-
-    columns.append({"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 120})
     return columns
 
 
@@ -302,6 +290,20 @@ def _cnr_application_map(doctype, emp_names, start_ad, end_ad):
     return app_map
 
 
+def _day_payable_days(status_abbr, leave_type, lwp_leave_types):
+    """Paid days for one calendar day: holiday/present/paid leave count; absent and LWP do not."""
+    is_lwp = bool(leave_type and leave_type in lwp_leave_types)
+    if status_abbr in ("P", "WFH", "WO", "Hol"):
+        return 1.0
+    if status_abbr == "Lv":
+        return 0.0 if is_lwp else 1.0
+    if status_abbr == "HD/P":
+        return 0.5 if is_lwp else 1.0
+    if status_abbr == "HD/A":
+        return 0.5
+    return 0.0
+
+
 def _delay_badge_kind(mins, grace, has_app, unexcused_flag=0):
     """
     Return badge kind for late/early minutes:
@@ -436,6 +438,10 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
         h_records = frappe.get_all("Holiday", filters={"parent": hl, "holiday_date": ["between", [start_ad, end_ad]]}, fields=["holiday_date", "weekly_off"], ignore_permissions=True)
         holidays_by_list[hl] = {getdate(h.holiday_date): bool(h.weekly_off) for h in h_records}
 
+    lwp_leave_types = set(
+        frappe.get_all("Leave Type", filters={"is_lwp": 1}, pluck="name", ignore_permissions=True) or []
+    )
+
     days_in_period = (end_ad - start_ad).days + 1
     data = []
     period_start = str(start_ad)
@@ -449,7 +455,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             "total_grace_late": 0, "total_unexcused_late": 0,
             "total_late_entry_apps": 0, "total_early_exit_apps": 0, "total_ooo_apps": 0,
             "total_no_of_days": 0, "total_present": 0, "total_absent": 0,
-            "total_holiday": 0, "total_leave": 0,
+            "total_holiday": 0, "total_leave": 0, "payable_days": 0,
         }
         for lt in leave_types:
             row[frappe.scrub(lt)] = 0
@@ -600,6 +606,8 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             elif late_kind == "unexcused":
                 row["total_unexcused_late"] += 1
 
+            row["payable_days"] += _day_payable_days(status_abbr, leave_type, lwp_leave_types)
+
             # Store EVERYTHING in the main field as JSON for the formatter
             row[fieldname] = json.dumps({
                 "status": status_abbr,
@@ -607,6 +615,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "checks": checks_str,
                 "target": target_hours,
                 "leave_type": leave_type,
+                "leave_acronym": leave_type_acronym(leave_type) if leave_type else "",
                 "half_day": is_half_day,
                 "late_entry": 1 if late_entry else 0,
                 "early_exit": 1 if early_exit else 0,
@@ -901,23 +910,10 @@ def build_bar_data(employee, date, checkins, att, is_holiday, is_weekly_off, shi
 
         segments.extend(gap_segments)
 
-    # Handle half-day leave
     if result["is_half_day"]:
-        # Add purple segment for the leave half
-        half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
-        # Assume second half is leave if HD/A, first half if HD/P
-        if status_abbr == "HD/A":
-            segments.append({
-                "start": _minutes_to_time(half_point),
-                "end": _minutes_to_time(shift_end_mins),
-                "type": "halfday",
-            })
-        else:
-            segments.append({
-                "start": _minutes_to_time(shift_start_mins),
-                "end": _minutes_to_time(half_point),
-                "type": "halfday",
-            })
+        segments = _convert_segments_for_half_day(
+            segments, status_abbr, shift_start_mins, shift_end_mins
+        )
 
     # Sort segments by start time and clean up internal fields
     segments.sort(key=lambda s: s["start"])
@@ -927,6 +923,70 @@ def build_bar_data(employee, date, checkins, att, is_holiday, is_weekly_off, shi
 
     result["segments"] = segments
     return result
+
+
+def _convert_segments_for_half_day(segments, status_abbr, shift_start_mins, shift_end_mins):
+    """Mark the leave half of the shift as halfday instead of stacking purple on green."""
+    if not segments:
+        half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
+        if status_abbr == "HD/A":
+            leave_lo, leave_hi = half_point, shift_end_mins
+        else:
+            leave_lo, leave_hi = shift_start_mins, half_point
+        return [{
+            "start": _minutes_to_time(leave_lo),
+            "end": _minutes_to_time(leave_hi),
+            "type": "halfday",
+            "start_mins": leave_lo,
+            "end_mins": leave_hi,
+        }]
+
+    half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
+    if status_abbr == "HD/A":
+        leave_lo, leave_hi = half_point, shift_end_mins
+    else:
+        leave_lo, leave_hi = shift_start_mins, half_point
+
+    converted = []
+    for seg in segments:
+        s = seg.get("start_mins")
+        e = seg.get("end_mins")
+        if s is None:
+            s = _time_to_minutes(seg["start"])
+            e = _time_to_minutes(seg["end"])
+
+        ov_lo = max(s, leave_lo)
+        ov_hi = min(e, leave_hi)
+        if ov_lo >= ov_hi:
+            converted.append(dict(seg, start_mins=s, end_mins=e))
+            continue
+
+        if s < ov_lo:
+            converted.append({
+                "start": _minutes_to_time(s),
+                "end": _minutes_to_time(ov_lo),
+                "type": seg["type"],
+                "start_mins": s,
+                "end_mins": ov_lo,
+            })
+        leave_type = "halfday" if seg["type"] != "extra" else seg["type"]
+        converted.append({
+            "start": _minutes_to_time(ov_lo),
+            "end": _minutes_to_time(ov_hi),
+            "type": leave_type,
+            "start_mins": ov_lo,
+            "end_mins": ov_hi,
+        })
+        if e > ov_hi:
+            converted.append({
+                "start": _minutes_to_time(ov_hi),
+                "end": _minutes_to_time(e),
+                "type": seg["type"],
+                "start_mins": ov_hi,
+                "end_mins": e,
+            })
+
+    return converted
 
 
 def _time_to_minutes(time_str):

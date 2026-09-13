@@ -1,5 +1,115 @@
+function sheetBsEnsureCompactFilters() {
+	if (document.getElementById("sheet-bs-compact-filters")) return;
+	const style = document.createElement("style");
+	style.id = "sheet-bs-compact-filters";
+	// Scope to this report only; do not set flex on .form-group (breaks Frappe filter grid).
+	style.textContent = `
+		body.sheet-bs-report-page .standard-filter-section {
+			padding-top: 4px !important;
+			padding-bottom: 4px !important;
+		}
+		body.sheet-bs-report-page .standard-filter-section .form-group {
+			margin-bottom: 4px !important;
+		}
+		body.sheet-bs-report-page .form-group[data-fieldname="custom_start_day"] .control-input-wrapper,
+		body.sheet-bs-report-page .form-group[data-fieldname="custom_end_day"] .control-input-wrapper {
+			max-width: 5.5rem;
+		}
+		body.sheet-bs-report-page .form-group[data-fieldname="custom_start_day"] input,
+		body.sheet-bs-report-page .form-group[data-fieldname="custom_end_day"] input {
+			max-width: 5.5rem;
+		}
+		body.sheet-bs-report-page .form-group[data-fieldname="start_month_type"] .control-input-wrapper,
+		body.sheet-bs-report-page .form-group[data-fieldname="end_month_type"] .control-input-wrapper {
+			max-width: 11rem;
+		}
+	`;
+	document.head.appendChild(style);
+}
+
+function sheetBsMarkReportPage() {
+	document.body.classList.add("sheet-bs-report-page");
+}
+
+function sheetBsTimeBarLegendHtml(leaveLegendRows) {
+	const timeBar = `
+		<div class="attendance-bar-legend-section">
+			<div class="attendance-bar-legend-title">${__("Time bar")}</div>
+			<div class="attendance-bar-legend-grid">
+				<span class="legend-item"><span class="legend-swatch" style="background:#22c55e;"></span>${__("Office")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span>${__("OOO Work")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span>${__("WFH")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#a855f7;"></span>${__("Half Day")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#f97316;"></span>${__("Extra")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#ef4444;"></span>${__("Gap")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#94a3b8;"></span>${__("Holiday / WO")}</span>
+			</div>
+		</div>`;
+	const badges = `
+		<div class="attendance-bar-legend-section">
+			<div class="attendance-bar-legend-title">${__("Late / Early badges")}</div>
+			<div class="attendance-bar-legend-grid">
+				<span class="legend-item"><span style="background:#fbbf24;color:#78350f;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Lg</span> ${__("Late within grace")}</span>
+				<span class="legend-item"><span style="background:#ef4444;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L!</span> ${__("Late — no application")}</span>
+				<span class="legend-item"><span style="background:#16a34a;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L✓</span> ${__("Late — approved")}</span>
+				<span class="legend-item"><span style="background:#fbbf24;color:#78350f;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Eg</span> ${__("Early within grace")}</span>
+				<span class="legend-item"><span style="background:#ef4444;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E!</span> ${__("Early — no application")}</span>
+				<span class="legend-item"><span style="background:#16a34a;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E✓</span> ${__("Early — approved")}</span>
+				<span class="legend-item"><span style="background:#3b82f6;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">O</span> ${__("OOO application")}</span>
+			</div>
+		</div>`;
+	const leaveRows = (leaveLegendRows || [])
+		.map(
+			(row) =>
+				`<div class="leave-acronym-list-row">
+					<span class="leave-acronym-pill">${frappe.utils.escape_html(row.acronym)}</span>
+					<span class="leave-acronym-list-label">${frappe.utils.escape_html(row.leave_type)}</span>
+				</div>`
+		)
+		.join("");
+	const leaves = `
+		<div class="attendance-bar-legend-section">
+			<div class="attendance-bar-legend-title">${__("Leave types (pill acronyms)")}</div>
+			<div class="attendance-bar-legend-list leave-acronym-list">${leaveRows || `<div class="text-muted">${__("No leave types")}</div>`}</div>
+		</div>`;
+	return `<div class="attendance-bar-legend attendance-bar-legend-panel">${timeBar}${badges}${leaves}</div>`;
+}
+
+function sheetBsOpenLegendDialog() {
+	frappe.call({
+		method: "nepal_hrms.custom_code.leave_type_acronym.get_attendance_sheet_leave_legend",
+		callback(r) {
+			const d = new frappe.ui.Dialog({
+				title: __("Time Bar & Leave Legend"),
+				size: "large",
+				fields: [{ fieldname: "legend_html", fieldtype: "HTML" }],
+			});
+			d.fields_dict.legend_html.$wrapper.html(sheetBsTimeBarLegendHtml(r.message || []));
+			d.show();
+		},
+	});
+}
+
 frappe.query_reports["Monthly Attendance Sheet BS"] = {
 	"onload": function (report) {
+		sheetBsEnsureCompactFilters();
+		sheetBsMarkReportPage();
+		setTimeout(sheetBsMarkReportPage, 400);
+		// Recreate datatable on each refresh so inlineFilters: false and HTML formatters re-run.
+		const refreshReport = report.refresh.bind(report);
+		report.refresh = function (have_filters_changed) {
+			if (report.datatable && typeof report.datatable.destroy === "function") {
+				try {
+					report.datatable.destroy();
+				} catch (e) {
+					console.warn("Monthly Attendance Sheet BS: datatable destroy", e);
+				}
+				report.datatable = null;
+			}
+			return refreshReport(have_filters_changed);
+		};
+		report.page.add_inner_button(__("Time Bar Legend"), () => sheetBsOpenLegendDialog());
+
 		frappe.call({
 			method: "nepal_hrms.api.attendance.get_calendar_data",
 			callback: function (r) {
@@ -195,88 +305,96 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 		},
 	],
 	formatter: function (value, row, column, data, default_formatter) {
-		value = default_formatter(value, row, column, data);
+		const colId = column.fieldname || column.id;
+		const rowData = data && typeof data === "object" && !Array.isArray(data) ? data : row;
 
-		if (column.fieldname && column.fieldname.startsWith("day_") && !column.fieldname.endsWith("_in") && !column.fieldname.endsWith("_out") && !column.fieldname.endsWith("_wh") && !column.fieldname.endsWith("_checks")) {
+		if (colId && colId.startsWith("day_") && !colId.endsWith("_in") && !colId.endsWith("_out") && !colId.endsWith("_wh") && !colId.endsWith("_checks")) {
 			let cellData = {};
+			const rawJson = (rowData && rowData[colId]) ?? value;
 			try {
-				cellData = JSON.parse(data[column.fieldname] || value);
+				cellData = typeof rawJson === "string" ? JSON.parse(rawJson) : rawJson || {};
 			} catch (e) {
-				// Fallback to legacy format (if value is just the status string)
-				cellData = {
-					status: value,
-					wh: data[column.fieldname + "_wh_str"] || "",
-					checks: data[column.fieldname + "_checks"] || "",
-					target: data[column.fieldname + "_target"] || "0.0",
-					leave_type: data[column.fieldname + "_leave_type"] || "",
-					half_day: data[column.fieldname + "_half_day"] === 1,
-					late_entry: data[column.fieldname + "_late_entry"] === 1,
-					early_exit: data[column.fieldname + "_early_exit"] === 1,
-					bar_data: data[column.fieldname + "_bar_data"] ? JSON.parse(data[column.fieldname + "_bar_data"]) : null,
-					attendance_doc: data[column.fieldname + "_attendance_doc"] || null,
-					late_entry_app: null,
-					early_exit_app: null,
-					ooo_app: null,
-				};
+				console.warn("Monthly Attendance Sheet BS: invalid cell JSON", colId, e);
+				return `<div class="attendance-cell-container" title="Cell data error">
+					<div class="attendance-bar attendance-bar-placeholder"></div>
+					<div class="cnr-pill-row">${getPillHTML("NONE", "", "0", false, false, null, {}, false, "")}</div>
+				</div>`;
 			}
 
-			let {
-				status, wh, checks, target, leave_type, half_day, late_entry, early_exit,
-				bar_data, attendance_doc, late_entry_app, early_exit_app, ooo_app,
-				late_mins, early_mins, late_kind, early_kind,
-			} = cellData;
+			try {
+				let {
+					status, wh, checks, target, leave_type, leave_acronym, half_day, late_entry, early_exit,
+					bar_data, attendance_doc, late_entry_app, early_exit_app, ooo_app,
+					late_mins, early_mins, late_kind, early_kind,
+				} = cellData;
 
-			let logDetails = checks ? `\nLogs: ${checks.split(",").join(" -> ")}` : "";
-			let leaveDetails = leave_type ? `\nLeave: ${leave_type}${half_day ? " (Half Day)" : ""}` : "";
+				let logDetails = checks ? `\nLogs: ${checks.split(",").join(" -> ")}` : "";
+				let leaveDetails = leave_type ? `\nLeave: ${leave_type}${half_day ? " (Half Day)" : ""}` : "";
 
-			let extraDetails = "";
-			const lateMinsVal = late_mins || (bar_data && bar_data.late_mins) || 0;
-			const earlyMinsVal = early_mins || (bar_data && bar_data.early_mins) || 0;
-			if (lateMinsVal > 0) extraDetails += `\nLate: ${formatMins(lateMinsVal)} (${lateKindLabel(late_kind)})`;
-			if (earlyMinsVal > 0) extraDetails += `\nEarly: ${formatMins(earlyMinsVal)} (${lateKindLabel(early_kind)})`;
-			if (bar_data) {
-				if (bar_data.ooo_mins > 0) extraDetails += `\nOOO Work: ${formatMins(bar_data.ooo_mins)}`;
-				if (bar_data.extra_mins > 0) extraDetails += `\nExtra Work: ${formatMins(bar_data.extra_mins)}`;
+				let extraDetails = "";
+				const lateMinsVal = late_mins || (bar_data && bar_data.late_mins) || 0;
+				const earlyMinsVal = early_mins || (bar_data && bar_data.early_mins) || 0;
+				if (lateMinsVal > 0) extraDetails += `\nLate: ${formatMins(lateMinsVal)} (${lateKindLabel(late_kind)})`;
+				if (earlyMinsVal > 0) extraDetails += `\nEarly: ${formatMins(earlyMinsVal)} (${lateKindLabel(early_kind)})`;
+				if (bar_data) {
+					if (bar_data.ooo_mins > 0) extraDetails += `\nOOO Work: ${formatMins(bar_data.ooo_mins)}`;
+					if (bar_data.extra_mins > 0) extraDetails += `\nExtra Work: ${formatMins(bar_data.extra_mins)}`;
+				}
+				if (late_entry_app) extraDetails += `\nLate Entry App: ${late_entry_app}`;
+				if (early_exit_app) extraDetails += `\nEarly Exit App: ${early_exit_app}`;
+				if (ooo_app) extraDetails += `\nOOO App: ${ooo_app}`;
+
+				const isHalfDay = isHalfDayCell(status, half_day, target);
+				const halfDayLabel = status === "HD/A" ? "Half Day (Absent half)" : status === "HD/P" ? "Half Day (Present half)" : "Half Day";
+				const hoverTitle = isHalfDay
+					? `${halfDayLabel} · Target: ${target} hr${leaveDetails}${extraDetails}${logDetails}`
+					: `Target: ${target} hr${leaveDetails}${extraDetails}${logDetails}`;
+				let hoverAttr = ` title="${frappe.utils.escape_html(hoverTitle)}" `;
+				const cellClass = isHalfDay ? "attendance-cell-container attendance-cell--half-day" : "attendance-cell-container";
+
+				let barHTML = "";
+				if (bar_data) {
+					try {
+						barHTML = renderTimeBar(bar_data, status, wh, checks, target, leave_type, half_day, late_entry, early_exit);
+					} catch (barErr) { console.error(barErr); }
+				}
+
+				let appLinks = { late_entry_app, early_exit_app, ooo_app, late_kind, early_kind, late_mins: lateMinsVal, early_mins: earlyMinsVal };
+				let lateBadge = cnrKindBadge("L", appLinks.late_kind, appLinks.late_entry_app, "late-entry-application", appLinks.late_mins);
+				let earlyBadge = cnrKindBadge("E", appLinks.early_kind, appLinks.early_exit_app, "early-exit-application", appLinks.early_mins);
+				let oooBadge = appLinks.ooo_app
+					? cnrDocLink(
+						"out-of-office-application",
+						appLinks.ooo_app,
+						`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`,
+						appLinks.ooo_app
+					)
+					: "";
+				let pillHTML = getPillHTML(status, wh, target, late_entry, early_exit, attendance_doc, appLinks, half_day, leave_acronym);
+				let badgeRow = (lateBadge || earlyBadge || oooBadge)
+					? `<div class="cnr-badge-row">
+						<div class="cnr-badge-slot cnr-badge-left">${lateBadge || ""}</div>
+						<div class="cnr-badge-slot cnr-badge-mid">${oooBadge || ""}</div>
+						<div class="cnr-badge-slot cnr-badge-right">${earlyBadge || ""}</div>
+					</div>`
+					: "";
+
+				return `<div ${hoverAttr} class="${cellClass}">
+					${barHTML || `<div class="attendance-bar attendance-bar-placeholder"></div>`}
+					<div class="cnr-pill-row">${pillHTML}</div>
+					${badgeRow}
+				</div>`;
+			} catch (fmtErr) {
+				console.error("Monthly Attendance Sheet BS formatter", fmtErr);
+				const st = (cellData && cellData.status) || "NONE";
+				return `<div class="attendance-cell-container" title="${frappe.utils.escape_html(String(fmtErr.message || fmtErr))}">
+					<div class="attendance-bar attendance-bar-placeholder"></div>
+					<div class="cnr-pill-row">${getPillHTML(st, cellData && cellData.wh, cellData && cellData.target, false, false, cellData && cellData.attendance_doc, {}, cellData && cellData.half_day, cellData && cellData.leave_acronym)}</div>
+				</div>`;
 			}
-			if (late_entry_app) extraDetails += `\nLate Entry App: ${late_entry_app}`;
-			if (early_exit_app) extraDetails += `\nEarly Exit App: ${early_exit_app}`;
-			if (ooo_app) extraDetails += `\nOOO App: ${ooo_app}`;
-
-			let hoverAttr = ` title="Target: ${target} hr${leaveDetails}${extraDetails}${logDetails}" `;
-
-			let barHTML = "";
-			if (bar_data) {
-				try {
-					barHTML = renderTimeBar(bar_data, status, wh, checks, target, leave_type, half_day, late_entry, early_exit);
-				} catch (e) { console.error(e); }
-			}
-
-			let appLinks = { late_entry_app, early_exit_app, ooo_app, late_kind, early_kind, late_mins: lateMinsVal, early_mins: earlyMinsVal };
-			let lateBadge = cnrKindBadge("L", appLinks.late_kind, appLinks.late_entry_app, "late-entry-application", appLinks.late_mins);
-			let earlyBadge = cnrKindBadge("E", appLinks.early_kind, appLinks.early_exit_app, "early-exit-application", appLinks.early_mins);
-			let oooBadge = appLinks.ooo_app
-				? cnrDocLink(
-					"out-of-office-application",
-					appLinks.ooo_app,
-					`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`,
-					appLinks.ooo_app
-				)
-				: "";
-			let pillHTML = getPillHTML(status, wh, target, late_entry, early_exit, attendance_doc, appLinks);
-			let badgeRow = (lateBadge || earlyBadge || oooBadge)
-				? `<div class="cnr-badge-row">
-					<div class="cnr-badge-slot cnr-badge-left">${lateBadge || ""}</div>
-					<div class="cnr-badge-slot cnr-badge-mid">${oooBadge || ""}</div>
-					<div class="cnr-badge-slot cnr-badge-right">${earlyBadge || ""}</div>
-				</div>`
-				: "";
-
-			return `<div ${hoverAttr} class="attendance-cell-container">
-				${barHTML || `<div class="attendance-bar attendance-bar-placeholder"></div>`}
-				<div class="cnr-pill-row">${pillHTML}</div>
-				${badgeRow}
-			</div>`;
 		}
+
+		value = default_formatter(value, row, column, data);
 
 		const appCountCols = {
 			total_late_entry_apps: "Late Entry Application",
@@ -291,7 +409,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 			return `<div style="height: 68px; display: flex; align-items: center; justify-content: center;">${link}</div>`;
 		}
 
-		if (["total_present", "total_absent", "total_holiday", "total_leave", "total_late_entry", "total_early_exit", "total_grace_late", "total_unexcused_late"].includes(column.fieldname)) {
+		if (["total_present", "total_absent", "total_holiday", "total_leave", "payable_days", "total_late_entry", "total_early_exit", "total_grace_late", "total_unexcused_late"].includes(column.fieldname)) {
 			value = `<div style="text-align:center; font-weight:bold;">${value}</div>`;
 		}
 
@@ -299,6 +417,11 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 	},
 	"get_datatable_options": function (options) {
 		(options.columns || []).forEach((col) => {
+			const colId = col.fieldname || col.id;
+			if (colId && /^day_\d{4}_\d{2}_\d{2}$/.test(colId)) {
+				col.width = col.width || 88;
+				col.minWidth = col.minWidth || 88;
+			}
 			if (is_sheet_bs_frozen_column(col)) {
 				col.sticky = true;
 			}
@@ -306,10 +429,15 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 		return Object.assign(options, {
 			rowHeight: 72,
 			cellHeight: 72,
+			inlineFilters: false,
+			layout: "fixed",
 		});
 	},
 	after_datatable_render: function (datatable) {
 		bind_sheet_bs_frozen_columns(datatable);
+		if (datatable.style && typeof datatable.style.refreshColumnWidth === "function") {
+			datatable.style.refreshColumnWidth();
+		}
 	},
 };
 
@@ -463,10 +591,15 @@ function renderTimeBar(barData, status, wh, checks, targetAmount, leaveType, hal
 				</span>`;
 			}).join("");
 
+		const halfDayHeader = halfDay || isHalfDayCell(status, false, targetAmount)
+			? `<div class="bar-tooltip-half-day">Half Day · Target: ${targetAmount}h</div>`
+			: "";
+		const targetLineColor = halfDay || isHalfDayCell(status, false, targetAmount) ? "#c084fc" : "#67e8f9";
 		tooltipHTML = `<div class="bar-tooltip">
+			${halfDayHeader}
 			${lines}
 			${summaryItems ? `<div class="tooltip-summary">${summaryItems}</div>` : ""}
-			${wh ? `<div style="margin-top:4px;font-size:10px;color:#67e8f9;">Total: ${wh} | Target: ${targetAmount}h</div>` : ""}
+			${wh ? `<div style="margin-top:4px;font-size:10px;color:${targetLineColor};">Total: ${wh} | Target: ${targetAmount}h</div>` : ""}
 		</div>`;
 	}
 
@@ -534,28 +667,39 @@ function cnrKindBadge(prefix, kind, appName, doctypeSlug, mins) {
 	return badge;
 }
 
-function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks) {
+function isHalfDayCell(status, halfDayFlag, targetAmount) {
+	if (halfDayFlag || status === "HD/P" || status === "HD/A") return true;
+	const targetHours = parseFloat(targetAmount);
+	return targetHours > 0 && targetHours < 8;
+}
+
+function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym) {
 	appLinks = appLinks || {};
 	if (status === "NONE" || !status) {
 		return `<div style='height:8px;width:8px;border-radius:50%;background:#cbd5e1;'></div>`;
 	}
 
 	let bgColor = "#f3f4f6", color = "#1f2937", text = wh ? wh : status;
+	if (status === "Lv") {
+		text = (leaveAcronym || "Lv").toString().slice(0, 3);
+	}
 	let workedHours = parseFloat((wh || "0").toString().replace('h', '')) || 0;
 	let targetHours = parseFloat(targetAmount) || 0;
+	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
 
 	if (targetHours === 0 && workedHours > 0) {
 		bgColor = "#f97316";
 		color = "#ffffff";
-	} else if (status === "P" || status === "WFH" || status === "HD/P") {
+	} else if (isHalfDay) {
+		bgColor = "#a855f7";
+		color = "#faf5ff";
+	} else if (status === "P" || status === "WFH") {
 		if (workedHours > 0 && workedHours < targetHours) { bgColor = "#ffd43b"; color = "#453403"; }
 		else { bgColor = "#6fe5a9"; color = "#042f1c"; }
 	} else if (status === "Ab") {
 		bgColor = "#ff6b7e"; color = "#450a0a"; text = "Ab";
 	} else if (status === "Lv") {
-		bgColor = "#dae5ff"; color = "#1e293b"; text = "Lv";
-	} else if (status === "HD/P" || status === "HD/A") {
-		bgColor = "#d8b4fe"; color = "#4c1d95";
+		bgColor = "#dae5ff"; color = "#1e293b";
 	} else if (status === "WO" || status === "Hol") { bgColor = "#e5e7eb"; color = "#4b5563"; text = status; }
 
 	let linkStart = attendance_doc ? `<a href="/app/attendance/${attendance_doc}" target="_blank" style="text-decoration: none; color: inherit; display: inline-block;">` : "";
@@ -572,7 +716,13 @@ function renderLegacyCell(status, wh, checks, targetAmount, leaveType, halfDay, 
 	appLinks = appLinks || {};
 	let logDetails = checks ? `\nLogs: ${checks.split(",").join(" -> ")}` : "";
 	let leaveDetails = leaveType ? `\nLeave: ${leaveType}${halfDay ? " (Half Day)" : ""}` : "";
-	let hoverAttr = ` title="Target: ${targetAmount} hr${leaveDetails}${logDetails}" `;
+	const isHalfDay = isHalfDayCell(status, halfDay, targetAmount);
+	const halfDayLabel = status === "HD/A" ? "Half Day (Absent half)" : status === "HD/P" ? "Half Day (Present half)" : "Half Day";
+	const hoverTitle = isHalfDay
+		? `${halfDayLabel} · Target: ${targetAmount} hr${leaveDetails}${logDetails}`
+		: `Target: ${targetAmount} hr${leaveDetails}${logDetails}`;
+	let hoverAttr = ` title="${frappe.utils.escape_html(hoverTitle)}" `;
+	const cellClass = isHalfDay ? "attendance-cell-container attendance-cell--half-day" : "attendance-cell-container";
 
 	let lateBadge = cnrKindBadge("L", appLinks.late_kind, appLinks.late_entry_app, "late-entry-application", appLinks.late_mins);
 	let earlyBadge = cnrKindBadge("E", appLinks.early_kind, appLinks.early_exit_app, "early-exit-application", appLinks.early_mins);
@@ -584,7 +734,8 @@ function renderLegacyCell(status, wh, checks, targetAmount, leaveType, halfDay, 
 			appLinks.ooo_app
 		)
 		: "";
-	let pillHTML = getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks);
+	let legacyAcronym = data[fieldname + "_leave_acronym"] || "";
+	let pillHTML = getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDay, legacyAcronym);
 
 	const badgeRow = (lateBadge || earlyBadge || oooBadge)
 		? `<div class="cnr-badge-row">
@@ -594,7 +745,7 @@ function renderLegacyCell(status, wh, checks, targetAmount, leaveType, halfDay, 
 		</div>`
 		: "";
 
-	return `<div ${hoverAttr} class="attendance-cell-container" style="cursor:help;">
+	return `<div ${hoverAttr} class="${cellClass}" style="cursor:help;">
 		<div class="attendance-bar attendance-bar-placeholder"></div>
 		<div class="cnr-pill-row">${pillHTML}</div>
 		${badgeRow}

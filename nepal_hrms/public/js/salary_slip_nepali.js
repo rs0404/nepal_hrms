@@ -7,6 +7,8 @@ frappe.ui.form.on("Salary Slip", {
 	},
 
 	refresh(frm) {
+		configure_fixed_and_earned_columns(frm);
+		configure_total_deduction_help(frm);
 		frappe.require(
 			[
 				"/assets/nepal_hrms/css/nepal_hrms_settings.css",
@@ -60,6 +62,111 @@ frappe.ui.form.on("Salary Slip", {
         validate_payroll_days(frm);
     }
 });
+
+function configure_fixed_and_earned_columns(frm) {
+	const grids = [
+		frm.fields_dict.earnings?.grid,
+		frm.fields_dict.deductions?.grid,
+	].filter(Boolean);
+
+	for (const grid of grids) {
+		if (!grid.docfields?.some((df) => df.fieldname === "custom_fixed_amount")) {
+			continue;
+		}
+
+		grid.update_docfield_property("amount", "label", __("Earned / Actual Amount"));
+		grid.update_docfield_property("custom_fixed_amount", "in_list_view", 1);
+		grid.update_docfield_property("custom_fixed_amount", "columns", 2);
+		grid.set_column_disp("custom_fixed_amount", true);
+		grid.update_docfield_property(
+			"do_not_include_in_total",
+			"label",
+			__("Calculation Only")
+		);
+		grid.update_docfield_property("do_not_include_in_total", "in_list_view", 1);
+		grid.update_docfield_property("do_not_include_in_total", "columns", 1);
+		grid.set_column_disp("do_not_include_in_total", true);
+	}
+
+	frm.set_df_property("gross_pay", "label", __("Earned Gross"));
+}
+
+function configure_total_deduction_help(frm) {
+	const render_help = (earned_salary_mode, proportional) => {
+		const deductions = frm.doc.deductions || [];
+		const included = deductions
+			.filter((row) => !row.do_not_include_in_total && flt(row.amount))
+			.map((row) => frappe.utils.escape_html(row.salary_component));
+		const excluded = deductions
+			.filter((row) => row.do_not_include_in_total && flt(row.amount))
+			.map((row) => frappe.utils.escape_html(row.salary_component));
+
+		let mode_explanation;
+		if (!earned_salary_mode) {
+			mode_explanation = __(
+				"Legacy mode: attendance deductions are included here and earnings remain fixed."
+			);
+		} else if (proportional) {
+			mode_explanation = __(
+				"Earned-salary mode: attendance deductions reduce fixed earnings proportionally and are excluded here."
+			);
+		} else {
+			mode_explanation = __(
+				"Earned-salary mode: attendance deductions reduce allowances first, then the contribution base if needed, and are excluded here."
+			);
+		}
+
+		const description = [
+			mode_explanation,
+			__("Included in Total Deduction: {0}", [included.join(", ") || __("None")]),
+			__("Excluded (Calculation Only): {0}", [excluded.join(", ") || __("None")]),
+		].join("<br>");
+		frm.set_df_property("total_deduction", "description", description);
+		frm.refresh_field("total_deduction");
+
+		const field = frm.get_field("total_deduction");
+		const label = field?.$wrapper?.find(".control-label");
+		field?.$wrapper?.find(".nepal-total-deduction-help").remove();
+		if (label?.length) {
+			$(
+				'<button type="button" class="btn btn-xs btn-default nepal-total-deduction-help">?</button>'
+			)
+				.css("margin-left", "6px")
+				.attr("title", __("Explain Total Deduction"))
+				.on("click", () => {
+					frappe.msgprint({
+						title: __("Total Deduction"),
+						message: description,
+						indicator: "blue",
+					});
+				})
+				.insertAfter(label);
+		}
+	};
+
+	const row_indicates_earned_salary = (frm.doc.deductions || []).some(
+		(row) => row.do_not_include_in_total
+	);
+	render_help(row_indicates_earned_salary, false);
+
+	Promise.all([
+		frappe.db.get_single_value(
+			"Nepal HRMS Settings",
+			"calculate_attendance_deductions_through_earned_salary"
+		),
+		frappe.db.get_single_value(
+			"Nepal HRMS Settings",
+			"proportionally_reduce_earnings_for_attendance_deductions"
+		),
+	])
+		.then(([earned_salary_mode, proportional]) => {
+			render_help(cint(earned_salary_mode), cint(proportional));
+		})
+		.catch(() => {
+			// The row-level flags still provide accurate included/excluded lists
+			// when the viewer cannot read Nepal HRMS Settings.
+		});
+}
 
 function validate_payroll_days(frm) {
     if (frm.doc.start_date && frm.doc.end_date) {

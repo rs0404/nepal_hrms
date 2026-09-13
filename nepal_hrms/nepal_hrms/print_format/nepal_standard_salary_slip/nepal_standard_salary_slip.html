@@ -1,0 +1,485 @@
+{% set employee = frappe.get_doc("Employee", doc.employee) %}
+{% set settings = frappe.get_doc("Nepal HRMS Settings") %}
+{% set bs_month_names = ["Baisakh", "Jestha", "Ashadh", "Shrawan", "Bhadra", "Ashwin", "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"] %}
+{% set ns = namespace(
+	bs_month="",
+	bs_joining="",
+	bs_pay_date="",
+	additional_names=[],
+	additional_earnings=[],
+	monthly_earnings=[],
+	included_deductions=[],
+	monthly_fixed=0,
+	monthly_earned=0,
+	additional_total=0,
+	included_total=0,
+	leave_deduction=0,
+	taxable_earnings=0,
+	pre_tax_deductions=0,
+	tds=0
+) %}
+
+{% if format_bs is defined %}
+	{% set start_month = format_bs(doc.start_date, "M_S") | int %}
+	{% set pay_month = format_bs(doc.posting_date, "M_S") | int %}
+	{% set ns.bs_month = bs_month_names[start_month - 1] ~ " " ~ format_bs(doc.start_date, "YYYY") %}
+	{% set ns.bs_pay_date = bs_month_names[pay_month - 1] ~ " " ~ format_bs(doc.posting_date, "D_S, YYYY") %}
+	{% if employee.date_of_joining %}
+		{% set joining_month = format_bs(employee.date_of_joining, "M_S") | int %}
+		{% set ns.bs_joining = bs_month_names[joining_month - 1] ~ " " ~ format_bs(employee.date_of_joining, "D_S, YYYY") %}
+	{% endif %}
+{% endif %}
+
+{% for selected in settings.get("salary_slip_additional_earning_components") or [] %}
+	{% set ns.additional_names = ns.additional_names + [selected.salary_component] %}
+{% endfor %}
+
+{% for row in doc.earnings %}
+	{% set fixed = row.get("custom_fixed_amount") or row.amount or 0 %}
+	{% if row.salary_component in ns.additional_names %}
+		{% if row.amount %}
+			{% set ns.additional_earnings = ns.additional_earnings + [row] %}
+		{% endif %}
+		{% if not row.do_not_include_in_total %}
+			{% set ns.additional_total = ns.additional_total + (row.amount or 0) %}
+		{% endif %}
+	{% else %}
+		{% set ns.monthly_earnings = ns.monthly_earnings + [row] %}
+		{% if not row.do_not_include_in_total %}
+			{% set ns.monthly_fixed = ns.monthly_fixed + fixed %}
+			{% set ns.monthly_earned = ns.monthly_earned + (row.amount or 0) %}
+		{% endif %}
+	{% endif %}
+	{% if row.is_tax_applicable and not row.do_not_include_in_total %}
+		{% set ns.taxable_earnings = ns.taxable_earnings + (row.amount or 0) %}
+	{% endif %}
+{% endfor %}
+
+{% for row in doc.deductions %}
+	{% if row.do_not_include_in_total %}
+		{% set ns.leave_deduction = ns.leave_deduction + (row.amount or 0) %}
+	{% else %}
+		{% set ns.included_deductions = ns.included_deductions + [row] %}
+		{% set ns.included_total = ns.included_total + (row.amount or 0) %}
+		{% if row.exempted_from_income_tax %}
+			{% set ns.pre_tax_deductions = ns.pre_tax_deductions + (row.amount or 0) %}
+		{% endif %}
+	{% endif %}
+	{% if row.get("is_income_tax_component") or "tds" in (row.salary_component | lower) or "income tax" in (row.salary_component | lower) %}
+		{% set ns.tds = ns.tds + (row.amount or 0) %}
+	{% endif %}
+{% endfor %}
+
+{% set employee_id_field = settings.get("salary_slip_employee_id_field") or "name" %}
+{% set employee_id = employee.get(employee_id_field) or employee.name %}
+{% set computed_taxable_salary = [ns.taxable_earnings - ns.pre_tax_deductions, 0] | max %}
+{% set saved_taxable_salary = doc.get("taxable_salary") or 0 %}
+{% set taxable_salary = saved_taxable_salary if saved_taxable_salary > 0 else computed_taxable_salary %}
+{% set tds = doc.get("custom_current_period_tds") or ns.tds %}
+{% set payroll_rows = [ns.monthly_earnings | length, ns.included_deductions | length] | max %}
+{% set bank_name = doc.bank_name or employee.bank_name %}
+{% set bank_account = doc.bank_account_no or employee.bank_ac_no %}
+
+<style>
+	.print-format {
+		color: #000;
+		font-family: Arial, sans-serif;
+		font-size: 9pt;
+		page-size: A4;
+	}
+	.print-format .letter-head {
+		margin-bottom: 3px !important;
+	}
+	.nss-document,
+	.nss-document table,
+	.nss-document th,
+	.nss-document td {
+		background: transparent;
+		color: #000;
+	}
+	.nss-heading {
+		border-bottom: 1.5px solid #000;
+		display: table;
+		padding: 5px 0 8px;
+		width: 100%;
+	}
+	.nss-company,
+	.nss-title {
+		display: table-cell;
+		vertical-align: top;
+		width: 50%;
+	}
+	.nss-company-name {
+		font-size: 15pt;
+		font-weight: 700;
+		text-transform: uppercase;
+	}
+	.nss-title {
+		text-align: right;
+	}
+	.nss-title-block {
+		display: inline-block;
+		text-align: left;
+	}
+	.nss-title-name {
+		font-size: 15pt;
+		font-weight: 700;
+	}
+	.nss-month {
+		font-size: 8pt;
+		font-weight: 600;
+		margin-top: 2px;
+	}
+	.nss-draft {
+		border: 1px solid #000;
+		display: inline-block;
+		font-size: 8pt;
+		letter-spacing: 1px;
+		margin-top: 4px;
+		padding: 2px 6px;
+	}
+	.nss-employee {
+		display: table;
+		margin: 10px 0;
+		width: 100%;
+	}
+	.nss-employee-main,
+	.nss-quick-wrap {
+		display: table-cell;
+		vertical-align: top;
+	}
+	.nss-employee-main {
+		padding-right: 18px;
+		width: 47%;
+	}
+	.nss-quick-wrap {
+		width: 53%;
+	}
+	.nss-section-title {
+		border-bottom: 1px solid #000;
+		font-size: 8pt;
+		font-weight: 700;
+		padding: 4px 2px;
+		text-transform: uppercase;
+	}
+	.nss-employee-name {
+		font-size: 9pt;
+		font-weight: 700;
+		margin: 4px 0;
+	}
+	.nss-info-line {
+		line-height: 1.55;
+	}
+	.nss-quick,
+	.nss-attendance {
+		border-collapse: collapse;
+		width: 100%;
+	}
+	.nss-quick th,
+	.nss-quick td,
+	.nss-attendance th,
+	.nss-attendance td {
+		border: 1px solid #000;
+		padding: 3px 4px !important;
+		text-align: center;
+	}
+	.nss-quick th,
+	.nss-attendance th {
+		font-size: 8pt;
+		text-transform: uppercase;
+	}
+	.nss-quick td {
+		font-size: 8pt;
+		font-weight: 600;
+	}
+	.nss-salary-grid {
+		border: 1px solid #000;
+		border-collapse: collapse;
+		margin-top: 9px;
+		width: 100%;
+	}
+	.nss-salary-grid th,
+	.nss-salary-grid td {
+		border-bottom: 1px solid #bbb;
+		padding: 3px 4px !important;
+	}
+	.nss-salary-grid th {
+		font-size: 8pt;
+		font-weight: 700 !important;
+		text-align: left;
+		text-transform: uppercase;
+	}
+	.nss-salary-grid th:nth-child(4),
+	.nss-salary-grid td:nth-child(4) {
+		border-left: 1.5px solid #000;
+		padding-left: 8px;
+	}
+	.nss-num {
+		text-align: right !important;
+		white-space: nowrap;
+	}
+	.nss-muted {
+		font-size: 8pt;
+	}
+	.nss-additional-wrap {
+		margin-top: 9px;
+		width: 50%;
+	}
+	.nss-additional {
+		border-collapse: collapse;
+		width: 100%;
+	}
+	.nss-additional th,
+	.nss-additional td {
+		border-bottom: 1px solid #bbb;
+		padding: 3px 4px !important;
+	}
+	.nss-additional th {
+		font-size: 8pt;
+		font-weight: 700 !important;
+		text-align: left;
+		text-transform: uppercase;
+	}
+	.nss-additional th:nth-child(2),
+	.nss-additional td:nth-child(2) {
+		border-left: 1px solid #999;
+	}
+	.nss-attendance {
+		margin-top: 3px;
+	}
+	.nss-summary {
+		display: table;
+		margin-top: 9px;
+		width: 100%;
+	}
+	.nss-summary-column {
+		display: table-cell;
+		vertical-align: top;
+		width: 50%;
+	}
+	.nss-summary-column:first-child {
+		padding-right: 15px;
+	}
+	.nss-summary-column:last-child {
+		padding-left: 15px;
+	}
+	.nss-summary-row {
+		border-bottom: 1px solid #000;
+		display: table;
+		padding: 5px 3px;
+		width: 100%;
+	}
+	.nss-summary-label,
+	.nss-summary-value {
+		display: table-cell;
+	}
+	.nss-summary-value {
+		font-weight: 700;
+		text-align: right;
+		white-space: nowrap;
+	}
+	.nss-summary-row.nss-strong {
+		border-bottom: 2px solid #000;
+		border-top: 2px solid #000;
+		font-size: 9pt;
+		font-weight: 700;
+		text-transform: uppercase;
+	}
+	.nss-bank {
+		border: 1px solid #000;
+		display: table;
+		margin-top: 9px;
+		padding: 5px 7px;
+		width: 100%;
+	}
+	.nss-bank > div {
+		display: table-cell;
+		width: 50%;
+	}
+	.nss-bank > div:last-child {
+		text-align: right;
+	}
+</style>
+
+{% if letter_head %}
+<div class="letter-head">{{ letter_head }}</div>
+{% endif %}
+
+<div class="nss-document">
+	<div class="nss-heading">
+		<div class="nss-company">
+			<div class="nss-company-name">{{ doc.company }}</div>
+		</div>
+		<div class="nss-title">
+			<div class="nss-title-block">
+				<div class="nss-title-name">SALARY SLIP</div>
+				<div class="nss-month">{{ ns.bs_month or frappe.utils.formatdate(doc.start_date, "MMMM yyyy") }}</div>
+				{% if doc.docstatus == 0 %}<div class="nss-draft">DRAFT</div>{% endif %}
+			</div>
+		</div>
+	</div>
+
+	<div class="nss-employee">
+		<div class="nss-employee-main">
+			<div class="nss-section-title">Employee Information</div>
+			<div class="nss-employee-name">{{ doc.employee_name }}</div>
+			<div class="nss-info-line"><b>Designation:</b> {{ doc.designation or "—" }}</div>
+			{% if frappe.utils.cint(settings.get("show_salary_slip_department")) %}
+				<div class="nss-info-line"><b>Department:</b> {{ doc.department or "—" }}</div>
+			{% endif %}
+			{% if frappe.utils.cint(settings.get("show_salary_slip_branch")) %}
+				<div class="nss-info-line"><b>Branch:</b> {{ doc.branch or "—" }}</div>
+			{% endif %}
+			<div class="nss-info-line">
+				<b>Date of Joining:</b>
+				{{ ns.bs_joining or frappe.utils.formatdate(employee.date_of_joining) or "—" }}
+			</div>
+		</div>
+		<div class="nss-quick-wrap">
+			<table class="nss-quick">
+				<tr><th>Employee ID</th><th>PAN No.</th><th>Pay Mode</th></tr>
+				<tr>
+					<td>{{ employee_id }}</td>
+					<td>{{ employee.get("pan_number") or employee.get("custom_pan_no") or "—" }}</td>
+					<td>{{ employee.get("salary_mode") or ("Bank" if bank_account else "—") }}</td>
+				</tr>
+				<tr>
+					<th>Pay Type</th><th>Month</th>
+					{% if frappe.utils.cint(settings.get("show_salary_slip_pay_date")) %}<th>Pay Date</th>{% endif %}
+				</tr>
+				<tr>
+					<td>{{ doc.get("payroll_frequency") or "Monthly" }}</td>
+					<td>{{ ns.bs_month or frappe.utils.formatdate(doc.start_date, "MMMM yyyy") }}</td>
+					{% if frappe.utils.cint(settings.get("show_salary_slip_pay_date")) %}
+						<td>{{ ns.bs_pay_date or frappe.utils.formatdate(doc.posting_date) }}</td>
+					{% endif %}
+				</tr>
+			</table>
+		</div>
+	</div>
+
+	<table class="nss-salary-grid">
+		<colgroup>
+			<col style="width: 28%"><col style="width: 12%"><col style="width: 13%">
+			<col style="width: 32%"><col style="width: 15%">
+		</colgroup>
+		<thead>
+			<tr>
+				<th>Monthly Earnings</th>
+				<th class="nss-num">Fixed</th>
+				<th class="nss-num">Earned</th>
+				<th>Deductions</th>
+				<th class="nss-num">Amount ({{ doc.currency }})</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for index in range(payroll_rows) %}
+				{% set earning = ns.monthly_earnings[index] if index < (ns.monthly_earnings | length) else none %}
+				{% set deduction = ns.included_deductions[index] if index < (ns.included_deductions | length) else none %}
+				<tr>
+					{% if earning %}
+						{% set fixed = earning.get("custom_fixed_amount") or earning.amount or 0 %}
+						<td>{{ earning.salary_component }}</td>
+						<td class="nss-num">{{ frappe.utils.fmt_money(fixed, currency=None) }}</td>
+						<td class="nss-num">{{ frappe.utils.fmt_money(earning.amount or 0, currency=None) }}</td>
+					{% else %}
+						<td></td><td></td><td></td>
+					{% endif %}
+					{% if deduction %}
+						<td>{{ deduction.salary_component }}</td>
+						<td class="nss-num">{{ frappe.utils.fmt_money(deduction.amount or 0, currency=None) }}</td>
+					{% else %}
+						<td></td><td></td>
+					{% endif %}
+				</tr>
+			{% endfor %}
+			<tr>
+				<td><b>Total Monthly Earnings</b></td>
+				<td class="nss-num"><b>{{ frappe.utils.fmt_money(ns.monthly_fixed, currency=None) }}</b></td>
+				<td class="nss-num"><b>{{ frappe.utils.fmt_money(ns.monthly_earned, currency=None) }}</b></td>
+				<td><b>Total Included Deductions</b></td>
+				<td class="nss-num"><b>{{ frappe.utils.fmt_money(ns.included_total, currency=None) }}</b></td>
+			</tr>
+		</tbody>
+	</table>
+
+	{% if ns.additional_earnings %}
+	<div class="nss-additional-wrap">
+		<div class="nss-section-title">Additional Earnings</div>
+		<table class="nss-additional">
+			<thead><tr><th>Component</th><th class="nss-num">Amount ({{ doc.currency }})</th></tr></thead>
+			<tbody>
+				{% for row in ns.additional_earnings %}
+					<tr>
+						<td>{{ row.salary_component }}</td>
+						<td class="nss-num">{{ frappe.utils.fmt_money(row.amount, currency=None) }}</td>
+					</tr>
+				{% endfor %}
+				<tr>
+					<td><b>Total Additional Earnings</b></td>
+					<td class="nss-num"><b>{{ frappe.utils.fmt_money(ns.additional_total, currency=None) }}</b></td>
+				</tr>
+			</tbody>
+		</table>
+	</div>
+	{% endif %}
+
+	<div class="nss-section-title" style="margin-top: 9px;">Attendance Summary</div>
+	<table class="nss-attendance">
+		<tr>
+			<th>Total Days</th><th>Paid Days</th><th>Paid Leave</th>
+			<th>Leave Without Pay</th><th>Absent Days</th>
+		</tr>
+		<tr>
+			<td>{{ doc.total_working_days or 0 }}</td>
+			<td>{{ doc.payment_days or 0 }}</td>
+			<td>{{ doc.get("custom_paid_leave_days") or 0 }}</td>
+			<td>{{ doc.leave_without_pay or 0 }}</td>
+			<td>{{ doc.absent_days or 0 }}</td>
+		</tr>
+	</table>
+
+	<div class="nss-summary">
+		<div class="nss-summary-column">
+			<div class="nss-summary-row">
+				<span class="nss-summary-label">Taxable Salary</span>
+				<span class="nss-summary-value">{{ doc.currency }} {{ frappe.utils.fmt_money(taxable_salary, currency=None) }}</span>
+			</div>
+			<div class="nss-summary-row">
+				<span class="nss-summary-label">TDS</span>
+				<span class="nss-summary-value">{{ doc.currency }} {{ frappe.utils.fmt_money(tds, currency=None) }}</span>
+			</div>
+			<div class="nss-summary-row nss-strong">
+				<span class="nss-summary-label">Earned Gross</span>
+				<span class="nss-summary-value">{{ doc.currency }} {{ frappe.utils.fmt_money(doc.gross_pay or 0, currency=None) }}</span>
+			</div>
+		</div>
+		<div class="nss-summary-column">
+			<div class="nss-summary-row">
+				<span class="nss-summary-label">Total Deduction</span>
+				<span class="nss-summary-value">{{ doc.currency }} {{ frappe.utils.fmt_money(doc.total_deduction or 0, currency=None) }}</span>
+			</div>
+			<div class="nss-summary-row">
+				<span class="nss-summary-label">Leave Deduction Amount</span>
+				<span class="nss-summary-value">{{ doc.currency }} {{ frappe.utils.fmt_money(ns.leave_deduction, currency=None) }}</span>
+			</div>
+			<div class="nss-summary-row nss-strong">
+				<span class="nss-summary-label">Net Pay</span>
+				<span class="nss-summary-value">{{ doc.currency }} {{ frappe.utils.fmt_money(doc.net_pay or 0, currency=None) }}</span>
+			</div>
+		</div>
+	</div>
+
+	{% if frappe.utils.cint(settings.get("show_salary_slip_bank_details")) and (bank_name or bank_account) %}
+	<div class="nss-bank">
+		<div><b>Bank:</b> {{ bank_name or "—" }}</div>
+		<div><b>Bank A/C:</b> {{ bank_account or "—" }}</div>
+	</div>
+	{% endif %}
+</div>
+
+{% if footer %}
+<div id="footer-html" class="visible-pdf">
+	<div class="letter-head-footer">{{ footer }}</div>
+</div>
+{% endif %}

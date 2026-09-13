@@ -430,7 +430,7 @@
 
 <script setup>
 import { computed, inject, markRaw, ref, onMounted, watch } from "vue"
-import { createResource, createListResource, Badge, Dialog, Button, call, Autocomplete, debounce } from "frappe-ui"
+import { createResource, createListResource, Badge, Dialog, Button, call, Autocomplete, debounce, toast } from "frappe-ui"
 import { useRouter } from "vue-router"
 import { IonModal } from "@ionic/vue"
 
@@ -695,6 +695,7 @@ async function onCreateLeave({ from_date, to_date, half_day, ranges }) {
 	}
 
 	let worst = null
+	let edgeWarning = null
 	for (const range of leaveRanges) {
 		let response = null
 		try {
@@ -709,12 +710,22 @@ async function onCreateLeave({ from_date, to_date, half_day, ranges }) {
 			if (!worst || (response.block && !worst.block)) {
 				worst = response
 			}
+		} else if (response?.enabled && response?.warning && !response?.escape) {
+			edgeWarning = response
 		}
 	}
 	if (worst) {
 		sandwichInfo.value = worst
 		showSandwichDialog.value = true
 		return
+	}
+	if (edgeWarning?.message) {
+		toast({
+			title: __("Sandwich Rule"),
+			text: edgeWarning.message,
+			icon: "alert-circle",
+			position: "bottom-center",
+		})
 	}
 	proceedWithLeave()
 }

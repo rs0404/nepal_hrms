@@ -64,7 +64,7 @@ def _variant_components(variant, scheme, ot_multiplier):
 		 "abbr": f"earning_adjustment_{v.lower()}", "description": "Manual one-off addition."},
 		{"name": f"Leave and Late Deduction - {v}", "type": "Deduction",
 		 "formula": LEAVE_LATE_FORMULA, "abbr": f"leave_late_deduction_{v.lower()}",
-		 "description": "Late/early/OOO half-days, LWP, and unapproved absence."},
+		 "description": "Late/early/OOO half-days, LWP, and unapproved absence. Informational only when earned-salary attendance deductions are enabled."},
 		{"name": f"Deduction Adjustment - {v}", "type": "Deduction", "formula": None,
 		 "abbr": f"deduction_adjustment_{v.lower()}", "exempted_from_income_tax": 0,
 		 "description": "Manual one-off deduction. Not pre-tax."},

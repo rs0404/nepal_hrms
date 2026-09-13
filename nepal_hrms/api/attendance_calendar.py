@@ -894,12 +894,8 @@ def check_leave_sandwich(from_date: str, to_date: str) -> dict:
 	if not settings.enable_leave_sandwich_rule:
 		return {"enabled": False, "violation": False}
 
-	from nepal_hrms.custom_code.leave_application_hooks import (
-		get_adjacent_working_day,
-		has_leave_or_absent,
-		is_holiday_or_weekend,
-	)
 	from nepal_hrms.custom_code.policy_escape import has_policy_escape
+	from nepal_hrms.custom_code.sandwich_leave import evaluate_leave_sandwich
 
 	from_d = getdate(from_date)
 	to_d = getdate(to_date)
@@ -907,35 +903,27 @@ def check_leave_sandwich(from_date: str, to_date: str) -> dict:
 		from_d, to_d = to_d, from_d
 
 	if has_policy_escape(employee, "escape_sandwich", from_d):
-		return {"enabled": True, "violation": False, "escape": True}
+		return {"enabled": True, "violation": False, "warning": False, "escape": True}
 
 	block = bool(settings.block_sandwich_leave_application)
-
-	is_prev_holiday = is_holiday_or_weekend(employee, add_days(from_d, -1))
-	is_next_holiday = is_holiday_or_weekend(employee, add_days(to_d, 1))
-
-	violation = False
-	if is_prev_holiday or is_next_holiday:
-		preceding_working_day = get_adjacent_working_day(employee, from_d, direction=-1)
-		following_working_day = get_adjacent_working_day(employee, to_d, direction=1)
-		violation = bool(
-			has_leave_or_absent(employee, preceding_working_day)
-			or has_leave_or_absent(employee, following_working_day)
-		)
+	result = evaluate_leave_sandwich(employee, from_d, to_d, current_leave=None)
 
 	message = None
-	if violation:
-		message = _(
-			"Sandwich Rule: this leave borders weekend/holiday dates and the adjacent working day already has leave or absence. The intervening weekend/holiday days will be counted as leave."
-		)
+	if result["violation"]:
+		message = result["message"]
 		if block:
 			message += " " + _(
-				"This application will be rejected on submission unless you include the adjacent weekend/holiday days in a single leave request."
+				"This application will be rejected on submission unless you include those days in a single leave request."
 			)
+	elif result["warning"]:
+		message = result["warning_message"]
 
 	return {
 		"enabled": True,
 		"block": block,
-		"violation": violation,
+		"violation": result["violation"],
+		"warning": result["warning"],
+		"holiday_span": result.get("holiday_span"),
 		"message": message,
+		"warning_message": result.get("warning_message"),
 	}
