@@ -101,8 +101,14 @@ def get_columns(filters, start_ad, end_ad, leave_types):
         {"label": _("Total Days in Period"), "fieldname": "total_days_in_period", "fieldtype": "Int", "width": 140},
         {"label": _("Holiday"), "fieldname": "total_holiday", "fieldtype": "Float", "width": 70},
         {"label": _("Present"), "fieldname": "total_present", "fieldtype": "Float", "width": 70},
+        {"label": _("Present (Full)"), "fieldname": "present_full", "fieldtype": "Float", "width": 90},
+        {"label": _("Present (Half)"), "fieldname": "present_half", "fieldtype": "Float", "width": 90},
         {"label": _("Absent"), "fieldname": "total_absent", "fieldtype": "Float", "width": 70},
+        {"label": _("Absent (Full)"), "fieldname": "absent_full", "fieldtype": "Float", "width": 90},
+        {"label": _("Absent (Half)"), "fieldname": "absent_half", "fieldtype": "Float", "width": 90},
         {"label": _("Leave"), "fieldname": "total_leave", "fieldtype": "Float", "width": 70},
+        {"label": _("Leave (Full)"), "fieldname": "leave_full", "fieldtype": "Float", "width": 90},
+        {"label": _("Leave (Half)"), "fieldname": "leave_half", "fieldtype": "Float", "width": 90},
         {"label": _("Payable Days"), "fieldname": "payable_days", "fieldtype": "Float", "width": 100},
     ])
 
@@ -290,6 +296,49 @@ def _cnr_application_map(doctype, emp_names, start_ad, end_ad):
     return app_map
 
 
+def _half_day_other_half(status_abbr, leave_type):
+    """Label for the non-worked half of a half-day attendance cell."""
+    if leave_type:
+        return leave_type_acronym(leave_type), "leave", leave_type
+    if status_abbr == "HD/A":
+        return "Ab", "absent", _("Absent (half day)")
+    return "Ab", "absent", _("Absent / unpaid half")
+
+
+def _accumulate_attendance_totals(row, status, status_abbr, leave_type, wh):
+    """Full vs half-day present, absent, and leave counts (in day units, 0.5 for a half)."""
+    half = 0.5
+    if status == "Present" or status == "Work From Home":
+        row["present_full"] += 1.0
+        return
+    if status == "Absent":
+        row["absent_full"] += 1.0
+        return
+    if status == "On Leave":
+        row["leave_full"] += 1.0
+        if leave_type:
+            row[frappe.scrub(leave_type)] = row.get(frappe.scrub(leave_type), 0) + 1.0
+        return
+    if status != "Half Day":
+        return
+
+    worked_half = wh and wh > 0
+    if status_abbr == "HD/P":
+        row["present_half"] += half
+        if leave_type:
+            row["leave_half"] += half
+            row[frappe.scrub(leave_type)] = row.get(frappe.scrub(leave_type), 0) + half
+        else:
+            row["absent_half"] += half
+    elif status_abbr == "HD/A":
+        row["absent_half"] += half
+        if worked_half:
+            row["present_half"] += half
+        if leave_type:
+            row["leave_half"] += half
+            row[frappe.scrub(leave_type)] = row.get(frappe.scrub(leave_type), 0) + half
+
+
 def _day_payable_days(status_abbr, leave_type, lwp_leave_types):
     """Paid days for one calendar day: holiday/present/paid leave count; absent and LWP do not."""
     is_lwp = bool(leave_type and leave_type in lwp_leave_types)
@@ -456,6 +505,9 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             "total_late_entry_apps": 0, "total_early_exit_apps": 0, "total_ooo_apps": 0,
             "total_no_of_days": 0, "total_present": 0, "total_absent": 0,
             "total_holiday": 0, "total_leave": 0, "payable_days": 0,
+            "present_full": 0, "present_half": 0,
+            "absent_full": 0, "absent_half": 0,
+            "leave_full": 0, "leave_half": 0,
         }
         for lt in leave_types:
             row[frappe.scrub(lt)] = 0
@@ -490,7 +542,6 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             if is_holiday:
                 status_abbr = "WO" if emp_holidays[curr] else "Hol"
                 row["total_holiday"] += 1
-                row["total_no_of_days"] += 1
                 target_hours = 0.0
 
             late_entry = False
@@ -549,34 +600,24 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
 
                 if status == "Present":
                     status_abbr = "P"
-                    row["total_present"] += 1
-                    row["total_no_of_days"] += 1
                 elif status == "Absent":
                     status_abbr = "Ab"
-                    row["total_absent"] += 1
                     target_hours = 0.0
                 elif status == "Half Day":
                     status_abbr = "HD/P" if att.half_day_status == "Present" else "HD/A"
-                    row["total_present"] += 0.5
-                    row["total_no_of_days"] += 1
                     target_hours = 4.0
                 elif status == "On Leave":
                     status_abbr = "Lv"
-                    row["total_leave"] += 1.0
-                    row["total_no_of_days"] += 1
-                    if leave_type:
-                        row[frappe.scrub(leave_type)] += 1.0
                     target_hours = 0.0
                 elif status == "Work From Home":
                     status_abbr = "WFH"
-                    row["total_present"] += 1
-                    row["total_no_of_days"] += 1
                 elif status in ["Weekly Off", "Holiday"]:
                     status_abbr = "WO" if status == "Weekly Off" else "Hol"
                     if not is_holiday:
                         row["total_holiday"] += 1
                         target_hours = 0.0
-                    row["total_no_of_days"] += 1
+
+                _accumulate_attendance_totals(row, status, status_abbr, leave_type, wh)
 
                 if wh > 0:
                     wh_str = f"{int(wh)}h" if wh == int(wh) else f"{round(wh, 1)}h"
@@ -608,6 +649,12 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
 
             row["payable_days"] += _day_payable_days(status_abbr, leave_type, lwp_leave_types)
 
+            other_half_label, other_half_kind, other_half_title = "", "", ""
+            if is_half_day and status_abbr in ("HD/P", "HD/A"):
+                other_half_label, other_half_kind, other_half_title = _half_day_other_half(
+                    status_abbr, leave_type
+                )
+
             # Store EVERYTHING in the main field as JSON for the formatter
             row[fieldname] = json.dumps({
                 "status": status_abbr,
@@ -616,6 +663,9 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "target": target_hours,
                 "leave_type": leave_type,
                 "leave_acronym": leave_type_acronym(leave_type) if leave_type else "",
+                "other_half_label": other_half_label,
+                "other_half_kind": other_half_kind,
+                "other_half_title": other_half_title,
                 "half_day": is_half_day,
                 "late_entry": 1 if late_entry else 0,
                 "early_exit": 1 if early_exit else 0,
@@ -635,6 +685,12 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             })
 
             curr = add_days(curr, 1)
+
+        row["total_present"] = row["present_full"] + row["present_half"]
+        row["total_absent"] = row["absent_full"] + row["absent_half"]
+        row["total_leave"] = row["leave_full"] + row["leave_half"]
+        # Same as total_present (full + half-day worked portions); never exceeds days in period
+        row["total_no_of_days"] = row["total_present"]
 
         w_h, w_m = divmod(int(total_worked * 60), 60)
         t_h, t_m = divmod(int(total_target * 60), 60)

@@ -59,6 +59,32 @@
     line-height: 1;
 }
 
+.cnr-pill-row--dual {
+    gap: 4px;
+    flex-wrap: nowrap;
+}
+
+.cnr-pill-row--dual > a,
+.cnr-pill-row--dual > div {
+    flex: 0 1 auto;
+}
+
+.legend-swatch--pill-leave {
+    background: #dae5ff !important;
+    border: 1px solid #94a3b8;
+    border-radius: 999px;
+    width: 18px;
+    height: 10px;
+}
+
+.legend-swatch--pill-absent {
+    background: #fecdd3 !important;
+    border: 1px solid #f87171;
+    border-radius: 999px;
+    width: 18px;
+    height: 10px;
+}
+
 .cnr-badge-row {
     display: flex;
     width: 100%;
@@ -236,7 +262,7 @@
 }
 
 .bar-segment-extra {
-    background: #f97316;
+    background: #1e40af;
 }
 
 .bar-segment-holiday {

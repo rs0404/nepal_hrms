@@ -39,8 +39,10 @@ function sheetBsTimeBarLegendHtml(leaveLegendRows) {
 				<span class="legend-item"><span class="legend-swatch" style="background:#22c55e;"></span>${__("Office")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span>${__("OOO Work")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span>${__("WFH")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#a855f7;"></span>${__("Half Day")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#f97316;"></span>${__("Extra")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#a855f7;"></span>${__("Half day — hours worked")}</span>
+				<span class="legend-item"><span class="legend-swatch legend-swatch--pill-leave"></span>${__("Other half — leave (acronym pill)")}</span>
+				<span class="legend-item"><span class="legend-swatch legend-swatch--pill-absent"></span>${__("Other half — absent (Ab)")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#1e40af;"></span>${__("Extra")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background:#ef4444;"></span>${__("Gap")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background:#94a3b8;"></span>${__("Holiday / WO")}</span>
 			</div>
@@ -326,10 +328,14 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					status, wh, checks, target, leave_type, leave_acronym, half_day, late_entry, early_exit,
 					bar_data, attendance_doc, late_entry_app, early_exit_app, ooo_app,
 					late_mins, early_mins, late_kind, early_kind,
+					other_half_label, other_half_kind, other_half_title,
 				} = cellData;
 
 				let logDetails = checks ? `\nLogs: ${checks.split(",").join(" -> ")}` : "";
 				let leaveDetails = leave_type ? `\nLeave: ${leave_type}${half_day ? " (Half Day)" : ""}` : "";
+				if (other_half_label) {
+					leaveDetails += `\nOther half: ${other_half_title || other_half_label}`;
+				}
 
 				let extraDetails = "";
 				const lateMinsVal = late_mins || (bar_data && bar_data.late_mins) || 0;
@@ -370,7 +376,10 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 						appLinks.ooo_app
 					)
 					: "";
-				let pillHTML = getPillHTML(status, wh, target, late_entry, early_exit, attendance_doc, appLinks, half_day, leave_acronym);
+				let pillHTML = getHalfDayPillsHTML(
+					status, wh, target, attendance_doc, half_day, leave_acronym,
+					other_half_label, other_half_kind, other_half_title
+				);
 				let badgeRow = (lateBadge || earlyBadge || oooBadge)
 					? `<div class="cnr-badge-row">
 						<div class="cnr-badge-slot cnr-badge-left">${lateBadge || ""}</div>
@@ -379,9 +388,13 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					</div>`
 					: "";
 
+				const pillRow = pillHTML.includes("cnr-pill-row--dual")
+					? pillHTML
+					: `<div class="cnr-pill-row">${pillHTML}</div>`;
+
 				return `<div ${hoverAttr} class="${cellClass}">
 					${barHTML || `<div class="attendance-bar attendance-bar-placeholder"></div>`}
-					<div class="cnr-pill-row">${pillHTML}</div>
+					${pillRow}
 					${badgeRow}
 				</div>`;
 			} catch (fmtErr) {
@@ -409,7 +422,11 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 			return `<div style="height: 68px; display: flex; align-items: center; justify-content: center;">${link}</div>`;
 		}
 
-		if (["total_present", "total_absent", "total_holiday", "total_leave", "payable_days", "total_late_entry", "total_early_exit", "total_grace_late", "total_unexcused_late"].includes(column.fieldname)) {
+		if ([
+			"total_present", "total_absent", "total_holiday", "total_leave", "payable_days",
+			"present_full", "present_half", "absent_full", "absent_half", "leave_full", "leave_half",
+			"total_late_entry", "total_early_exit", "total_grace_late", "total_unexcused_late",
+		].includes(column.fieldname)) {
 			value = `<div style="text-align:center; font-weight:bold;">${value}</div>`;
 		}
 
@@ -524,7 +541,7 @@ function renderTimeBar(barData, status, wh, checks, targetAmount, leaveType, hal
 		wfh: { bg: "#0d9488", label: "Work From Home" },
 		halfday: { bg: "#a855f7", label: "Half Day Leave" },
 		gap: { bg: "#ef4444", label: "Gap (Absent)" },
-		extra: { bg: "#f97316", label: "Extra Work" },
+		extra: { bg: "#1e40af", label: "Extra Work" },
 		holiday: { bg: "#94a3b8", label: "Holiday / WO" }
 	};
 
@@ -673,6 +690,29 @@ function isHalfDayCell(status, halfDayFlag, targetAmount) {
 	return targetHours > 0 && targetHours < 8;
 }
 
+function getOtherHalfPillHTML(label, kind, title, attendance_doc) {
+	if (!label) return "";
+	const isLeave = kind === "leave";
+	const bg = isLeave ? "#dae5ff" : "#fecdd3";
+	const color = isLeave ? "#1e293b" : "#450a0a";
+	const tip = title || (isLeave ? __("Leave half") : __("Absent half"));
+	let linkStart = attendance_doc ? `<a href="/app/attendance/${attendance_doc}" target="_blank" style="text-decoration:none;color:inherit;">` : "";
+	let linkEnd = attendance_doc ? `</a>` : "";
+	return `${linkStart}<div class="cnr-pill-other cnr-pill-other--${kind || "absent"}" title="${frappe.utils.escape_html(tip)}" style="display:flex;align-items:center;justify-content:center;background:${bg};color:${color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;border:1px solid rgba(0,0,0,0.08);min-width:28px;line-height:1;margin:0;${attendance_doc ? "cursor:pointer;" : ""}">
+		<span style="line-height:1;">${frappe.utils.escape_html(String(label).slice(0, 3))}</span>
+	</div>${linkEnd}`;
+}
+
+function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind, otherHalfTitle) {
+	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym);
+	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
+	if (!isHalfDay || !otherHalfLabel) {
+		return main;
+	}
+	const other = getOtherHalfPillHTML(otherHalfLabel, otherHalfKind, otherHalfTitle, attendance_doc);
+	return `<div class="cnr-pill-row cnr-pill-row--dual">${main}${other}</div>`;
+}
+
 function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym) {
 	appLinks = appLinks || {};
 	if (status === "NONE" || !status) {
@@ -688,7 +728,7 @@ function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_
 	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
 
 	if (targetHours === 0 && workedHours > 0) {
-		bgColor = "#f97316";
+		bgColor = "#1e40af";
 		color = "#ffffff";
 	} else if (isHalfDay) {
 		bgColor = "#a855f7";
@@ -735,7 +775,10 @@ function renderLegacyCell(status, wh, checks, targetAmount, leaveType, halfDay, 
 		)
 		: "";
 	let legacyAcronym = data[fieldname + "_leave_acronym"] || "";
-	let pillHTML = getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDay, legacyAcronym);
+	let pillHTML = getHalfDayPillsHTML(
+		status, wh, targetAmount, attendance_doc, halfDay, legacyAcronym,
+		data[fieldname + "_other_half_label"], data[fieldname + "_other_half_kind"], data[fieldname + "_other_half_title"]
+	);
 
 	const badgeRow = (lateBadge || earlyBadge || oooBadge)
 		? `<div class="cnr-badge-row">
