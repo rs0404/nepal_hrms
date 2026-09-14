@@ -420,9 +420,20 @@ def _application_detail(row, kind):
         detail["to_date"] = str(row.to_date)
     else:
         detail["attendance_date"] = str(row.attendance_date)
-    for fieldname in ("reason", "type_of_work", "custom_rejection_reason"):
+    for fieldname in (
+        "reason",
+        "type_of_work",
+        "custom_rejection_reason",
+        "estimated_late_entry_time",
+        "late_entry_time",
+        "estimated_from_time",
+        "estimated_to_time",
+        "from_time",
+        "to_time",
+        "total_hours",
+    ):
         value = getattr(row, fieldname, None)
-        if value:
+        if value is not None and value != "":
             detail[fieldname] = str(value)
     return detail
 
@@ -431,7 +442,18 @@ def _application_fields(doctype, ranged=False):
     meta = frappe.get_meta(doctype)
     fields = ["name", "employee", "docstatus", "status"]
     fields.extend(["from_date", "to_date"] if ranged else ["attendance_date"])
-    for fieldname in ("reason", "type_of_work", "custom_rejection_reason"):
+    for fieldname in (
+        "reason",
+        "type_of_work",
+        "custom_rejection_reason",
+        "estimated_late_entry_time",
+        "late_entry_time",
+        "estimated_from_time",
+        "estimated_to_time",
+        "from_time",
+        "to_time",
+        "total_hours",
+    ):
         if meta.has_field(fieldname):
             fields.append(fieldname)
     return fields
@@ -872,7 +894,7 @@ def _build_sandwich_map(
         filters={
             "employee": ["in", employee_names],
             "attendance_date": ["between", [buffer_start, buffer_end]],
-            "docstatus": ["<", 2],
+            "docstatus": 1,
         },
         fields=[
             "employee",

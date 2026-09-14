@@ -7,6 +7,11 @@ from nepal_hrms.custom_code.attendance_holiday import get_adjacent_working_day, 
 from nepal_hrms.custom_code.sandwich_leave import evaluate_leave_sandwich
 
 
+def validate_leave_application_reason(doc, method=None):
+	if not (doc.description or "").strip():
+		frappe.throw(_("Reason is required."))
+
+
 def validate_leave_balance_including_drafts(doc, method=None):
 	from nepal_hrms.api.leave_application import validate_document_leave_balance
 

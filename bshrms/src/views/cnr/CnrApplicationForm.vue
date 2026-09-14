@@ -69,6 +69,10 @@ const HIDDEN_ON_CREATE = [
 	"department",
 	"amended_from",
 	"custom_rejection_reason",
+	"late_entry_time",
+	"from_time",
+	"to_time",
+	"total_hours",
 ]
 
 const PREFILL_READONLY = ["posting_date", "attendance_date"]
@@ -139,9 +143,6 @@ async function applyPrefillFromQuery() {
 		const att = Array.isArray(rows) ? rows[0] : null
 		if (att) {
 			application.value.attendance = att.name
-			if (doctype.value === "Late Entry Application" && att.in_time) {
-				application.value.late_entry_time = timeFromDatetime(att.in_time)
-			}
 			if (doctype.value === "Early Exit Application" && att.out_time) {
 				application.value.early_exit_time = timeFromDatetime(att.out_time)
 			}
@@ -180,35 +181,65 @@ const deadlineSettings = createResource({
 })
 
 watch(
-	() => [application.value.attendance_date, doctype.value, deadlineSettings.data],
+	() => [
+		application.value.attendance_date,
+		application.value.estimated_from_time,
+		application.value.estimated_to_time,
+		doctype.value,
+		deadlineSettings.data,
+	],
 	() => {
-		if (
-			doctype.value !== "Late Entry Application" &&
-			doctype.value !== "Early Exit Application"
-		) {
-			return
-		}
+		const warnings = []
 		const s = deadlineSettings.data
-		if (!s?.enable_late_early_application_deadline || !application.value.attendance_date) {
-			deadlineWarning.value = ""
-			return
+		if (
+			s?.enable_late_early_application_deadline &&
+			application.value.attendance_date
+		) {
+			const maxDays = Number(s.late_early_application_max_days || 2)
+			const attDate = dayjs(application.value.attendance_date)
+			const deadline = attDate.add(maxDays, "day")
+			if (dayjs().startOf("day").isAfter(deadline)) {
+				warnings.push(
+					__(
+						"{0} cannot be filed for {1}. Applications must be filed within {2} day(s) of the attendance date (deadline was {3}).",
+						[
+							__(doctype.value),
+							attDate.format("YYYY-MM-DD"),
+							maxDays,
+							deadline.format("YYYY-MM-DD"),
+						]
+					)
+				)
+			}
 		}
-		const maxDays = Number(s.late_early_application_max_days || 2)
-		const attDate = dayjs(application.value.attendance_date)
-		const deadline = attDate.add(maxDays, "day")
-		if (dayjs().startOf("day").isAfter(deadline)) {
-			deadlineWarning.value = __(
-				"{0} cannot be submitted for {1}. Forms must be filed within {2} day(s) of the attendance date (deadline was {3}).",
-				[
-					__(doctype.value),
-					attDate.format("YYYY-MM-DD"),
-					maxDays,
-					deadline.format("YYYY-MM-DD"),
-				]
-			)
-		} else {
-			deadlineWarning.value = ""
+
+		if (
+			doctype.value === "Out of Office Application" &&
+			application.value.estimated_from_time &&
+			application.value.estimated_to_time
+		) {
+			const minutes = (value) => {
+				const [hours, mins, seconds] = String(value)
+					.split(":")
+					.map((part) => Number(part) || 0)
+				return hours * 60 + mins + seconds / 60
+			}
+			const duration =
+				(minutes(application.value.estimated_to_time) -
+					minutes(application.value.estimated_from_time)) /
+				60
+			const maxHours = Number(s?.max_paid_out_of_office_hours || 2)
+			if (duration >= 0 && maxHours > 0 && duration > maxHours) {
+				warnings.push(
+					__(
+						"Estimated OOO duration ({0}h) exceeds the configured {1}h limit. Submission will be blocked.",
+						[duration.toFixed(2), maxHours]
+					)
+				)
+			}
 		}
+
+		deadlineWarning.value = warnings.join(" ")
 	}
 )
 </script>

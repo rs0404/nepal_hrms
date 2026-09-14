@@ -11,6 +11,7 @@
   "employee_name",
   "posting_date",
   "attendance_date",
+  "estimated_late_entry_time",
   "late_entry_time",
   "column_break_1",
   "company",
@@ -59,9 +60,18 @@
    "reqd": 1
   },
   {
+   "description": "Expected arrival time provided before check-in.",
+   "fieldname": "estimated_late_entry_time",
+   "fieldtype": "Time",
+   "label": "Estimated Arrival Time",
+   "reqd": 1
+  },
+  {
+   "allow_on_submit": 1,
    "fieldname": "late_entry_time",
    "fieldtype": "Time",
-   "label": "Late Entry Time"
+   "label": "Actual Check-in Time",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_1",

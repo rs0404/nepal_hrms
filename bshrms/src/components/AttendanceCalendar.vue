@@ -65,6 +65,7 @@
 						class="flex gap-0.5 mt-0.5 h-1.5 items-center justify-center"
 					>
 						<i v-if="dayMarkers(getEventOnDate(index)).leave" class="marker-dot" :class="dayMarkers(getEventOnDate(index)).pending ? 'pending' : 'leave'" />
+						<i v-if="dayMarkers(getEventOnDate(index)).sandwich" class="marker-dot sandwich" />
 						<i v-if="dayMarkers(getEventOnDate(index)).late" class="marker-dot late" />
 						<i v-if="dayMarkers(getEventOnDate(index)).early" class="marker-dot early" />
 					</div>
@@ -143,6 +144,9 @@
 				<span class="inline-flex items-center gap-1">
 					<i class="marker-dot early" />{{ __("Early exit") }}
 				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="marker-dot sandwich" />{{ __("Sandwich") }}
+				</span>
 			</div>
 		</div>
 	</div>
@@ -201,6 +205,7 @@ const dayMarkers = (info) => {
 			leave: info === "On Leave",
 			pending: false,
 			rejected: false,
+			sandwich: false,
 			late: false,
 			early: false,
 		}
@@ -216,6 +221,7 @@ const dayMarkers = (info) => {
 		leave,
 		pending: leave && (app === "Pending" || status === "Leave Pending"),
 		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
+		sandwich: !!info.sandwich,
 		late: !!info.late,
 		early: !!info.early,
 	}
@@ -233,7 +239,7 @@ function resolvePaintStatus(info) {
 
 const hasMarkers = (info) => {
 	const m = dayMarkers(info)
-	return m.leave || m.late || m.early
+	return m.leave || m.sandwich || m.late || m.early
 }
 
 const isDaySelectable = (date) => {
@@ -380,5 +386,9 @@ watch(
 
 .marker-dot.early {
 	background-color: #7c3aed;
+}
+
+.marker-dot.sandwich {
+	background-color: #be123c;
 }
 </style>

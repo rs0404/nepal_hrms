@@ -119,6 +119,9 @@
 			<span class="inline-flex items-center gap-1">
 				<i class="marker-dot early" />{{ __("Early") }}
 			</span>
+			<span class="inline-flex items-center gap-1">
+				<i class="marker-dot sandwich" />{{ __("Sandwich") }}
+			</span>
 		</div>
 	</div>
 </template>
@@ -209,7 +212,14 @@ const dayStatus = (info) => {
 
 const dayMarkers = (info) => {
 	if (!info || typeof info === "string") {
-		return { leave: info === "On Leave", pending: false, rejected: false, late: false, early: false }
+		return {
+			leave: info === "On Leave",
+			pending: false,
+			rejected: false,
+			sandwich: false,
+			late: false,
+			early: false,
+		}
 	}
 	const status = info.status || null
 	const app = info.leave_app_status
@@ -222,6 +232,7 @@ const dayMarkers = (info) => {
 		leave,
 		pending: leave && (app === "Pending" || status === "Leave Pending"),
 		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
+		sandwich: !!info.sandwich,
 		late: !!info.late,
 		early: !!info.early,
 	}
@@ -410,5 +421,9 @@ watch(
 
 .marker-dot.early {
 	background-color: #7c3aed;
+}
+
+.marker-dot.sandwich {
+	background-color: #be123c;
 }
 </style>

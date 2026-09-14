@@ -55,6 +55,8 @@ def _can_approve_attendance_request(employee: str) -> bool:
 class CustomAttendanceRequest(AttendanceRequest):
 	def validate(self):
 		super().validate()
+		if not (self.explanation or "").strip():
+			frappe.throw(_("Explanation is required."))
 		if not self.status:
 			self.status = "Open"
 		if self.status == "Rejected" and not (self.custom_rejection_reason or "").strip():

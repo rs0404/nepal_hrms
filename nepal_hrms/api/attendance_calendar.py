@@ -227,7 +227,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		filters={
 			"employee": employee,
 			"attendance_date": ["between", [from_date, to_date]],
-			"docstatus": ["<", 2],
+			"docstatus": 1,
 		},
 		fields=[
 			"attendance_date",
@@ -254,6 +254,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			"leave_type": row.leave_type or None,
 			"leave_app_status": None,
 			"leave_application": None,
+			"sandwich": 0,
 		}
 
 	# Leave applications covering the range (Pending / Approved / Rejected)
@@ -296,6 +297,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 					"leave_type": None,
 					"leave_app_status": None,
 					"leave_application": None,
+					"sandwich": 0,
 				},
 			)
 			prev_rank = _LEAVE_STATUS_RANK.get(info.get("leave_app_status") or "", 0)
@@ -355,11 +357,21 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		use_scoped = False
 
 	events = {}
+	holiday_days = set()
 	date = from_date
 	while date_diff(to_date, date) >= 0:
 		date_str = date.strftime("%Y-%m-%d")
 		if date in att_by_date:
 			events[date_str] = att_by_date[date]
+			if use_scoped:
+				try:
+					if holiday_info(employee, date).is_holiday:
+						holiday_days.add(date)
+				except Exception:
+					if date in holidays:
+						holiday_days.add(date)
+			elif date in holidays:
+				holiday_days.add(date)
 		else:
 			is_hol = False
 			if use_scoped:
@@ -370,6 +382,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			elif date in holidays:
 				is_hol = True
 			if is_hol:
+				holiday_days.add(date)
 				info = {
 					"status": "Holiday",
 					"leave": 0,
@@ -379,6 +392,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 					"leave_type": None,
 					"leave_app_status": None,
 					"leave_application": None,
+					"sandwich": 0,
 				}
 				# Prefer Weekly Off when the holiday list marks it
 				if use_scoped:
@@ -390,6 +404,47 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 						pass
 				events[date_str] = info
 		date = add_days(date, 1)
+
+	# A sandwiched holiday is an absence/leave day, not a payable holiday.
+	# Keep this aligned with Monthly Attendance Sheet BS.
+	try:
+		from nepal_hrms.custom_code.attendance_holiday import (
+			covering_leave_application,
+			is_sandwiched,
+		)
+
+		for date in sorted(holiday_days):
+			if is_sandwiched(employee, date):
+				leave_application = covering_leave_application(employee, date)
+				date_str = date.strftime("%Y-%m-%d")
+				info = events.get(date_str) or att_by_date.get(date) or {
+					"status": None,
+					"leave": 0,
+					"late": 0,
+					"early": 0,
+					"ooo_required": 0,
+					"leave_type": None,
+					"leave_app_status": None,
+					"leave_application": None,
+					"sandwich": 0,
+				}
+				info["sandwich"] = 1
+				if leave_application:
+					info["status"] = "On Leave"
+					info["leave"] = 1
+					info["leave_type"] = leave_application.leave_type
+					info["leave_app_status"] = "Approved"
+					info["leave_application"] = leave_application.name
+				else:
+					info["status"] = "Absent"
+					info["leave"] = 0
+					info["leave_type"] = None
+				events[date_str] = info
+	except Exception:
+		frappe.log_error(
+			frappe.get_traceback(),
+			f"BSHRMS attendance calendar sandwich: {employee}",
+		)
 
 	# Mid-day OUT→IN gaps beyond grace → Out of Office form required (calendar marker)
 	from nepal_hrms.custom_code.attendance_policy import (
@@ -446,6 +501,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 				"leave_type": None,
 				"leave_app_status": None,
 				"leave_application": None,
+				"sandwich": 0,
 			}
 			events[date_str] = info
 		info["ooo_required"] = 1
@@ -495,7 +551,7 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 
 	attendance = frappe.db.get_value(
 		"Attendance",
-		{"employee": employee, "attendance_date": day, "docstatus": ["<", 2]},
+		{"employee": employee, "attendance_date": day, "docstatus": 1},
 		att_fields,
 		as_dict=True,
 	)
@@ -510,17 +566,35 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		order_by="time asc",
 	)
 
-	# Holiday fallback when there is no attendance record
-	status = attendance.status if attendance else None
-	if not status:
-		try:
-			from nepal_hrms.custom_code.attendance_holiday import holiday_info
+	sandwich = False
+	sandwich_leave_type = None
 
-			hi = holiday_info(employee, day)
-			if hi.is_holiday:
+	# Holiday/sandwich fallback when there is no submitted Attendance.
+	status = attendance.status if attendance else None
+	try:
+		from nepal_hrms.custom_code.attendance_holiday import (
+			covering_leave_application,
+			holiday_info,
+			is_sandwiched,
+		)
+
+		hi = holiday_info(employee, day)
+		if hi.is_holiday:
+			sandwich = is_sandwiched(employee, day)
+			if sandwich:
+				covering_leave = covering_leave_application(employee, day)
+				if covering_leave:
+					status = "On Leave"
+					sandwich_leave_type = covering_leave.leave_type
+				else:
+					status = "Absent"
+			elif not status:
 				status = "Weekly Off" if hi.weekly_off else "Holiday"
-		except Exception:
-			pass
+	except Exception:
+		frappe.log_error(
+			frappe.get_traceback(),
+			f"BSHRMS attendance day sandwich: {employee} {day}",
+		)
 
 	# Late/early minutes from check-in vs shift (not the Attendance "marked late" flag alone)
 	from nepal_hrms.custom_code.attendance_policy import (
@@ -615,13 +689,23 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 
 	today_date = getdate(today())
 	is_today = day == today_date
+	is_future = day > today_date
 	has_checkins = bool(checkins)
+	has_normal_in = any(
+		(c.log_type or "").upper() == "IN"
+		and (c.custom_attendance_type or "Normal") != "OOO Work"
+		for c in checkins
+	)
 
-	# Late Entry: check-in past grace (minor or major). Also today with no check-in yet.
+	# Late Entry may be informed in advance for today/future dates.
 	if (
 		is_self
 		and "Late Entry Application" not in existing_doctypes
-		and (late_kind in ("minor", "major") or (is_today and not has_checkins))
+		and (
+			late_kind in ("minor", "major")
+			or (is_today and not has_normal_in)
+			or is_future
+		)
 	):
 		actions.append(
 			{
@@ -648,7 +732,12 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		for link in links
 	)
 	ooo_required = out_in_gap_mins > grace_mins and not has_ooo_app
-	if ooo_required and is_self:
+	# OOO may also be informed before leaving, using estimated times.
+	if (
+		is_self
+		and "Out of Office Application" not in existing_doctypes
+		and (ooo_required or is_today or is_future)
+	):
 		actions.append(
 			{
 				"doctype": "Out of Office Application",
@@ -712,7 +801,11 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 			"early": early,
 			"leave": leave,
 			"ooo_required": 1 if ooo_required else 0,
-			"leave_type": (attendance.leave_type if attendance else None),
+			"sandwich": 1 if sandwich else 0,
+			"leave_type": (
+				sandwich_leave_type
+				or (attendance.leave_type if attendance else None)
+			),
 			"leave_app_status": leave_app_status,
 			"leave_application": leave_application_name,
 		},
@@ -749,7 +842,7 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 			frappe.throw(_("Employee and attendance date are required"))
 		att_row = frappe.db.get_value(
 			"Attendance",
-			{"employee": employee, "attendance_date": getdate(attendance_date), "docstatus": ["<", 2]},
+			{"employee": employee, "attendance_date": getdate(attendance_date), "docstatus": 1},
 			["name", "attendance_request", "leave_application"],
 			as_dict=True,
 		)

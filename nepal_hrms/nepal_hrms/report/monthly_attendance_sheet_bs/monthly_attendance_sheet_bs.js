@@ -235,9 +235,18 @@ function sheetBsApplicationDetail(detail, doctype) {
 		? detail.attendance_date
 		: `${detail.from_date || "?"} → ${detail.to_date || "?"}`;
 	const reason = detail.custom_rejection_reason || detail.reason || detail.type_of_work || "";
+	const timeDetails = [
+		[__("Estimated arrival"), detail.estimated_late_entry_time],
+		[__("Actual check-in"), detail.late_entry_time],
+		[__("Estimated from"), detail.estimated_from_time],
+		[__("Estimated to"), detail.estimated_to_time],
+		[__("Actual from"), detail.from_time],
+		[__("Actual to"), detail.to_time],
+	].filter(([, value]) => value);
 	return `<a class="sheet-bs-app-detail" href="/app/${sheetBsEsc(slug)}/${encodeURIComponent(detail.name)}" target="_blank" onclick="event.stopPropagation();">
 		<span class="sheet-bs-app-name">${sheetBsEsc(detail.name)}</span>
 		<span class="sheet-bs-app-date">${sheetBsEsc(date)}</span>
+		${timeDetails.map(([label, value]) => `<span class="sheet-bs-app-date">${sheetBsEsc(label)}: ${sheetBsEsc(value)}</span>`).join("")}
 		${reason ? `<span class="sheet-bs-app-reason">${sheetBsEsc(reason)}</span>` : ""}
 	</a>`;
 }

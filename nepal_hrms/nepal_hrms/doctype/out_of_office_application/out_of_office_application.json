@@ -11,6 +11,8 @@
   "employee_name",
   "posting_date",
   "attendance_date",
+  "estimated_from_time",
+  "estimated_to_time",
   "from_time",
   "to_time",
   "total_hours",
@@ -61,18 +63,35 @@
    "reqd": 1
   },
   {
+   "description": "Expected time when the out-of-office session will begin.",
+   "fieldname": "estimated_from_time",
+   "fieldtype": "Time",
+   "label": "Estimated From Time",
+   "reqd": 1
+  },
+  {
+   "description": "Expected return time.",
+   "fieldname": "estimated_to_time",
+   "fieldtype": "Time",
+   "label": "Estimated To Time",
+   "reqd": 1
+  },
+  {
+   "allow_on_submit": 1,
    "fieldname": "from_time",
    "fieldtype": "Time",
-   "label": "From Time",
-   "reqd": 1
+   "label": "Actual From Time",
+   "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "to_time",
    "fieldtype": "Time",
-   "label": "To Time",
-   "reqd": 1
+   "label": "Actual To Time",
+   "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "total_hours",
    "fieldtype": "Float",
    "in_list_view": 1,

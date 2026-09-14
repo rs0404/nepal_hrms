@@ -71,6 +71,17 @@
 						<i class="flag-dot bg-teal-600" />{{ __("Out of Office required") }}
 					</span>
 					<span
+						v-if="details.flags.sandwich"
+						class="flag-chip bg-rose-50 text-rose-700 ring-rose-200"
+					>
+						<i class="flag-dot bg-rose-600" />
+						{{
+							details.status === "On Leave"
+								? __("Sandwich Leave")
+								: __("Sandwich Absence")
+						}}
+					</span>
+					<span
 						v-if="leaveChip"
 						class="flag-chip"
 						:class="leaveChip.className"
@@ -261,6 +272,7 @@ const hasFlags = computed(
 		(details.value.flags?.late ||
 			details.value.flags?.early ||
 			details.value.flags?.ooo_required ||
+			details.value.flags?.sandwich ||
 			leaveChip.value ||
 			details.value.attendance?.shift)
 )

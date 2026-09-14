@@ -24,6 +24,9 @@
 					<span v-if="props.doc.total_hours">
 						<span class="whitespace-pre"> · </span>{{ props.doc.total_hours }}h
 					</span>
+					<span v-if="timingLabel">
+						<span class="whitespace-pre"> · </span>{{ timingLabel }}
+					</span>
 				</div>
 			</div>
 		</template>
@@ -61,6 +64,19 @@ const title = computed(() => {
 	const reason = (props.doc.reason || "").trim()
 	if (reason) return reason.length > 48 ? reason.slice(0, 48) + "…" : reason
 	return __(props.doc.doctype || "Application")
+})
+
+const timingLabel = computed(() => {
+	if (props.doc.estimated_late_entry_time) {
+		const actual = props.doc.late_entry_time
+			? ` → ${props.doc.late_entry_time}`
+			: ` → ${__("Awaiting check-in")}`
+		return `${__("ETA")} ${props.doc.estimated_late_entry_time}${actual}`
+	}
+	if (props.doc.estimated_from_time || props.doc.estimated_to_time) {
+		return `${__("Estimated")} ${props.doc.estimated_from_time || "?"} → ${props.doc.estimated_to_time || "?"}`
+	}
+	return ""
 })
 
 const status = computed(() => {

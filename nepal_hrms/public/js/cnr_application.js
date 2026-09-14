@@ -25,9 +25,6 @@ async function cnr_fill_from_attendance(frm) {
 	}
 	if (!frm.doc.company && d.company) await frm.set_value('company', d.company);
 
-	if (frm.doctype === 'Late Entry Application' && !frm.doc.late_entry_time && d.in_time) {
-		await frm.set_value('late_entry_time', cnr_time_from_datetime(d.in_time));
-	}
 	if (frm.doctype === 'Early Exit Application' && !frm.doc.early_exit_time && d.out_time) {
 		await frm.set_value('early_exit_time', cnr_time_from_datetime(d.out_time));
 	}
@@ -51,7 +48,13 @@ async function cnr_link_attendance(frm) {
 }
 
 async function cnr_warn_application_deadline(frm) {
-	if (!['Late Entry Application', 'Early Exit Application'].includes(frm.doctype)) return;
+	if (
+		![
+			'Late Entry Application',
+			'Early Exit Application',
+			'Out of Office Application',
+		].includes(frm.doctype)
+	) return;
 	if (!frm.doc.attendance_date) return;
 
 	try {
@@ -69,7 +72,7 @@ async function cnr_warn_application_deadline(frm) {
 				title: __('Application Deadline Passed'),
 				indicator: 'red',
 				message: __(
-					'{0} cannot be submitted for {1}. Forms must be filed within {2} day(s) of the attendance date (deadline was {3}).',
+						'{0} cannot be filed for {1}. Applications must be filed within {2} day(s) of the attendance date (deadline was {3}).',
 					[
 						__(frm.doctype),
 						frappe.datetime.str_to_user(frm.doc.attendance_date),
@@ -160,10 +163,48 @@ function bind_cnr_application(doctype) {
 			cnr_link_attendance(frm);
 			cnr_warn_application_deadline(frm);
 		},
+		estimated_from_time(frm) {
+			cnr_warn_ooo_time_limit(frm);
+		},
+		estimated_to_time(frm) {
+			cnr_warn_ooo_time_limit(frm);
+		},
 		validate(frm) {
+			cnr_warn_ooo_time_limit(frm);
 			return cnr_warn_application_deadline(frm);
 		},
 	});
+}
+
+async function cnr_warn_ooo_time_limit(frm) {
+	if (
+		frm.doctype !== 'Out of Office Application' ||
+		!frm.doc.estimated_from_time ||
+		!frm.doc.estimated_to_time
+	) return;
+
+	const toMinutes = (value) => {
+		const parts = String(value).split(':').map((part) => Number(part) || 0);
+		return parts[0] * 60 + parts[1] + parts[2] / 60;
+	};
+	const duration = (toMinutes(frm.doc.estimated_to_time) -
+		toMinutes(frm.doc.estimated_from_time)) / 60;
+	if (duration < 0) return;
+
+	const r = await frappe.call({
+		method: 'nepal_hrms.api.cnr_applications.get_late_early_application_deadline_settings',
+		freeze: false,
+	});
+	const maxHours = Number(r?.message?.max_paid_out_of_office_hours || 2);
+	if (maxHours > 0 && duration > maxHours) {
+		frappe.show_alert({
+			message: __(
+				'Estimated OOO duration ({0}h) exceeds the configured {1}h limit. Submission will be blocked.',
+				[duration.toFixed(2), maxHours]
+			),
+			indicator: 'red',
+		}, 7);
+	}
 }
 
 ['Late Entry Application', 'Early Exit Application', 'Out of Office Application'].forEach(bind_cnr_application);

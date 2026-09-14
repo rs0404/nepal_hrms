@@ -45,6 +45,8 @@ doctype_js = {
 	"Salary Slip": "public/js/salary_slip_nepali.js",
 	"Payroll Entry": "public/js/payroll_entry_nepali.js",
 	"Attendance": "public/js/attendance_cnr.js",
+	"Attendance Request": "public/js/attendance_request.js",
+	"Leave Application": "public/js/leave_application.js",
 	"Late Entry Application": "public/js/cnr_application.js",
 	"Early Exit Application": "public/js/cnr_application.js",
 	"Out of Office Application": "public/js/cnr_application.js",
@@ -89,6 +91,7 @@ doc_events = {
 	},
 	"Employee Checkin": {
 		"validate": "nepal_hrms.api.ooo_attendance.validate_ooo_checkin",
+		"after_insert": "nepal_hrms.custom_code.application_hooks.sync_cnr_application_from_checkin",
 	},
 	"Attendance": {
 		"validate": "nepal_hrms.custom_code.attendance_hooks.validate_attendance",
@@ -126,6 +129,7 @@ doc_events = {
 	},
 	"Leave Application": {
 		"validate": [
+			"nepal_hrms.custom_code.leave_application_hooks.validate_leave_application_reason",
 			"nepal_hrms.custom_code.leave_application_hooks.validate_sandwich_leave_application",
 			"nepal_hrms.custom_code.leave_application_hooks.validate_leave_balance_including_drafts",
 		]

@@ -72,7 +72,8 @@ def create_custom_fields():
 		"Employee Checkin": [
 			{"fieldname": "custom_attendance_type", "label": "Attendance Type", "fieldtype": "Select", "options": "Normal\nOOO Work", "default": "Normal", "insert_after": "log_type", "in_list_view": 1, "allow_on_submit": 1},
 			{"fieldname": "custom_reason", "label": "OOO Reason", "fieldtype": "Small Text", "insert_after": "custom_attendance_type", "depends_on": "eval:doc.custom_attendance_type == 'OOO Work'", "allow_on_submit": 1},
-			{"fieldname": "custom_is_approved", "label": "Is Approved", "fieldtype": "Check", "insert_after": "custom_reason", "default": 0, "permlevel": 1, "allow_on_submit": 1, "description": "Set by Leave Approver to approve OOO Work check-ins"},
+			{"fieldname": "custom_ooo_application", "label": "Out of Office Application", "fieldtype": "Link", "options": "Out of Office Application", "insert_after": "custom_reason", "read_only": 1, "allow_on_submit": 1},
+			{"fieldname": "custom_is_approved", "label": "Is Approved", "fieldtype": "Check", "insert_after": "custom_ooo_application", "default": 0, "permlevel": 1, "allow_on_submit": 1, "description": "Set by Leave Approver to approve OOO Work check-ins"},
 			{"fieldname": "custom_ooo_rejected", "label": "OOO Rejected", "fieldtype": "Check", "insert_after": "custom_is_approved", "default": 0, "permlevel": 1, "allow_on_submit": 1, "description": "Set by Leave Approver when OOO Work check-ins are rejected"},
 			{"fieldname": "custom_ooo_rejection_reason", "label": "OOO Rejection Reason", "fieldtype": "Small Text", "insert_after": "custom_ooo_rejected", "depends_on": "eval:doc.custom_ooo_rejected", "permlevel": 1, "allow_on_submit": 1},
 		],

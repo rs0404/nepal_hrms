@@ -233,15 +233,13 @@
    "label": "Enable Full-Day Absent Escalation"
   },
   {
-   "depends_on": "eval: doc.enable_late_early_penalty === 1",
    "fieldname": "application_deadline_section",
    "fieldtype": "Section Break",
-   "label": "Application Deadline"
+   "label": "Late / Early / OOO Application Deadline"
   },
   {
    "default": "0",
-   "depends_on": "eval: doc.enable_late_early_penalty === 1",
-   "description": "When enabled, Late Entry and Early Exit Applications must be filed within the max days below after the attendance date.",
+   "description": "When enabled, Late Entry, Early Exit and Out of Office Applications must be filed within the max days below after the attendance date.",
    "fieldname": "enable_late_early_application_deadline",
    "fieldtype": "Check",
    "label": "Enable Application Submission Deadline"
@@ -252,8 +250,8 @@
   },
   {
    "default": "2",
-   "depends_on": "eval: doc.enable_late_early_penalty === 1 && doc.enable_late_early_application_deadline === 1",
-   "description": "Max days after the attendance date to submit a Late Entry or Early Exit Application. Example: 2 means the form must be filed within 2 days of that attendance date.",
+   "depends_on": "eval: doc.enable_late_early_application_deadline === 1",
+   "description": "Max days after the attendance date to submit a Late Entry, Early Exit or Out of Office Application. Example: 2 means the form must be filed within 2 days of that attendance date.",
    "fieldname": "late_early_application_max_days",
    "fieldtype": "Int",
    "label": "Max Days to Submit Application"

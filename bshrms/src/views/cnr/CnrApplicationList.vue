@@ -46,9 +46,15 @@ const LIST_FIELDS = computed(() => {
 		"docstatus",
 	]
 	if (doctype.value === "Out of Office Application") {
-		fields.push("total_hours")
+		fields.push(
+			"estimated_from_time",
+			"estimated_to_time",
+			"from_time",
+			"to_time",
+			"total_hours"
+		)
 	} else if (doctype.value === "Late Entry Application") {
-		fields.push("late_entry_time")
+		fields.push("estimated_late_entry_time", "late_entry_time")
 	} else if (doctype.value === "Early Exit Application") {
 		fields.push("early_exit_time")
 	}

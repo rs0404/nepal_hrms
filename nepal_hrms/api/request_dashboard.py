@@ -141,6 +141,13 @@ def get_recently_approved_team_requests(limit=20):
 	for doctype in CNR_DOCTYPES:
 		fields = list(CNR_FIELDS)
 		meta = frappe.get_meta(doctype)
+		for fieldname in (
+			"estimated_late_entry_time",
+			"estimated_from_time",
+			"estimated_to_time",
+		):
+			if meta.has_field(fieldname):
+				fields.append(fieldname)
 		if meta.has_field("late_entry_time"):
 			fields.append("late_entry_time")
 		if meta.has_field("early_exit_time"):

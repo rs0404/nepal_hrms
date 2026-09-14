@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import cint, get_first_day, get_last_day, getdate, today
+from frappe.utils import cint, flt, get_first_day, get_last_day, getdate, today
 
 
 CNR_DOCTYPES = (
@@ -72,6 +72,13 @@ def get_cnr_applications(doctype, employee=None, for_approval=0, limit=20):
 		"attendance",
 	]
 	meta = frappe.get_meta(doctype)
+	for fieldname in (
+		"estimated_late_entry_time",
+		"estimated_from_time",
+		"estimated_to_time",
+	):
+		if meta.has_field(fieldname):
+			fields.append(fieldname)
 	if meta.has_field("late_entry_time"):
 		fields.append("late_entry_time")
 	if meta.has_field("early_exit_time"):
@@ -126,7 +133,7 @@ def can_approve_cnr_application(employee=None):
 
 @frappe.whitelist()
 def get_late_early_application_deadline_settings():
-	"""Public (logged-in) read of late/early application deadline flags for PWA/desk hints."""
+	"""Application deadline and duration limits for PWA/Desk form hints."""
 	from nepal_hrms.custom_code.attendance_policy import get_hr_settings
 
 	settings = get_hr_settings()
@@ -136,6 +143,12 @@ def get_late_early_application_deadline_settings():
 		),
 		"late_early_application_max_days": cint(
 			getattr(settings, "late_early_application_max_days", None) or 2
+		),
+		"late_early_max_delay_mins": cint(
+			getattr(settings, "late_early_max_delay_mins", None) or 60
+		),
+		"max_paid_out_of_office_hours": flt(
+			getattr(settings, "max_paid_out_of_office_hours", None) or 2
 		),
 	}
 

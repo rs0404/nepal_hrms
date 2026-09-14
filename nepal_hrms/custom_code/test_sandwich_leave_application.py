@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 from frappe.utils import add_days, getdate
 
+from nepal_hrms.custom_code.attendance_holiday import (
+	_day_is_full_leave_or_absent,
+)
 from nepal_hrms.custom_code.sandwich_leave import evaluate_leave_sandwich
 
 
@@ -104,3 +107,19 @@ class TestEvaluateLeaveSandwich(TestCase):
 		self.assertFalse(
 			day_is_full_leave_or_absent_for_sandwich("EMP-001", date(2026, 8, 24), None)
 		)
+
+	@patch(
+		"nepal_hrms.custom_code.attendance_holiday.covering_leave_application",
+		return_value=None,
+	)
+	@patch(
+		"nepal_hrms.custom_code.attendance_holiday.frappe.db.get_value",
+		return_value=None,
+	)
+	def test_sandwich_anchor_queries_submitted_attendance_only(
+		self, get_attendance, _covering_leave
+	):
+		self.assertFalse(
+			_day_is_full_leave_or_absent("EMP-001", date(2026, 8, 24))
+		)
+		self.assertEqual(get_attendance.call_args.args[1]["docstatus"], 1)

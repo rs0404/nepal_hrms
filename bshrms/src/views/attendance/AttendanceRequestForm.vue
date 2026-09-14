@@ -59,8 +59,7 @@ const formFields = createResource({
 	params: { doctype: "Attendance Request" },
 	auto: true,
 	transform(data) {
-		if (props.id) return data
-		return data.filter(
+		const fields = props.id ? data : data.filter(
 			(field) =>
 				![
 					"employee",
@@ -69,6 +68,16 @@ const formFields = createResource({
 					"company",
 					"custom_rejection_reason",
 				].includes(field.fieldname)
+		)
+		return fields.map((field) =>
+			field.fieldname === "explanation"
+				? {
+						...field,
+						reqd: 1,
+						label: __("Reason / Explanation"),
+						placeholder: __("Explain why this attendance request is needed"),
+					}
+				: field
 		)
 	},
 })

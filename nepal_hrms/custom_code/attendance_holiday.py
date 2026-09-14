@@ -215,7 +215,7 @@ def _day_is_full_leave_or_absent(employee, date_obj):
 		{
 			"employee": employee,
 			"attendance_date": day,
-			"docstatus": ["<", 2],
+			"docstatus": 1,
 		},
 		["status", "half_day_status", "leave_type"],
 		as_dict=True,
