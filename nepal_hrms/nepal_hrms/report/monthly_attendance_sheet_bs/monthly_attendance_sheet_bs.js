@@ -308,12 +308,134 @@ function sheetBsApplicationCell(row, kind) {
 	return sheetBsAuditCell(approved, stats.label || __("Applications"), body, { tone });
 }
 
-function sheetBsDailyDocumentRow(label, doctypeSlug, name) {
-	if (!name) return "";
-	return `<a class="sheet-bs-daily-doc" href="/app/${sheetBsEsc(doctypeSlug)}/${encodeURIComponent(name)}" target="_blank" onclick="event.stopPropagation();">
-		<span>${sheetBsEsc(label)}</span>
-		<strong>${sheetBsEsc(name)}</strong>
+function sheetBsAppStatusTone(status) {
+	const value = String(status || "").toLowerCase();
+	if (value === "approved") return "approved";
+	if (value === "rejected") return "rejected";
+	if (value === "cancelled") return "cancelled";
+	return "pending";
+}
+
+function sheetBsApprovalLabel(status) {
+	const tone = sheetBsAppStatusTone(status);
+	if (tone === "approved") return __("Approved");
+	if (tone === "rejected") return __("Rejected");
+	if (tone === "cancelled") return __("Cancelled");
+	return __("Pending");
+}
+
+function sheetBsApplicationReason(app) {
+	if (!app) return "";
+	const parts = [];
+	if (app.reason) parts.push(app.reason);
+	if (app.explanation) parts.push(app.explanation);
+	if (app.description) parts.push(app.description);
+	if (app.custom_rejection_reason) {
+		parts.push(`${__("Rejection")}: ${app.custom_rejection_reason}`);
+	}
+	return parts.filter(Boolean).join("\n");
+}
+
+function sheetBsCheckinLogsHTML(logs) {
+	if (!logs || !logs.length) {
+		return `<div class="sheet-bs-audit-empty">${__("No check-in logs for this day")}</div>`;
+	}
+	return `<div class="sheet-bs-checkin-logs">${logs.map((log) => {
+		const logType = String(log.log_type || "").toUpperCase();
+		const isIn = logType === "IN";
+		const isOOO = log.attendance_type === "OOO Work";
+		const badge = isOOO ? `OOO ${logType || ""}`.trim() : (logType || "—");
+		const timeLabel = log.time_label || log.time || "—";
+		return `<div class="sheet-bs-checkin-log">
+			<div class="sheet-bs-checkin-log-main">
+				<span class="sheet-bs-checkin-time">${sheetBsEsc(timeLabel)}</span>
+				${isOOO && log.reason ? `<span class="sheet-bs-checkin-reason">${sheetBsEsc(log.reason)}</span>` : ""}
+			</div>
+			<span class="sheet-bs-checkin-badge sheet-bs-checkin-badge--${isIn ? "in" : "out"}">${sheetBsEsc(badge)}</span>
+		</div>`;
+	}).join("")}</div>`;
+}
+
+function sheetBsAttendanceTone(status) {
+	const value = String(status || "").toLowerCase();
+	if (value === "present" || value === "work from home") return "approved";
+	if (value === "on leave") return "leave";
+	if (value === "absent") return "rejected";
+	if (value.includes("half")) return "pending";
+	return "pending";
+}
+
+function sheetBsShowApplicationReason() {
+	const boot = (frappe.boot && frappe.boot.nepal_hrms) || {};
+	if (boot.show_application_reason_on_sheet_hover === undefined) return true;
+	return cint(boot.show_application_reason_on_sheet_hover) === 1;
+}
+
+function sheetBsDailyAppRow(doctype, name, statusLabel, tone, extras, reason) {
+	const slug = String(doctype || "").toLowerCase().replace(/\s+/g, "-");
+	const title = reason && sheetBsShowApplicationReason() ? ` title="${sheetBsEsc(reason)}"` : "";
+	return `<a class="sheet-bs-daily-doc"${title} href="/app/${sheetBsEsc(slug)}/${encodeURIComponent(name)}" target="_blank" onclick="event.stopPropagation();">
+		<span>${sheetBsEsc(__(doctype))}
+			${extras && extras.length ? `<span class="sheet-bs-app-meta">${sheetBsEsc(extras.join(" · "))}</span>` : ""}
+		</span>
+		<strong><span class="sheet-bs-app-status sheet-bs-app-status--${sheetBsEsc(tone)}">${sheetBsEsc(statusLabel)}</span></strong>
 	</a>`;
+}
+
+function sheetBsPushApplication(rows, seen, doctype, name, statusLabel, tone, extras, reason) {
+	if (!name) return;
+	const key = `${doctype}:${name}`;
+	if (seen.has(key)) return;
+	seen.add(key);
+	rows.push(sheetBsDailyAppRow(doctype, name, statusLabel, tone, extras, reason));
+}
+
+function sheetBsDailyApplicationsHTML(apps, cellData) {
+	const rows = [];
+	const seen = new Set();
+	(apps || []).forEach((app) => {
+		if (!app || !app.name) return;
+		const extras = [];
+		if (app.leave_type) extras.push(app.leave_type);
+		if (app.half_day) extras.push(__("Half day"));
+		if (app.type_of_work) extras.push(app.type_of_work);
+		sheetBsPushApplication(
+			rows,
+			seen,
+			app.doctype || app.name,
+			app.name,
+			sheetBsApprovalLabel(app.status || app.status_label),
+			sheetBsAppStatusTone(app.status || app.status_label),
+			extras,
+			sheetBsApplicationReason(app)
+		);
+	});
+	[
+		["Late Entry Application", cellData && cellData.late_entry_app],
+		["Early Exit Application", cellData && cellData.early_exit_app],
+		["Out of Office Application", cellData && cellData.ooo_app],
+		["Attendance Request", cellData && cellData.attendance_request],
+		["Leave Application", cellData && cellData.leave_application],
+	].forEach(([doctype, name]) => {
+		sheetBsPushApplication(rows, seen, doctype, name, __("Approved"), "approved", [], "");
+	});
+	if (cellData && cellData.attendance_doc) {
+		const status = cellData.attendance_status || __("Marked");
+		sheetBsPushApplication(
+			rows,
+			seen,
+			"Attendance",
+			cellData.attendance_doc,
+			__(status),
+			sheetBsAttendanceTone(status),
+			[],
+			""
+		);
+	}
+	if (!rows.length) {
+		return `<div class="sheet-bs-audit-empty">${__("No related applications")}</div>`;
+	}
+	return `<div class="sheet-bs-daily-documents">${rows.join("")}</div>`;
 }
 
 function sheetBsDailyHoverHTML(cellData, attendanceDate) {
@@ -332,20 +454,27 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 	const barData = cellData.bar_data || {};
 	const lateMins = cint(cellData.late_mins || barData.late_mins);
 	const earlyMins = cint(cellData.early_mins || barData.early_mins);
-	const logs = cellData.checks
-		? String(cellData.checks).split(",").filter(Boolean).join(" → ")
-		: __("No check-in logs");
-	let body = `<div class="sheet-bs-audit-section">
-		${sheetBsAuditRow(__("Status"), statusLabels[status] || status)}
-		${sheetBsAuditRow(__("Worked"), cellData.wh || "0h")}
-		${sheetBsAuditRow(__("Target"), `${sheetBsFormatOneDecimal(cellData.target || 0)}h`)}
-		${cellData.leave_type ? sheetBsAuditRow(__("Leave Type"), cellData.leave_type) : ""}
-		${cellData.other_half_label ? sheetBsAuditRow(__("Other Half"), cellData.other_half_title || cellData.other_half_label) : ""}
-		${sheetBsAuditRow(__("Logs"), logs)}
+	const leaveLabel = cellData.leave_acronym
+		? `${cellData.leave_type} (${cellData.leave_acronym})`
+		: cellData.leave_type;
+	const left = `<div class="sheet-bs-daily-col">
+		<div class="sheet-bs-audit-section">
+			${sheetBsAuditRow(__("Status"), statusLabels[status] || status)}
+			${sheetBsAuditRow(__("Worked"), cellData.wh || "0h")}
+			${sheetBsAuditRow(__("Target"), `${sheetBsFormatOneDecimal(cellData.target || 0)}h`)}
+			${leaveLabel ? sheetBsAuditRow(__("Leave Type"), leaveLabel) : ""}
+			${cellData.leave_app_status ? sheetBsAuditRow(__("Leave Status"), sheetBsApprovalLabel(cellData.leave_app_status)) : ""}
+			${cint(cellData.half_day) ? sheetBsAuditRow(__("Half Day"), __("Yes")) : ""}
+			${cellData.other_half_label ? sheetBsAuditRow(__("Other Half"), cellData.other_half_title || cellData.other_half_label) : ""}
+			${cint(cellData.sandwich) ? sheetBsAuditRow(__("Sandwich"), leaveLabel ? __("Sandwich Leave") : __("Sandwich Absence")) : ""}
+		</div>
+		<div class="sheet-bs-audit-subtitle">${__("Check-in / Check-out Logs")}</div>
+		${sheetBsCheckinLogsHTML(cellData.checkins)}
 	</div>`;
 
+	let right = "";
 	if (lateMins || earlyMins || cint(barData.ooo_mins) || cint(barData.extra_mins) || cellData.worked_on_holiday) {
-		body += `<div class="sheet-bs-audit-subtitle">${__("Time audit")}</div>
+		right += `<div class="sheet-bs-audit-subtitle">${__("Time audit")}</div>
 		<div class="sheet-bs-audit-section">
 			${lateMins ? sheetBsAuditRow(__("Late"), formatMins(lateMins), lateKindLabel(cellData.late_kind)) : ""}
 			${earlyMins ? sheetBsAuditRow(__("Early"), formatMins(earlyMins), lateKindLabel(cellData.early_kind)) : ""}
@@ -364,7 +493,7 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 		holiday: __("Holiday / Weekly Off"),
 	};
 	if (Array.isArray(barData.segments) && barData.segments.length) {
-		body += `<div class="sheet-bs-audit-subtitle">${__("Time segments")}</div>
+		right += `<div class="sheet-bs-audit-subtitle">${__("Time segments")}</div>
 			<div class="sheet-bs-audit-section">${barData.segments.map((segment) => {
 				const start = timeToMinutes(segment.start);
 				let end = timeToMinutes(segment.end);
@@ -376,23 +505,17 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 				);
 			}).join("")}</div>`;
 	}
-
-	const documents = [
-		sheetBsDailyDocumentRow(__("Attendance"), "attendance", cellData.attendance_doc),
-		sheetBsDailyDocumentRow(__("Late Entry Application"), "late-entry-application", cellData.late_entry_app),
-		sheetBsDailyDocumentRow(__("Early Exit Application"), "early-exit-application", cellData.early_exit_app),
-		sheetBsDailyDocumentRow(__("Out of Office Application"), "out-of-office-application", cellData.ooo_app),
-	].filter(Boolean).join("");
-	if (documents) {
-		body += `<div class="sheet-bs-audit-subtitle">${__("Documents")}</div>
-			<div class="sheet-bs-daily-documents">${documents}</div>`;
-	}
-	if (cellData.paid_day_audit_included === false) {
-		body += `<div class="sheet-bs-audit-info">${__("Pending/future day — excluded from the paid-day audit.")}</div>`;
-	}
 	return `<div class="sheet-bs-audit-hover sheet-bs-daily-audit" role="tooltip">
 		<div class="sheet-bs-audit-title">${sheetBsEsc(__("Attendance details · {0}", [attendanceDate]))}</div>
-		${body}
+		<div class="sheet-bs-daily-grid">
+			${left}
+			<div class="sheet-bs-daily-col">${right}</div>
+		</div>
+		<div class="sheet-bs-audit-subtitle">${__("Related Applications")}</div>
+		${sheetBsDailyApplicationsHTML(cellData.applications, cellData)}
+		${cellData.paid_day_audit_included === false
+			? `<div class="sheet-bs-audit-info">${__("Pending/future day — excluded from the paid-day audit.")}</div>`
+			: ""}
 	</div>`;
 }
 
@@ -933,11 +1056,25 @@ function bind_sheet_bs_audit_hovers(datatable) {
 		portal.classList.add("sheet-bs-audit-hover--portal");
 		document.body.appendChild(portal);
 		const rect = cell.getBoundingClientRect();
-		const width = Math.min(420, window.innerWidth - 24);
+		const isDaily = portal.classList.contains("sheet-bs-daily-audit");
+		const width = Math.min(isDaily ? 500 : 420, window.innerWidth - 24);
 		portal.style.width = `${width}px`;
+		portal.style.maxHeight = "none";
+		portal.style.overflow = "visible";
+		const height = portal.offsetHeight;
+		const spaceBelow = window.innerHeight - rect.bottom - 12;
+		const spaceAbove = rect.top - 12;
+		const placeAbove = spaceBelow < height && spaceAbove > spaceBelow;
+		if (placeAbove) {
+			portal.style.top = `${Math.max(12, rect.top - height - 8)}px`;
+		} else {
+			portal.style.top = `${rect.bottom + 8}px`;
+		}
 		portal.style.left = `${Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12))}px`;
-		portal.style.top = `${rect.bottom + 8}px`;
-		portal.style.maxHeight = `${Math.max(48, window.innerHeight - rect.bottom - 20)}px`;
+		if (!isDaily && spaceBelow < height && !placeAbove) {
+			portal.style.maxHeight = `${Math.max(48, spaceBelow)}px`;
+			portal.style.overflow = "auto";
+		}
 		portal.addEventListener("mouseenter", () => window.clearTimeout(closeTimer));
 		portal.addEventListener("mouseleave", scheduleClose);
 	};

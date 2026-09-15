@@ -9,6 +9,7 @@
   "use_nepali_date_in_attendance",
   "column_break_display",
   "show_working_hours_in_attendance",
+  "show_application_reason_on_sheet_hover",
   "late_early_enable_section",
   "enable_late_early_penalty",
   "penalty_windows_section",
@@ -160,6 +161,13 @@
    "fieldname": "show_working_hours_in_attendance",
    "fieldtype": "Check",
    "label": "Show Working Hours in Attendance"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_application_reason_on_sheet_hover",
+   "fieldtype": "Check",
+   "label": "Show Application Reason on Attendance Sheet Hover",
+   "description": "When enabled, hovering a Late Entry, Early Exit, Out of Office, Attendance Request, or Leave Application in the Monthly Attendance Sheet BS popup shows the reason."
   },
   {
    "fieldname": "late_early_enable_section",

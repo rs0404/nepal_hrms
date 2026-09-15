@@ -271,6 +271,7 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
     att_fields = [
         "name", "employee", "attendance_date", "status", "working_hours", "leave_type",
         "half_day_status", "late_entry", "early_exit", "in_time", "out_time", "shift",
+        "attendance_request", "leave_application",
     ]
     att_meta = frappe.get_meta("Attendance")
     for fname in (
@@ -291,10 +292,14 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         ignore_permissions=True
     )
 
+    checkin_fields = ["name", "employee", "time", "log_type", "custom_attendance_type"]
+    checkin_meta = frappe.get_meta("Employee Checkin")
+    if checkin_meta.has_field("custom_reason"):
+        checkin_fields.append("custom_reason")
     checkins = frappe.get_all(
         "Employee Checkin",
         filters={"employee": ["in", emp_names], "time": ["between", [f"{start_ad} 00:00:00", f"{end_ad} 23:59:59"]], "docstatus": ["<", 2]},
-        fields=["employee", "time", "log_type", "custom_attendance_type"],
+        fields=checkin_fields,
         order_by="time asc",
         ignore_permissions=True
     )
@@ -330,9 +335,10 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         except Exception:
             pass
 
-    application_audits, approved_day_maps = _load_application_audits(
+    application_audits, approved_day_maps, day_app_maps = _load_application_audits(
         emp_names, start_ad, end_ad
     )
+    leave_day_map = _load_leave_day_map(emp_names, start_ad, end_ad)
     leave_type_details = _get_leave_type_details()
 
     attendance_map = {}
@@ -360,6 +366,8 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         "lea_map": approved_day_maps.get("late_entry", {}),
         "eea_map": approved_day_maps.get("early_exit", {}),
         "ooo_map": approved_day_maps.get("out_of_office", {}),
+        "day_app_maps": day_app_maps,
+        "leave_day_map": leave_day_map,
     }, leave_types
 
 
@@ -422,6 +430,8 @@ def _application_detail(row, kind):
         detail["attendance_date"] = str(row.attendance_date)
     for fieldname in (
         "reason",
+        "explanation",
+        "description",
         "type_of_work",
         "custom_rejection_reason",
         "estimated_late_entry_time",
@@ -444,6 +454,8 @@ def _application_fields(doctype, ranged=False):
     fields.extend(["from_date", "to_date"] if ranged else ["attendance_date"])
     for fieldname in (
         "reason",
+        "explanation",
+        "description",
         "type_of_work",
         "custom_rejection_reason",
         "estimated_late_entry_time",
@@ -459,6 +471,150 @@ def _application_fields(doctype, ranged=False):
     return fields
 
 
+def _doctype_slug(doctype):
+    return str(doctype or "").strip().lower().replace(" ", "-")
+
+
+def _append_linked_application(day_applications, seen_apps, doctype, name, existing):
+    if not name:
+        return
+    key = (doctype, name)
+    if key in seen_apps:
+        return
+    match = next((app for app in existing or [] if app.get("name") == name), None)
+    if match:
+        seen_apps.add(key)
+        day_applications.append(match)
+        return
+    meta = frappe.get_meta(doctype)
+    fields = ["status", "docstatus"]
+    for fieldname in (
+        "reason",
+        "explanation",
+        "description",
+        "type_of_work",
+        "custom_rejection_reason",
+        "leave_type",
+        "half_day",
+    ):
+        if meta.has_field(fieldname):
+            fields.append(fieldname)
+    values = frappe.db.get_value(doctype, name, fields, as_dict=True)
+    if not values:
+        return
+    detail = {
+        "name": name,
+        "doctype": doctype,
+        "slug": _doctype_slug(doctype),
+        "status": _application_bucket(values),
+        "status_label": (values.status or "").strip(),
+    }
+    for fieldname in (
+        "reason",
+        "explanation",
+        "description",
+        "type_of_work",
+        "custom_rejection_reason",
+        "leave_type",
+    ):
+        value = values.get(fieldname)
+        if value not in (None, ""):
+            detail[fieldname] = str(value)
+    if values.get("half_day") is not None:
+        detail["half_day"] = cint(values.half_day)
+    day_applications.append(detail)
+    seen_apps.add(key)
+
+
+def _expand_ranged_days(from_date, to_date, start_ad, end_ad):
+    cur = max(getdate(from_date), start_ad)
+    last = min(getdate(to_date), end_ad)
+    days = []
+    while cur <= last:
+        days.append(cur)
+        cur = add_days(cur, 1)
+    return days
+
+
+def _checkin_time_label(when):
+    label = when.strftime("%I:%M %p").lower()
+    if label.startswith("0"):
+        label = label[1:]
+    return label
+
+
+def _checkin_payloads(day_checkins):
+    payloads = []
+    first_in = None
+    last_out = None
+    for row in day_checkins or []:
+        when = get_datetime(row.time)
+        log_type = (row.log_type or "").upper()
+        att_type = (getattr(row, "custom_attendance_type", None) or "Normal").strip()
+        item = {
+            "time": when.strftime("%H:%M"),
+            "time_label": _checkin_time_label(when),
+            "log_type": log_type or "—",
+            "attendance_type": att_type,
+            "reason": getattr(row, "custom_reason", None) or "",
+        }
+        payloads.append(item)
+        if log_type == "IN" and first_in is None:
+            first_in = item["time_label"]
+        if log_type == "OUT":
+            last_out = item["time_label"]
+    return payloads, first_in, last_out
+
+
+def _load_leave_day_map(emp_names, start_ad, end_ad):
+    leave_map = {}
+    if not emp_names or not frappe.db.exists("DocType", "Leave Application"):
+        return leave_map
+    rows = frappe.get_all(
+        "Leave Application",
+        filters={
+            "employee": ["in", emp_names],
+            "docstatus": ["<", 2],
+            "status": ["!=", "Cancelled"],
+            "from_date": ["<=", end_ad],
+            "to_date": [">=", start_ad],
+        },
+        fields=[
+            "name",
+            "employee",
+            "status",
+            "docstatus",
+            "from_date",
+            "to_date",
+            "leave_type",
+            "half_day",
+            "half_day_date",
+            "description",
+        ],
+        order_by="employee asc, from_date asc",
+        ignore_permissions=True,
+    )
+    for app in rows:
+        bucket = _application_bucket(app)
+        detail = {
+            "name": app.name,
+            "doctype": "Leave Application",
+            "slug": "leave-application",
+            "status": bucket,
+            "status_label": (getattr(app, "status", None) or "").strip() or bucket.title(),
+            "leave_type": app.leave_type,
+            "half_day": cint(app.half_day),
+            "from_date": str(app.from_date),
+            "to_date": str(app.to_date),
+            "description": (getattr(app, "description", None) or "").strip(),
+        }
+        if getattr(app, "half_day_date", None):
+            detail["half_day_date"] = str(app.half_day_date)
+        for day in _expand_ranged_days(app.from_date, app.to_date, start_ad, end_ad):
+            leave_map.setdefault((app.employee, day), []).append(detail)
+    return leave_map
+
+
 def _load_application_audits(emp_names, start_ad, end_ad):
     audits = {
         employee: {
@@ -472,8 +628,14 @@ def _load_application_audits(emp_names, start_ad, end_ad):
         "early_exit": {},
         "out_of_office": {},
     }
+    day_app_maps = {
+        "attendance_request": {},
+        "late_entry": {},
+        "early_exit": {},
+        "out_of_office": {},
+    }
     if not emp_names:
-        return audits, approved_day_maps
+        return audits, approved_day_maps, day_app_maps
 
     for kind, spec in APPLICATION_SPECS.items():
         doctype = spec["doctype"]
@@ -499,11 +661,20 @@ def _load_application_audits(emp_names, start_ad, end_ad):
             bucket = _application_bucket(app)
             stats = audits[app.employee][kind]
             stats[bucket] += 1
-            stats["details"].append(_application_detail(app, kind))
+            detail = _application_detail(app, kind)
+            detail["doctype"] = doctype
+            detail["slug"] = _doctype_slug(doctype)
+            stats["details"].append(detail)
+            if ranged:
+                days = _expand_ranged_days(app.from_date, app.to_date, start_ad, end_ad)
+            else:
+                days = [getdate(app.attendance_date)]
+            for day in days:
+                day_app_maps[kind].setdefault((app.employee, day), []).append(detail)
             if not ranged and bucket == "approved":
                 key = (app.employee, getdate(app.attendance_date))
                 approved_day_maps[kind].setdefault(key, []).append(app.name)
-    return audits, approved_day_maps
+    return audits, approved_day_maps, day_app_maps
 
 
 def _leave_acronym(leave_type, leave_type_details):
@@ -1154,6 +1325,8 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
     lea_map = att_data.get("lea_map", {})
     eea_map = att_data.get("eea_map", {})
     ooo_map = att_data.get("ooo_map", {})
+    day_app_maps = att_data.get("day_app_maps") or {}
+    leave_day_map = att_data.get("leave_day_map") or {}
 
     try:
         settings = get_hr_settings()
@@ -1276,6 +1449,66 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             day_lea = lea_map.get(key) or []
             day_eea = eea_map.get(key) or []
             day_ooo = ooo_map.get(key) or []
+            day_leave_apps = leave_day_map.get(key) or []
+            day_applications = []
+            seen_apps = set()
+            for kind in ("attendance_request", "late_entry", "early_exit", "out_of_office"):
+                for app in day_app_maps.get(kind, {}).get(key, []):
+                    app_key = (app.get("doctype"), app.get("name"))
+                    if app_key in seen_apps:
+                        continue
+                    seen_apps.add(app_key)
+                    day_applications.append(app)
+            for app in day_leave_apps:
+                app_key = (app.get("doctype"), app.get("name"))
+                if app_key in seen_apps:
+                    continue
+                seen_apps.add(app_key)
+                day_applications.append(app)
+            if not leave_type:
+                for app in day_leave_apps:
+                    if app.get("leave_type"):
+                        leave_type = app["leave_type"]
+                        break
+            if att:
+                _append_linked_application(
+                    day_applications,
+                    seen_apps,
+                    "Attendance Request",
+                    getattr(att, "attendance_request", None),
+                    day_app_maps.get("attendance_request", {}).get(key) or [],
+                )
+                _append_linked_application(
+                    day_applications,
+                    seen_apps,
+                    "Leave Application",
+                    getattr(att, "leave_application", None),
+                    day_leave_apps,
+                )
+            for name in day_lea:
+                _append_linked_application(
+                    day_applications,
+                    seen_apps,
+                    "Late Entry Application",
+                    name,
+                    day_app_maps.get("late_entry", {}).get(key) or [],
+                )
+            for name in day_eea:
+                _append_linked_application(
+                    day_applications,
+                    seen_apps,
+                    "Early Exit Application",
+                    name,
+                    day_app_maps.get("early_exit", {}).get(key) or [],
+                )
+            for name in day_ooo:
+                _append_linked_application(
+                    day_applications,
+                    seen_apps,
+                    "Out of Office Application",
+                    name,
+                    day_app_maps.get("out_of_office", {}).get(key) or [],
+                )
 
             if att:
                 wh = att.working_hours or 0.0
@@ -1311,7 +1544,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
 
                 if show_details:
                     row[f"{fieldname}_wh"] = wh
-                leave_type = att.leave_type or ""
+                leave_type = att.leave_type or leave_type
                 is_half_day = 1 if status == "Half Day" else 0
 
                 if status == "Present":
@@ -1422,11 +1655,25 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                     status_abbr, leave_type, leave_type_details
                 )
 
+            checkin_logs, first_in, last_out = _checkin_payloads(day_checkins)
+            if att:
+                if not first_in and att.in_time:
+                    first_in = _checkin_time_label(get_datetime(att.in_time))
+                if not last_out and att.out_time:
+                    last_out = _checkin_time_label(get_datetime(att.out_time))
+
+            leave_app_status = None
+            if day_leave_apps:
+                leave_app_status = day_leave_apps[0].get("status_label") or day_leave_apps[0].get("status")
+
             # Store EVERYTHING in the main field as JSON for the formatter
             row[fieldname] = json.dumps({
                 "status": status_abbr,
                 "wh": wh_str,
                 "checks": checks_str,
+                "checkins": checkin_logs,
+                "in_time": first_in,
+                "out_time": last_out,
                 "target": target_hours,
                 "leave_type": leave_type,
                 "leave_acronym": (
@@ -1434,6 +1681,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                     if leave_type
                     else ""
                 ),
+                "leave_app_status": leave_app_status,
                 "other_half_label": other_half_label,
                 "other_half_kind": other_half_kind,
                 "other_half_title": other_half_title,
@@ -1444,9 +1692,13 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "early_kind": early_kind,
                 "bar_data": bar_data,
                 "attendance_doc": att.name if att else None,
+                "attendance_status": status or None,
                 "late_entry_app": day_lea[0] if day_lea else None,
                 "early_exit_app": day_eea[0] if day_eea else None,
                 "ooo_app": day_ooo[0] if day_ooo else None,
+                "attendance_request": getattr(att, "attendance_request", None) if att else None,
+                "leave_application": getattr(att, "leave_application", None) if att else None,
+                "applications": day_applications,
                 "worked_on_holiday": worked_on_holiday,
                 "sandwich": is_sandwich,
                 "paid_day_audit_included": include_in_paid_audit,

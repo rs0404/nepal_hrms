@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import cint
 
 
 def get_boot_info(bootinfo):
@@ -20,6 +21,9 @@ def get_boot_info(bootinfo):
 		bootinfo["nepal_hrms"] = {
 			"enable_late_early_penalty": bool(settings.get("enable_late_early_penalty")),
 			"use_nepali_date_in_attendance": bool(settings.get("use_nepali_date_in_attendance")),
+			"show_application_reason_on_sheet_hover": cint(
+				settings.get("show_application_reason_on_sheet_hover", 1)
+			),
 			"has_raven": has_raven,
 		}
 	except Exception:

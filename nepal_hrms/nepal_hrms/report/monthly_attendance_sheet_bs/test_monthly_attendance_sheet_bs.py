@@ -320,7 +320,7 @@ class TestSandwichAndApplications(TestCase):
 			]
 
 		get_all.side_effect = rows_for
-		audits, _maps = report._load_application_audits(
+		audits, _maps, _day_maps = report._load_application_audits(
 			["EMP-1"], date(2026, 1, 1), date(2026, 1, 31)
 		)
 
