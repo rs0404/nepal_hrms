@@ -255,6 +255,7 @@ export const CNR_APPLICATION_FIELDS = [
 	{ fieldname: "total_hours", label: "Total Hours", fieldtype: "Float" },
 	{ fieldname: "employee", label: "Employee", fieldtype: "Link" },
 	{ fieldname: "reason", label: "Reason", fieldtype: "Small Text" },
+	{ fieldname: "custom_rejection_reason", label: "Rejection Reason", fieldtype: "Small Text" },
 	{ fieldname: "attendance", label: "Attendance", fieldtype: "Link" },
 ]
 

@@ -105,6 +105,25 @@ def log_gps_position(employee, checkin_reference=None, latitude=None, longitude=
 
 
 @frappe.whitelist()
+def recalculate_attendance_from_checkins(employee, attendance_date):
+	"""Rebuild Attendance hours/status from all check-ins for the day."""
+	from nepal_hrms.overrides.attendance_override import sync_attendance_hours_from_checkins
+
+	frappe.has_permission("Attendance", "write", throw=True)
+	attendance = sync_attendance_hours_from_checkins(employee, getdate(attendance_date))
+	if not attendance:
+		frappe.throw(_("No attendance found for {0} on {1}.").format(employee, attendance_date))
+	return {
+		"message": _("Attendance recalculated from check-ins."),
+		"attendance": attendance.name,
+		"status": attendance.status,
+		"working_hours": attendance.working_hours,
+		"in_time": str(attendance.in_time) if attendance.in_time else None,
+		"out_time": str(attendance.out_time) if attendance.out_time else None,
+	}
+
+
+@frappe.whitelist()
 def approve_ooo_checkins(employee, attendance_date):
 	"""
 	Leave Approver approves OOO check-ins for a given date.

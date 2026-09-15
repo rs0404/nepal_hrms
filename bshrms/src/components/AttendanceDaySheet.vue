@@ -92,6 +92,14 @@
 						</template>
 					</span>
 					<span
+						v-for="mark in dayLeaveMarks"
+						:key="mark"
+						class="leave-mark-badge"
+						:class="leaveMarkClass(mark)"
+					>
+						{{ mark }}
+					</span>
+					<span
 						v-if="details.attendance?.shift"
 						class="flag-chip bg-gray-50 text-gray-600 ring-gray-200"
 					>
@@ -191,6 +199,7 @@ import { modalController } from "@ionic/vue"
 import { useRouter } from "vue-router"
 
 import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
+import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
 
 const props = defineProps({
 	date: { type: String, required: true },
@@ -266,6 +275,16 @@ const leaveChip = computed(() => {
 		dot: "bg-blue-600",
 	}
 })
+const dayLeaveMarks = computed(() => {
+	if (!details.value) return []
+	return leaveDayMarks({
+		status: details.value.status,
+		leave: details.value.flags?.leave,
+		half_day: details.value.flags?.half_day,
+		leave_type: details.value.flags?.leave_type,
+	})
+})
+
 const hasFlags = computed(
 	() =>
 		details.value &&
@@ -274,6 +293,7 @@ const hasFlags = computed(
 			details.value.flags?.ooo_required ||
 			details.value.flags?.sandwich ||
 			leaveChip.value ||
+			dayLeaveMarks.value.length ||
 			details.value.attendance?.shift)
 )
 
@@ -320,5 +340,32 @@ function openRelatedApplication(app) {
 	height: 6px;
 	border-radius: 50%;
 	flex-shrink: 0;
+}
+
+.leave-mark-badge {
+	display: inline-flex;
+	align-items: center;
+	font-size: 11px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 4px 6px;
+	border-radius: 6px;
+	letter-spacing: -0.02em;
+	white-space: nowrap;
+}
+
+.leave-mark-badge.half {
+	color: #1d4ed8;
+	background: #dbeafe;
+}
+
+.leave-mark-badge.sick {
+	color: #9a3412;
+	background: #ffedd5;
+}
+
+.leave-mark-badge.home {
+	color: #065f46;
+	background: #d1fae5;
 }
 </style>

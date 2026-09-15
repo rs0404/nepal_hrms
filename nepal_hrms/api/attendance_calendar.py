@@ -9,6 +9,17 @@ from frappe.utils import add_days, cint, date_diff, getdate, get_first_day, toda
 from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
 
 
+def _leave_half_day_on(app):
+	"""AD date that is the half-day of a Leave Application, or None."""
+	if not cint(getattr(app, "half_day", 0)):
+		return None
+	if getattr(app, "half_day_date", None):
+		return getdate(app.half_day_date)
+	if getdate(app.from_date) == getdate(app.to_date):
+		return getdate(app.from_date)
+	return None
+
+
 def _current_bs_month_start_ad(ad=None):
 	"""First AD date of the BS month containing `ad` (default: today)."""
 	import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
@@ -255,6 +266,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			"leave_app_status": None,
 			"leave_application": None,
 			"sandwich": 0,
+			"half_day": 0,
 		}
 
 	# Leave applications covering the range (Pending / Approved / Rejected)
@@ -278,7 +290,16 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			"from_date": ["<=", to_date],
 			"to_date": [">=", from_date],
 		},
-		fields=["name", "status", "docstatus", "from_date", "to_date", "leave_type"],
+		fields=[
+			"name",
+			"status",
+			"docstatus",
+			"from_date",
+			"to_date",
+			"leave_type",
+			"half_day",
+			"half_day_date",
+		],
 	)
 	for app in leave_apps:
 		app_status = _normalize_leave_app_status(app.status, app.docstatus)
@@ -298,6 +319,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 					"leave_app_status": None,
 					"leave_application": None,
 					"sandwich": 0,
+					"half_day": 0,
 				},
 			)
 			prev_rank = _LEAVE_STATUS_RANK.get(info.get("leave_app_status") or "", 0)
@@ -317,6 +339,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 				info["leave_application"] = app.name
 				if not info.get("leave_type"):
 					info["leave_type"] = app.leave_type
+				info["half_day"] = 1 if _leave_half_day_on(app) == cur else 0
 
 				if app_status == "Approved":
 					info["leave"] = 1
@@ -393,6 +416,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 					"leave_app_status": None,
 					"leave_application": None,
 					"sandwich": 0,
+					"half_day": 0,
 				}
 				# Prefer Weekly Off when the holiday list marks it
 				if use_scoped:
@@ -427,6 +451,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 					"leave_app_status": None,
 					"leave_application": None,
 					"sandwich": 0,
+					"half_day": 0,
 				}
 				info["sandwich"] = 1
 				if leave_application:
@@ -502,6 +527,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 				"leave_app_status": None,
 				"leave_application": None,
 				"sandwich": 0,
+				"half_day": 0,
 			}
 			events[date_str] = info
 		info["ooo_required"] = 1
@@ -678,6 +704,20 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 	elif leave_app_status == "Rejected" and status in (None, "Holiday", "Weekly Off"):
 		status = "Leave Rejected"
 
+	half_day = 0
+	leave_app_type = None
+	if leave_application_name:
+		leave_app_row = frappe.db.get_value(
+			"Leave Application",
+			leave_application_name,
+			["half_day", "half_day_date", "from_date", "to_date", "leave_type"],
+			as_dict=True,
+		)
+		if leave_app_row:
+			leave_app_type = leave_app_row.leave_type
+			if _leave_half_day_on(leave_app_row) == day:
+				half_day = 1
+
 	# Form actions still available (no existing application of that type for the day)
 	existing_doctypes = {link["doctype"] for link in links}
 	actions = []
@@ -805,9 +845,11 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 			"leave_type": (
 				sandwich_leave_type
 				or (attendance.leave_type if attendance else None)
+				or leave_app_type
 			),
 			"leave_app_status": leave_app_status,
 			"leave_application": leave_application_name,
+			"half_day": half_day,
 		},
 		"links": links,
 		"actions": actions,

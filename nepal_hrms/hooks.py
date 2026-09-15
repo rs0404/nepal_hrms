@@ -59,13 +59,19 @@ doctype_list_js = {
 	"Leave Allocation": "public/js/leave_allocation.js",
 	"Attendance": "public/js/attendance_list_cnr.js",
 	"Attendance Policy Escape": "public/js/attendance_policy_escape_list.js",
+	"Late Entry Application": "public/js/cnr_application_list.js",
+	"Early Exit Application": "public/js/cnr_application_list.js",
+	"Out of Office Application": "public/js/cnr_application_list.js",
 }
 
 after_install = "nepal_hrms.install.install"
 # Custom fields must be re-synced on every migrate: create_custom_fields() was
 # previously reachable only from after_install, so any field added later never
 # appeared on existing sites (it just silently failed the has_field guards).
-after_migrate = ["nepal_hrms.custom_field.create_custom_fields"]
+after_migrate = [
+	"nepal_hrms.custom_field.create_custom_fields",
+	"nepal_hrms.notifications.raven_sync.seed_notification_rows_on_migrate",
+]
 after_sync = [
 	"nepal_hrms.custom_code.payroll.salary_structure.create_salary_structures",
 	"nepal_hrms.custom_code.leave_type.leave_type.setup_default_leave_types",
@@ -91,7 +97,10 @@ doc_events = {
 	},
 	"Employee Checkin": {
 		"validate": "nepal_hrms.api.ooo_attendance.validate_ooo_checkin",
-		"after_insert": "nepal_hrms.custom_code.application_hooks.sync_cnr_application_from_checkin",
+		"after_insert": [
+			"nepal_hrms.custom_code.application_hooks.sync_cnr_application_from_checkin",
+			"nepal_hrms.overrides.attendance_override.sync_existing_attendance_on_checkin",
+		],
 	},
 	"Attendance": {
 		"validate": "nepal_hrms.custom_code.attendance_hooks.validate_attendance",

@@ -110,6 +110,7 @@ class TestApplicationLimits(TestCase):
 		)
 		doc = _dict(
 			doctype="Out of Office Application",
+			type_of_work="Personal Work",
 			estimated_from_time=time(10, 0),
 			estimated_to_time=time(12, 30),
 		)
@@ -133,6 +134,7 @@ class TestApplicationLimits(TestCase):
 		)
 		doc = _dict(
 			doctype="Late Entry Application",
+			type_of_work="Personal Work",
 			employee="EMP-1",
 			attendance_date="2026-09-14",
 			attendance=None,
@@ -141,6 +143,86 @@ class TestApplicationLimits(TestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			_validate_cnr_application_time_limit(doc)
+
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_shift_bounds"
+	)
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_hr_settings"
+	)
+	def test_late_estimate_above_limit_allowed_when_rejected(
+		self, get_settings, get_shift_bounds
+	):
+		get_settings.return_value = _dict(late_early_max_delay_mins=60)
+		get_shift_bounds.return_value = (
+			datetime(2026, 9, 14, 9, 30),
+			datetime(2026, 9, 14, 17, 30),
+		)
+		doc = _dict(
+			doctype="Late Entry Application",
+			status="Rejected",
+			type_of_work="Personal Work",
+			employee="EMP-1",
+			attendance_date="2026-09-14",
+			attendance=None,
+			estimated_late_entry_time=time(10, 54),
+		)
+
+		_validate_cnr_application_time_limit(doc)
+
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_hr_settings"
+	)
+	def test_ooo_estimate_above_limit_allowed_when_rejected(self, get_settings):
+		get_settings.return_value = _dict(max_paid_out_of_office_hours=2)
+		doc = _dict(
+			doctype="Out of Office Application",
+			status="Rejected",
+			type_of_work="Personal Work",
+			estimated_from_time=time(10, 0),
+			estimated_to_time=time(13, 0),
+		)
+
+		_validate_cnr_application_time_limit(doc)
+
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_shift_bounds"
+	)
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_hr_settings"
+	)
+	def test_late_estimate_above_limit_allowed_for_office_work(
+		self, get_settings, get_shift_bounds
+	):
+		get_settings.return_value = _dict(late_early_max_delay_mins=60)
+		get_shift_bounds.return_value = (
+			datetime(2026, 9, 14, 9, 30),
+			datetime(2026, 9, 14, 17, 30),
+		)
+		doc = _dict(
+			doctype="Late Entry Application",
+			type_of_work="Office Work",
+			employee="EMP-1",
+			attendance_date="2026-09-14",
+			attendance=None,
+			estimated_late_entry_time=time(10, 54),
+		)
+
+		_validate_cnr_application_time_limit(doc)
+
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_hr_settings"
+	)
+	def test_ooo_estimate_above_limit_allowed_for_office_work(self, get_settings):
+		get_settings.return_value = _dict(max_paid_out_of_office_hours=2)
+		doc = _dict(
+			doctype="Out of Office Application",
+			type_of_work="Office Work",
+			estimated_from_time=time(10, 0),
+			estimated_to_time=time(13, 0),
+		)
+
+		_validate_cnr_application_time_limit(doc)
 
 	@patch("nepal_hrms.custom_code.application_hooks.today")
 	@patch(
@@ -162,3 +244,22 @@ class TestApplicationLimits(TestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			_validate_cnr_application_deadline(doc)
+
+	@patch("nepal_hrms.custom_code.application_hooks.today")
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_hr_settings"
+	)
+	def test_deadline_does_not_block_rejection(self, get_settings, today):
+		get_settings.return_value = _dict(
+			enable_late_early_application_deadline=1,
+			late_early_application_max_days=2,
+		)
+		today.return_value = "2026-09-14"
+		doc = _dict(
+			doctype="Out of Office Application",
+			status="Rejected",
+			employee="EMP-1",
+			attendance_date="2026-09-11",
+		)
+
+		_validate_cnr_application_deadline(doc)

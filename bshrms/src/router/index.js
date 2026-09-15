@@ -11,7 +11,7 @@ import cnrApplicationRoutes from "./cnr_applications"
 const routes = [
 	{
 		path: "/",
-		redirect: "/home",
+		redirect: "/dashboard/attendance",
 	},
 	{
 		path: "/",
@@ -19,7 +19,7 @@ const routes = [
 		children: [
 			{
 				path: "",
-				redirect: "/home",
+				redirect: "/dashboard/attendance",
 			},
 			{
 				path: "/home",

@@ -332,16 +332,14 @@ def set_cnr_application_approval(doctype, name, status, rejection_reason=None):
 		doc.status = "Rejected"
 		if doc.meta.has_field("custom_rejection_reason"):
 			doc.custom_rejection_reason = reason
-		doc.save()
-		return {"name": doc.name, "status": doc.status, "docstatus": doc.docstatus}
+	else:
+		doc.status = "Approved"
+		if doc.meta.has_field("custom_rejection_reason"):
+			doc.custom_rejection_reason = None
 
-	doc.status = "Approved"
-	if doc.meta.has_field("custom_rejection_reason"):
-		doc.custom_rejection_reason = None
 	doc.save()
-
-	# Approval is final in the PWA flow — submit immediately so attendance
-	# syncs (on_submit) and the document leaves Draft state right away.
+	# Approval and rejection are final — submit so the document leaves Draft.
+	# Rejected submit does not apply attendance excuses.
 	doc.submit()
 	return {"name": doc.name, "status": doc.status, "docstatus": doc.docstatus}
 

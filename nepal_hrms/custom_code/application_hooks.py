@@ -53,7 +53,18 @@ def _validate_application_reason(doc):
 		frappe.throw(_("Reason is required."))
 
 
+def _is_rejected_application(doc):
+	return (getattr(doc, "status", None) or "").strip() == "Rejected"
+
+
 def _validate_cnr_application_time_limit(doc):
+	# Filing is blocked for over-limit Personal Work. Rejection must still go through.
+	if _is_rejected_application(doc):
+		return
+	# Office Work fully excuses major late/early and long OOO; caps are for Personal Work.
+	if (getattr(doc, "type_of_work", None) or "").strip() == "Office Work":
+		return
+
 	settings = get_hr_settings()
 
 	if doc.doctype == "Out of Office Application":
@@ -437,9 +448,9 @@ def before_submit_cnr_application(doc, method=None):
 			title=_("Submission Not Allowed"),
 		)
 
-	if doc.status != "Approved":
+	if doc.status not in ("Approved", "Rejected"):
 		frappe.throw(
-			_("Only Approved applications can be submitted. Current status: {0}").format(
+			_("Only Approved or Rejected applications can be submitted. Current status: {0}").format(
 				_(doc.status)
 			)
 		)
@@ -448,6 +459,9 @@ def before_submit_cnr_application(doc, method=None):
 def _validate_cnr_application_deadline(doc):
 	"""Block Late/Early/OOO apps filed after the configured attendance-date window."""
 	if doc.doctype not in CNR_APPLICATION_DOCTYPES:
+		return
+	# Rejection is not a new filing — do not block it after the deadline.
+	if _is_rejected_application(doc):
 		return
 	if not doc.attendance_date:
 		return
@@ -503,8 +517,14 @@ def validate_late_early_application(doc, method=None):
 
 
 def on_submit_late_early_application(doc, method=None):
+	if doc.status not in ("Approved", "Rejected"):
+		frappe.throw(
+			_("Only Approved or Rejected applications can be submitted. Current status: {0}").format(
+				_(doc.status)
+			)
+		)
 	if doc.status != "Approved":
-		frappe.throw(_("Only Approved applications can be submitted. Current status: {0}").format(doc.status))
+		return
 
 	link_application_to_attendance(doc)
 	if doc.attendance:
@@ -574,8 +594,14 @@ def validate_ooo_application(doc, method=None):
 
 
 def on_submit_ooo_application(doc, method=None):
+	if doc.status not in ("Approved", "Rejected"):
+		frappe.throw(
+			_("Only Approved or Rejected applications can be submitted. Current status: {0}").format(
+				_(doc.status)
+			)
+		)
 	if doc.status != "Approved":
-		frappe.throw(_("Only Approved applications can be submitted. Current status: {0}").format(doc.status))
+		return
 
 	link_application_to_attendance(doc)
 	if doc.attendance and flt(doc.total_hours) > 0:

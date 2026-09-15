@@ -1,6 +1,23 @@
 <template>
 	<div class="flex flex-col w-full gap-3">
 		<div class="bg-white rounded-lg p-2 shadow-sm border border-gray-100">
+			<div class="flex items-center justify-end px-2 pt-1 pb-0.5">
+				<button
+					type="button"
+					class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-100"
+					:title="__('Refresh')"
+					:aria-label="__('Refresh')"
+					:disabled="attendanceEvents.loading"
+					@click="reloadCalendar"
+				>
+					<FeatherIcon
+						name="refresh-cw"
+						class="h-3.5 w-3.5"
+						:class="attendanceEvents.loading ? 'animate-spin' : ''"
+					/>
+					{{ __("Refresh") }}
+				</button>
+			</div>
 			<div ref="calendarContainer"></div>
 
 			<div
@@ -10,19 +27,6 @@
 				<template v-if="!selectMode">
 					<span class="text-[11px] text-gray-400">{{ __("Tap a day for details") }}</span>
 					<div class="flex items-center gap-2 shrink-0">
-						<button
-							type="button"
-							class="p-1 text-gray-400"
-							:title="__('Refresh')"
-							:aria-label="__('Refresh')"
-							@click="reloadCalendar"
-						>
-							<FeatherIcon
-								name="refresh-cw"
-								class="h-3.5 w-3.5"
-								:class="attendanceEvents.loading ? 'animate-spin' : ''"
-							/>
-						</button>
 						<button
 							v-if="isSelf"
 							type="button"
@@ -122,6 +126,15 @@
 			<span class="inline-flex items-center gap-1">
 				<i class="marker-dot sandwich" />{{ __("Sandwich") }}
 			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="leave-mark-badge half">1/2</span>{{ __("Half day leave") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="leave-mark-badge sick">SL</span>{{ __("Sick leave") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="leave-mark-badge home">HL</span>{{ __("Home leave") }}
+			</span>
 		</div>
 	</div>
 </template>
@@ -131,6 +144,7 @@ import { onMounted, onBeforeUnmount, ref, inject, watch, computed, nextTick, toR
 import { createResource, FeatherIcon } from "frappe-ui"
 import { ensureNepaliCalendar } from "@/utils/nepali_calendar"
 import { groupContiguousDates } from "@/utils/leave_ranges"
+import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
 
 const emit = defineEmits(["select-day", "create-leave", "refresh"])
 
@@ -189,12 +203,13 @@ const attendanceEvents = createResource({
 	},
 })
 
-function reloadCalendar() {
-	attendanceEvents.reload()
+async function reloadCalendar() {
+	await attendanceEvents.reload()
+	await renderCalendar()
 	emit("refresh")
 }
 
-defineExpose({ reload: () => attendanceEvents.reload() })
+defineExpose({ reload: reloadCalendar })
 
 watch(
 	() => props.employee,
@@ -310,6 +325,26 @@ function syncLeaveSelection() {
 	root.querySelectorAll(".days-grid .day[data-ad]").forEach((button) => {
 		const date = button.getAttribute("data-ad")
 		button.classList.toggle("leave-selected", selectedDates.value.has(date))
+		const marks = leaveDayMarks(attendanceEvents.data?.[date])
+		let wrap = button.querySelector(".leave-marks")
+		if (!marks.length) {
+			wrap?.remove()
+			return
+		}
+		if (!wrap) {
+			wrap = document.createElement("span")
+			wrap.className = "leave-marks"
+			wrap.setAttribute("aria-hidden", "true")
+			button.appendChild(wrap)
+		}
+		wrap.replaceChildren(
+			...marks.map((mark) => {
+				const el = document.createElement("span")
+				el.className = `leave-mark-badge ${leaveMarkClass(mark)}`
+				el.textContent = mark
+				return el
+			})
+		)
 	})
 }
 
@@ -425,5 +460,41 @@ watch(
 
 .marker-dot.sandwich {
 	background-color: #be123c;
+}
+
+:deep(.days-grid .day .leave-marks) {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	z-index: 3;
+	display: flex;
+	gap: 1px;
+	pointer-events: none;
+}
+
+:deep(.leave-mark-badge) {
+	display: inline-block;
+	font-size: 8px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 1px 2px;
+	border-radius: 3px;
+	letter-spacing: -0.02em;
+	white-space: nowrap;
+}
+
+:deep(.leave-mark-badge.half) {
+	color: #1d4ed8;
+	background: #dbeafe;
+}
+
+:deep(.leave-mark-badge.sick) {
+	color: #9a3412;
+	background: #ffedd5;
+}
+
+:deep(.leave-mark-badge.home) {
+	color: #065f46;
+	background: #d1fae5;
 }
 </style>

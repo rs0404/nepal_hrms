@@ -143,6 +143,158 @@ function nh_attach_settings_help(frm) {
 	nh_ensure_dismiss_on_outside();
 }
 
+function nh_has_raven() {
+	const flag = frappe.boot.nepal_hrms && frappe.boot.nepal_hrms.has_raven;
+	if (flag === true || flag === 1) return true;
+	if (flag === false || flag === 0) return false;
+	return null;
+}
+
+function nh_toggle_notifications_tab(frm, show) {
+	const df = frm.get_docfield("notification_tab");
+	if (df) df.hidden = show ? 0 : 1;
+
+	frm.set_df_property("notification_tab", "hidden", show ? 0 : 1);
+
+	const field = frm.get_field("notification_tab");
+	const tab = field && field.tab;
+	if (!tab) return;
+
+	tab.df.hidden = show ? 0 : 1;
+	if (show) {
+		tab.toggle(true);
+	} else {
+		tab.refresh();
+	}
+}
+
+function nh_bind_input_link(input, doctype, filters) {
+	if (!input || input._nh_link || typeof Awesomplete === "undefined") return;
+
+	input._nh_link = true;
+	input.setAttribute("autocomplete", "off");
+
+	const awesomplete = new Awesomplete(input, {
+		minChars: 0,
+		maxItems: 20,
+		autoFirst: true,
+		filter() {
+			return true;
+		},
+	});
+
+	const fetch_options = (term) => {
+		frappe.call({
+			method: "frappe.desk.search.search_link",
+			args: {
+				doctype,
+				txt: term || "",
+				filters: filters || {},
+			},
+			callback(r) {
+				awesomplete.list = (r.message || []).map((row) => row.value);
+			},
+		});
+	};
+
+	$(input).on("focus.nh_link input.nh_link", function () {
+		fetch_options(this.value);
+	});
+}
+
+function nh_bind_data_link(frm, fieldname, doctype, filters) {
+	try {
+		const field = frm.get_field(fieldname);
+		if (!field || !field.$input) return;
+		nh_bind_input_link(field.$input.get(0), doctype, filters);
+	} catch (error) {
+		console.warn("Nepal HRMS Raven picker", error);
+	}
+}
+
+function nh_bind_event_channel_pickers(frm) {
+	const grid = frm.fields_dict.raven_notifications && frm.fields_dict.raven_notifications.grid;
+	if (!grid || !grid.wrapper) return;
+
+	grid.wrapper.off("focus.nh_row_channel").on("focus.nh_row_channel", 'input[data-fieldname="channel"]', function () {
+		nh_bind_input_link(this, "Raven Channel", { is_direct_message: 0 });
+	});
+}
+
+function nh_seed_notification_rows(frm) {
+	if (!frm.fields_dict.raven_notifications) return;
+
+	frappe.call({
+		method: "nepal_hrms.notifications.raven_sync.get_notification_event_catalog",
+		callback(r) {
+			const catalog = r.message || [];
+			if (!catalog.length) return;
+
+			const existing = new Set(
+				(frm.doc.raven_notifications || []).map((row) => row.event_key).filter(Boolean)
+			);
+			let added = false;
+			catalog.forEach((event) => {
+				if (existing.has(event.key)) return;
+				const row = frm.add_child("raven_notifications");
+				row.event_key = event.key;
+				row.event_label = event.label;
+				row.enabled = 0;
+				row.send_to_channel = 0;
+				row.send_to_employee = 0;
+				row.send_to_reports_to = 0;
+				row.send_to_approver = 0;
+				added = true;
+			});
+			if (added) {
+				frm.refresh_field("raven_notifications");
+			}
+
+			(frm.doc.raven_notifications || []).forEach((row) => {
+				if (row.event_key && !row.event_label) {
+					const match = catalog.find((event) => event.key === row.event_key);
+					if (match) {
+						frappe.model.set_value(row.doctype, row.name, "event_label", match.label);
+					}
+				}
+			});
+		},
+	});
+}
+
+function nh_apply_notifications_tab(frm, show) {
+	nh_toggle_notifications_tab(frm, show);
+	if (!show) return;
+
+	nh_seed_notification_rows(frm);
+	nh_bind_data_link(frm, "raven_bot", "Raven Bot");
+	nh_bind_data_link(frm, "raven_channel", "Raven Channel", { is_direct_message: 0 });
+	nh_bind_data_link(frm, "raven_workspace", "Raven Workspace");
+	nh_bind_event_channel_pickers(frm);
+}
+
+function nh_setup_notifications_tab(frm) {
+	const known = nh_has_raven();
+	if (known === true) {
+		nh_apply_notifications_tab(frm, true);
+		return;
+	}
+	if (known === false) {
+		nh_apply_notifications_tab(frm, false);
+		return;
+	}
+
+	frappe.call({
+		method: "nepal_hrms.notifications.raven_sync.get_notification_event_catalog",
+		callback(r) {
+			nh_apply_notifications_tab(frm, Boolean(r.message && r.message.length));
+		},
+		error() {
+			nh_apply_notifications_tab(frm, false);
+		},
+	});
+}
+
 function nh_set_employee_id_field_options(frm) {
 	const update_options = () => {
 		if (!frm.fields_dict.salary_slip_employee_id_field) return;
@@ -177,6 +329,11 @@ frappe.ui.form.on("Nepal HRMS Settings", {
 
 	refresh(frm) {
 		frappe.require(NH_SETTINGS_CSS, () => nh_attach_settings_help(frm));
+		try {
+			nh_setup_notifications_tab(frm);
+		} catch (error) {
+			console.warn("Nepal HRMS notifications tab", error);
+		}
 	},
 
 	onload_post_render(frm) {

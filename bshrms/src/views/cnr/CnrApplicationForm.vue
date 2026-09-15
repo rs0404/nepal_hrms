@@ -215,6 +215,7 @@ watch(
 
 		if (
 			doctype.value === "Out of Office Application" &&
+			application.value.type_of_work !== "Office Work" &&
 			application.value.estimated_from_time &&
 			application.value.estimated_to_time
 		) {

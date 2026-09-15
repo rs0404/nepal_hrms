@@ -147,10 +147,14 @@ function bind_cnr_application(doctype) {
 			frm._cnr_was_new = false;
 		},
 		refresh(frm) {
+			cnr_set_status_indicator(frm);
 			if (frm.is_new() && frm.doc.attendance) {
 				cnr_fill_from_attendance(frm);
 			}
 			cnr_apply_approval_ui(frm);
+		},
+		status(frm) {
+			cnr_set_status_indicator(frm);
 		},
 		attendance(frm) {
 			cnr_fill_from_attendance(frm);
@@ -179,6 +183,7 @@ function bind_cnr_application(doctype) {
 async function cnr_warn_ooo_time_limit(frm) {
 	if (
 		frm.doctype !== 'Out of Office Application' ||
+		frm.doc.type_of_work === 'Office Work' ||
 		!frm.doc.estimated_from_time ||
 		!frm.doc.estimated_to_time
 	) return;
@@ -205,6 +210,21 @@ async function cnr_warn_ooo_time_limit(frm) {
 			indicator: 'red',
 		}, 7);
 	}
+}
+
+function cnr_set_status_indicator(frm) {
+	if (frm.is_new()) return;
+	if (cint(frm.doc.docstatus) === 2) {
+		frm.page.set_indicator(__('Cancelled'), 'gray');
+		return;
+	}
+	const status = frm.doc.status || 'Draft';
+	const colors = {
+		Approved: 'green',
+		Rejected: 'red',
+		Draft: 'orange',
+	};
+	frm.page.set_indicator(__(status), colors[status] || 'gray');
 }
 
 ['Late Entry Application', 'Early Exit Application', 'Out of Office Application'].forEach(bind_cnr_application);

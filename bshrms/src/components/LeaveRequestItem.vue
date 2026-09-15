@@ -7,8 +7,18 @@
 		<template #left>
 			<LeaveIcon class="h-5 w-5 text-gray-500" />
 			<div class="flex flex-col items-start gap-1.5">
-				<div class="text-base font-normal text-gray-800">
-					{{ __(props.doc.leave_type, null, "Leave Type") }}
+				<div class="flex items-center flex-wrap gap-1">
+					<span class="text-base font-normal text-gray-800">
+						{{ __(props.doc.leave_type, null, "Leave Type") }}
+					</span>
+					<span
+						v-for="mark in leaveMarks"
+						:key="mark"
+						class="leave-mark-badge"
+						:class="leaveMarkClass(mark)"
+					>
+						{{ mark }}
+					</span>
 				</div>
 				<div class="text-xs font-normal text-gray-500">
 					<span>{{ formatNepaliPeriod(props.doc.from_date, props.doc.to_date) }}</span>
@@ -33,6 +43,7 @@ import { FeatherIcon, Badge } from "frappe-ui"
 import ListItem from "@/components/ListItem.vue"
 import LeaveIcon from "@/components/icons/LeaveIcon.vue"
 import { formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
+import { leaveApplicationMarks, leaveMarkClass } from "@/utils/leave_marks"
 
 const props = defineProps({
 	doc: {
@@ -48,6 +59,8 @@ const props = defineProps({
 	},
 })
 
+const leaveMarks = computed(() => leaveApplicationMarks(props.doc))
+
 const status = computed(() => {
 	return props.workflowStateField ? props.doc[props.workflowStateField] : props.doc.status
 })
@@ -58,3 +71,31 @@ const colorMap = {
 	Open: "orange",
 }
 </script>
+
+<style scoped>
+.leave-mark-badge {
+	display: inline-block;
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 2px 4px;
+	border-radius: 4px;
+	letter-spacing: -0.02em;
+	white-space: nowrap;
+}
+
+.leave-mark-badge.half {
+	color: #1d4ed8;
+	background: #dbeafe;
+}
+
+.leave-mark-badge.sick {
+	color: #9a3412;
+	background: #ffedd5;
+}
+
+.leave-mark-badge.home {
+	color: #065f46;
+	background: #d1fae5;
+}
+</style>

@@ -21,6 +21,16 @@ class NepalHRMSSettings(Document):
 		self.validate_salary_slip_print_settings()
 		self.validate_payroll_accounts()
 		self.validate_scheduled_payroll_runs()
+		from nepal_hrms.notifications.raven_sync import seed_notification_rows
+
+		seed_notification_rows(self)
+
+	def on_update(self):
+		if self.flags.get("nh_skip_raven_sync"):
+			return
+		from nepal_hrms.notifications.raven_sync import sync_raven_notifications
+
+		sync_raven_notifications(self)
 
 	def validate_salary_slip_print_settings(self):
 		fieldname = self.salary_slip_employee_id_field or "name"

@@ -97,47 +97,81 @@
 			</div>
 		</div>
 
+		<div
+			v-if="showAttendanceRequestApproval || showCnrApproval"
+			class="w-full px-4 pb-3"
+		>
+			<label class="block text-gray-600 text-base mb-1.5">
+				{{ __("Rejection Reason") }}
+			</label>
+			<textarea
+				v-model="rejectReason"
+				rows="3"
+				class="w-full border border-gray-300 rounded-lg p-3 text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
+				:placeholder="__('Required to reject this application')"
+			/>
+		</div>
+
 		<!-- Actions -->
 		<WorkflowActionSheet
-			v-if="workflow?.hasWorkflow"
+			v-if="workflow?.hasWorkflow && !isCnrOrAttendanceRequest"
 			:doc="document.doc"
 			:workflow="workflow"
 			view="actionSheet"
 		/>
 
 		<div
-			v-else-if="showAttendanceRequestApproval"
-			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4"
+			v-else-if="showAttendanceRequestApproval || showCnrApproval"
+			class="w-full sticky bottom-0 border-t z-[100] p-4 bg-white"
 		>
-			<Button
-				@click="showRejectDialog = true"
-				class="w-full py-5"
-				variant="subtle"
-				theme="red"
-			>
-				<template #prefix>
-					<FeatherIcon name="x" class="w-4" />
-				</template>
-				{{ __("Reject") }}
-			</Button>
+			<div class="flex w-full flex-row items-center justify-between gap-3">
+				<Button
+					@click="confirmReject"
+					class="w-full py-5"
+					variant="subtle"
+					theme="red"
+					:loading="rejectingAttendanceRequest"
+					:disabled="!rejectReason.trim()"
+				>
+					<template #prefix>
+						<FeatherIcon name="x" class="w-4" />
+					</template>
+					{{ __("Reject") }}
+				</Button>
 
-			<Button
-				@click="approveAttendanceRequest"
-				class="w-full py-5"
-				variant="solid"
-				theme="green"
-				:loading="approvingAttendanceRequest"
-			>
-				<template #prefix>
-					<FeatherIcon name="check" class="w-4" />
-				</template>
-				{{ __("Approve") }}
-			</Button>
+				<Button
+					v-if="showAttendanceRequestApproval"
+					@click="approveAttendanceRequest"
+					class="w-full py-5"
+					variant="solid"
+					theme="green"
+					:loading="approvingAttendanceRequest"
+				>
+					<template #prefix>
+						<FeatherIcon name="check" class="w-4" />
+					</template>
+					{{ __("Approve") }}
+				</Button>
+				<Button
+					v-else
+					@click="approveCnrApplication"
+					class="w-full py-5"
+					variant="solid"
+					theme="green"
+					:loading="approvingCnrApplication"
+				>
+					<template #prefix>
+						<FeatherIcon name="check" class="w-4" />
+					</template>
+					{{ __("Approve") }}
+				</Button>
+			</div>
 		</div>
 
 		<div
 			v-else-if="
 				props.modelValue.doctype !== 'Attendance Request' &&
+				!CNR_DOCTYPES.includes(props.modelValue.doctype) &&
 				!canCancelOwnLeave &&
 				['Open', 'Draft'].includes(document?.doc?.[approvalField]) &&
 				hasPermission('approval')
@@ -215,43 +249,6 @@
 				{{ __("Cancel Application") }}
 			</Button>
 		</div>
-
-		<Dialog v-model="showRejectDialog">
-			<template #body-title>
-				<h2 class="text-lg font-bold">{{ __("Reject Attendance Request") }}</h2>
-			</template>
-			<template #body-content>
-				<p class="text-sm text-gray-600 mb-3">
-					{{ __("Provide a reason for rejecting this request.") }}
-				</p>
-				<label class="block text-sm font-medium text-gray-700 mb-1">
-					{{ __("Reason") }}
-				</label>
-				<textarea
-					v-model="rejectReason"
-					rows="3"
-					class="w-full border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-					:placeholder="__('Why is this attendance request being rejected?')"
-				/>
-			</template>
-			<template #actions>
-				<div class="flex gap-2 w-full">
-					<Button class="flex-1" variant="outline" @click="showRejectDialog = false">
-						{{ __("Cancel") }}
-					</Button>
-					<Button
-						class="flex-1"
-						variant="solid"
-						theme="red"
-						:loading="rejectingAttendanceRequest"
-						:disabled="!rejectReason.trim()"
-						@click="rejectAttendanceRequest"
-					>
-						{{ __("Reject") }}
-					</Button>
-				</div>
-			</template>
-		</Dialog>
 
 		<Dialog v-model="showCancelLeaveDialog">
 			<template #body-title>
@@ -343,12 +340,12 @@ const relatedApplications = ref([])
 let showPreviewModal = ref(false)
 let selectedFile = ref({})
 let workflow = ref(null)
-const showRejectDialog = ref(false)
 const rejectReason = ref("")
 const showCancelLeaveDialog = ref(false)
 const cancellingOwnLeave = ref(false)
 const approvingAttendanceRequest = ref(false)
 const rejectingAttendanceRequest = ref(false)
+const approvingCnrApplication = ref(false)
 
 function showFilePreview(fileObj) {
 	selectedFile.value = fileObj
@@ -492,6 +489,22 @@ const showAttendanceRequestApproval = computed(() => {
 	return !!canApproveAttendanceRequest.data
 })
 
+const isCnrOrAttendanceRequest = computed(() => {
+	return (
+		CNR_DOCTYPES.includes(props.modelValue.doctype) ||
+		props.modelValue.doctype === "Attendance Request"
+	)
+})
+
+const showCnrApproval = computed(() => {
+	if (!CNR_DOCTYPES.includes(props.modelValue.doctype)) return false
+	if (document?.doc?.docstatus !== 0) return false
+	const status = document?.doc?.status || "Draft"
+	if (!["Draft", "Open"].includes(status)) return false
+	return !!canApproveCnr.data
+})
+
+
 const canSubmitRequest = computed(() => {
 	if (document?.doc?.docstatus !== 0 || !hasPermission("submit")) return false
 	if (props.modelValue.doctype === "Attendance Request") {
@@ -549,19 +562,69 @@ async function approveAttendanceRequest() {
 	}
 }
 
-async function rejectAttendanceRequest() {
-	if (!rejectReason.value.trim()) return
+async function approveCnrApplication() {
+	approvingCnrApplication.value = true
+	try {
+		await call("nepal_hrms.api.cnr_applications.set_cnr_application_approval", {
+			doctype: props.modelValue.doctype,
+			name: props.modelValue.name,
+			status: "Approved",
+		})
+		await document.reload()
+		toast({
+			title: __("Success"),
+			text: __("Approved successfully!"),
+			icon: "check-circle",
+			position: "bottom-center",
+			iconClasses: "text-green-500",
+		})
+		modalController.dismiss()
+	} catch (error) {
+		toast({
+			title: __("Error"),
+			text:
+				error.messages?.join?.(" ") ||
+				error.message ||
+				__("Approval failed!"),
+			icon: "alert-circle",
+			position: "bottom-center",
+			iconClasses: "text-red-500",
+		})
+	} finally {
+		approvingCnrApplication.value = false
+	}
+}
+
+async function confirmReject() {
+	if (!rejectReason.value.trim()) {
+		toast({
+			title: __("Error"),
+			text: __("Please enter a rejection reason"),
+			icon: "alert-circle",
+			position: "bottom-center",
+			iconClasses: "text-red-500",
+		})
+		return
+	}
 	rejectingAttendanceRequest.value = true
 	try {
-		await call(
-			"nepal_hrms.overrides.attendance_request.set_attendance_request_approval",
-			{
+		if (CNR_DOCTYPES.includes(props.modelValue.doctype)) {
+			await call("nepal_hrms.api.cnr_applications.set_cnr_application_approval", {
+				doctype: props.modelValue.doctype,
 				name: props.modelValue.name,
 				status: "Rejected",
 				rejection_reason: rejectReason.value.trim(),
-			}
-		)
-		showRejectDialog.value = false
+			})
+		} else {
+			await call(
+				"nepal_hrms.overrides.attendance_request.set_attendance_request_approval",
+				{
+					name: props.modelValue.name,
+					status: "Rejected",
+					rejection_reason: rejectReason.value.trim(),
+				}
+			)
+		}
 		rejectReason.value = ""
 		await document.reload()
 		toast({

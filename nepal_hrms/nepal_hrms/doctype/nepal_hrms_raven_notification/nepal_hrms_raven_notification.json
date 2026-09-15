@@ -1,0 +1,102 @@
+{
+ "actions": [],
+ "creation": "2026-09-14 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "event_key",
+  "event_label",
+  "enabled",
+  "send_to_channel",
+  "send_to_employee",
+  "send_to_reports_to",
+  "send_to_approver",
+  "channel",
+  "message"
+ ],
+ "fields": [
+  {
+   "fieldname": "event_key",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "in_list_view": 0,
+   "label": "Event",
+   "options": "checkin_in\ncheckin_out\ncheckin_ooo_in\ncheckin_ooo_out\nattendance_present\nattendance_absent\nattendance_half_day\nattendance_on_leave\nattendance_wfh\nattendance_late\nattendance_early\nattendance_cancelled\nattendance_request_new\nattendance_request_submit\nattendance_request_cancel\nlate_entry_app_new\nlate_entry_app_submit\nlate_entry_app_cancel\nearly_exit_app_new\nearly_exit_app_submit\nearly_exit_app_cancel\nooo_app_new\nooo_app_submit\nooo_app_cancel\nleave_app_new\nleave_app_submit\nleave_app_cancel\npolicy_escape_new",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "event_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Event",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "default": "0",
+   "description": "Post to this row's Channel if set, otherwise the default Raven Channel above.",
+   "fieldname": "send_to_channel",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Channel"
+  },
+  {
+   "default": "0",
+   "description": "Direct message the employee's User. Skipped if they are not a Raven User.",
+   "fieldname": "send_to_employee",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Employee"
+  },
+  {
+   "default": "0",
+   "description": "Direct message the employee's reporting manager. Skipped if they are not a Raven User.",
+   "fieldname": "send_to_reports_to",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Reports To"
+  },
+  {
+   "default": "0",
+   "description": "Direct message the leave approver (document field, else Employee.leave_approver). Skipped if they are not a Raven User. Deduplicated against Reports To.",
+   "fieldname": "send_to_approver",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Approver"
+  },
+  {
+   "depends_on": "eval: doc.send_to_channel",
+   "description": "Optional. Leave empty to use the default Raven Channel on the Notifications tab.",
+   "fieldname": "channel",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Channel"
+  },
+  {
+   "description": "Optional Jinja override. Leave empty to use the built-in template.",
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Message Override"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-14 20:05:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nepal HRMS",
+ "name": "Nepal HRMS Raven Notification",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

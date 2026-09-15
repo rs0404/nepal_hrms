@@ -10,7 +10,7 @@ When unapproved OOO Work check-ins are present:
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, getdate, time_diff_in_hours
+from frappe.utils import cint, flt, get_datetime, getdate, time_diff_in_hours
 
 from hrms.hr.doctype.employee_checkin.employee_checkin import (
 	mark_attendance_and_link_log as original_mark_attendance_and_link_log,
@@ -22,8 +22,10 @@ from hrms.hr.doctype.employee_checkin.employee_checkin import (
 )
 from nepal_hrms.custom_code.attendance_policy import (
 	apply_late_early_to_attendance,
+	calculate_ooo_hours_from_checkins,
 	compute_late_early_minutes,
 	get_approved_application,
+	get_attendance_for_employee_date,
 	get_hr_settings,
 )
 
@@ -49,6 +51,23 @@ def custom_mark_attendance_and_link_log(
 	if attendance_status == "Skip":
 		skip_attendance_in_checkins(log_names)
 		return None
+
+	existing_name = frappe.db.exists(
+		"Attendance",
+		{
+			"employee": employee,
+			"attendance_date": getdate(attendance_date),
+			"docstatus": ["<", 2],
+		},
+	)
+	if existing_name:
+		existing_status = frappe.db.get_value("Attendance", existing_name, "status")
+		if existing_status == "On Leave":
+			skip_attendance_in_checkins(log_names)
+			return None
+		synced = sync_attendance_hours_from_checkins(employee, attendance_date)
+		update_attendance_in_checkins(log_names, existing_name)
+		return synced or frappe.get_doc("Attendance", existing_name)
 
 	has_unapproved_ooo = _check_unapproved_ooo_logs(log_names)
 
@@ -332,3 +351,183 @@ def _create_ooo_hold_attendance(
 
 	except frappe.ValidationError as e:
 		handle_attendance_exception(log_names, e)
+
+
+def compute_hours_from_checkin_rows(rows, shift_name=None):
+	"""Pair IN/OUT logs. Normal always counts; OOO counts only when approved and not rejected."""
+	total_seconds = 0
+	last_in_time = None
+	first_in = None
+	last_out = None
+	has_normal = False
+	has_ooo = False
+	has_unapproved_ooo = False
+
+	for row in rows or []:
+		att_type = (getattr(row, "custom_attendance_type", None) or "Normal").strip()
+		if att_type == "OOO Work":
+			has_ooo = True
+			if cint(getattr(row, "custom_ooo_rejected", 0)):
+				continue
+			if not cint(getattr(row, "custom_is_approved", 0)):
+				has_unapproved_ooo = True
+				continue
+		else:
+			has_normal = True
+
+		if not shift_name and getattr(row, "shift", None):
+			shift_name = row.shift
+
+		log_type = (getattr(row, "log_type", None) or "").upper()
+		when = getattr(row, "time", None)
+		if not when:
+			continue
+		when = get_datetime(when)
+
+		if log_type == "IN":
+			last_in_time = when
+			if first_in is None:
+				first_in = when
+		elif log_type == "OUT" and last_in_time:
+			total_seconds += (when - last_in_time).total_seconds()
+			last_out = when
+			last_in_time = None
+
+	total_hours = round(total_seconds / 3600.0, 2)
+	status = _status_from_hours(total_hours, shift_name)
+	if not has_normal and total_hours > 0:
+		status = "Present"
+
+	return frappe._dict(
+		total_hours=total_hours,
+		first_in=first_in,
+		last_out=last_out,
+		shift_name=shift_name,
+		has_normal=has_normal,
+		has_ooo=has_ooo,
+		has_unapproved_ooo=has_unapproved_ooo,
+		status=status,
+	)
+
+
+def compute_day_hours_from_checkins(employee, attendance_date):
+	"""Load a day's check-ins and compute countable hours / in / out / status."""
+	attendance_date = getdate(attendance_date)
+	fields = [
+		"name",
+		"time",
+		"log_type",
+		"shift",
+		"custom_attendance_type",
+		"custom_is_approved",
+	]
+	meta = frappe.get_meta("Employee Checkin")
+	if meta.has_field("custom_ooo_rejected"):
+		fields.append("custom_ooo_rejected")
+
+	rows = frappe.get_all(
+		"Employee Checkin",
+		filters={
+			"employee": employee,
+			"time": ["between", [f"{attendance_date} 00:00:00", f"{attendance_date} 23:59:59"]],
+		},
+		fields=fields,
+		order_by="time asc",
+	)
+	computed = compute_hours_from_checkin_rows(rows)
+	computed.ooo_hours = calculate_ooo_hours_from_checkins(
+		employee, attendance_date, approved_only=True
+	)
+	computed.checkin_names = [row.name for row in rows]
+	return computed
+
+
+def sync_attendance_hours_from_checkins(employee, attendance_date):
+	"""
+	Rewrite Attendance hours/status from all punches that day.
+
+	Used when a late biometric IN arrives after OOO-only attendance was already marked.
+	Does not override On Leave.
+	"""
+	attendance_date = getdate(attendance_date)
+	attendance_name = get_attendance_for_employee_date(employee, attendance_date)
+	if not attendance_name:
+		return None
+
+	attendance = frappe.get_doc("Attendance", attendance_name)
+	if (attendance.status or "").strip() == "On Leave" or attendance.leave_type:
+		return attendance
+
+	computed = compute_day_hours_from_checkins(employee, attendance_date)
+	before_status = attendance.status
+	before_hours = flt(attendance.working_hours)
+
+	values = {
+		"working_hours": computed.total_hours,
+		"status": computed.status,
+		"in_time": computed.first_in,
+		"out_time": computed.last_out,
+		"late_entry": attendance.late_entry,
+		"early_exit": attendance.early_exit,
+	}
+	if computed.shift_name:
+		values["shift"] = computed.shift_name
+
+	meta = frappe.get_meta("Attendance")
+	if meta.has_field("custom_ooo_hours"):
+		values["custom_ooo_hours"] = computed.ooo_hours
+	if meta.has_field("custom_has_ooo_logs"):
+		values["custom_has_ooo_logs"] = 1 if computed.has_ooo else 0
+	if meta.has_field("custom_ooo_hold"):
+		values["custom_ooo_hold"] = 1 if computed.has_unapproved_ooo else 0
+
+	for key, val in values.items():
+		setattr(attendance, key, val)
+	apply_late_early_to_attendance(attendance)
+
+	values["status"] = attendance.status
+	values["late_entry"] = cint(attendance.late_entry)
+	values["early_exit"] = cint(attendance.early_exit)
+	for field in (
+		"custom_late_mins",
+		"custom_early_mins",
+		"custom_cnr_unexcused_late",
+		"custom_cnr_unexcused_early",
+		"custom_cnr_late_in_pool",
+		"custom_cnr_early_in_pool",
+		"custom_cnr_month_late_pool_count",
+		"custom_cnr_month_early_pool_count",
+		"half_day_status",
+	):
+		if meta.has_field(field):
+			values[field] = getattr(attendance, field, None)
+
+	frappe.db.set_value("Attendance", attendance_name, values, update_modified=True)
+
+	for checkin_name in computed.checkin_names:
+		frappe.db.set_value(
+			"Employee Checkin",
+			checkin_name,
+			{"attendance": attendance_name, "skip_auto_attendance": 0},
+			update_modified=False,
+		)
+
+	if before_status != attendance.status or flt(before_hours) != flt(computed.total_hours):
+		attendance.add_comment(
+			"Comment",
+			text=_(
+				"Hours recalculated from all check-ins for the day "
+				"({0}h → {1}h, {2} → {3})."
+			).format(before_hours, computed.total_hours, before_status, attendance.status),
+		)
+
+	return frappe.get_doc("Attendance", attendance_name)
+
+
+def sync_existing_attendance_on_checkin(doc, method=None):
+	"""after_insert: fold a late punch into attendance that was already marked."""
+	if not getattr(doc, "employee", None) or not getattr(doc, "time", None):
+		return
+	if frappe.flags.get("skip_attendance_checkin_sync"):
+		return
+	sync_attendance_hours_from_checkins(doc.employee, getdate(doc.time))

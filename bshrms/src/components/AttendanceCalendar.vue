@@ -14,9 +14,10 @@
 					</span>
 					<button
 						type="button"
-						class="p-1 text-gray-400 hover:text-gray-700"
+						class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-100"
 						:title="__('Refresh')"
 						:aria-label="__('Refresh')"
+						:disabled="calendarEvents.loading"
 						@click.stop="reloadCalendar"
 					>
 						<FeatherIcon
@@ -24,6 +25,7 @@
 							class="h-3.5 w-3.5"
 							:class="calendarEvents.loading ? 'animate-spin' : ''"
 						/>
+						{{ __("Refresh") }}
 					</button>
 				</div>
 				<Button
@@ -46,9 +48,22 @@
 				<div
 					v-for="index in firstOfMonth.endOf('M').get('D')"
 					:key="'day-' + index"
-					class="relative flex flex-col items-center"
+					class="relative flex flex-col items-center pt-2"
 					@click="onDayClick(index)"
 				>
+					<div
+						v-if="leaveDayMarks(getEventOnDate(index)).length"
+						class="absolute top-0 left-1/2 -translate-x-1/2 z-10 flex gap-px"
+					>
+						<span
+							v-for="mark in leaveDayMarks(getEventOnDate(index))"
+							:key="mark"
+							class="leave-mark-badge"
+							:class="leaveMarkClass(mark)"
+						>
+							{{ mark }}
+						</span>
+					</div>
 					<div
 						class="h-9 w-9 flex rounded-lg mx-auto cursor-pointer"
 						:class="[
@@ -147,6 +162,15 @@
 				<span class="inline-flex items-center gap-1">
 					<i class="marker-dot sandwich" />{{ __("Sandwich") }}
 				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="leave-mark-badge half">1/2</span>{{ __("Half day leave") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="leave-mark-badge sick">SL</span>{{ __("Sick leave") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="leave-mark-badge home">HL</span>{{ __("Home leave") }}
+				</span>
 			</div>
 		</div>
 	</div>
@@ -156,6 +180,7 @@
 import { computed, inject, ref, watch } from "vue"
 import { createResource, FeatherIcon } from "frappe-ui"
 import { groupContiguousDates } from "@/utils/leave_ranges"
+import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
 
 const emit = defineEmits(["select-day", "create-leave", "refresh"])
 
@@ -347,12 +372,12 @@ const calendarEvents = createResource({
 	},
 })
 
-function reloadCalendar() {
-	calendarEvents.reload()
+async function reloadCalendar() {
+	await calendarEvents.reload()
 	emit("refresh")
 }
 
-defineExpose({ reload: () => calendarEvents.reload() })
+defineExpose({ reload: reloadCalendar })
 
 watch(
 	() => props.employee,
@@ -390,5 +415,31 @@ watch(
 
 .marker-dot.sandwich {
 	background-color: #be123c;
+}
+
+.leave-mark-badge {
+	display: inline-block;
+	font-size: 8px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 1px 2px;
+	border-radius: 3px;
+	letter-spacing: -0.02em;
+	white-space: nowrap;
+}
+
+.leave-mark-badge.half {
+	color: #1d4ed8;
+	background: #dbeafe;
+}
+
+.leave-mark-badge.sick {
+	color: #9a3412;
+	background: #ffedd5;
+}
+
+.leave-mark-badge.home {
+	color: #065f46;
+	background: #d1fae5;
 }
 </style>

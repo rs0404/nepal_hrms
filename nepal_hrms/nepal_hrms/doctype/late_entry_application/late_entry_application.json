@@ -136,7 +136,7 @@
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-07-28 00:00:00.000000",
+ "modified": "2026-09-15 07:40:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Late Entry Application",
@@ -228,5 +228,18 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [
+  {
+   "color": "Orange",
+   "title": "Draft"
+  },
+  {
+   "color": "Green",
+   "title": "Approved"
+  },
+  {
+   "color": "Red",
+   "title": "Rejected"
+  }
+ ]
 }

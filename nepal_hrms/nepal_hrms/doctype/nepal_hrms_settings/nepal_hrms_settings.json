@@ -116,7 +116,23 @@
   "scheduled_runs_section",
   "scheduled_payroll_runs",
   "payroll_setup_section",
-  "run_payroll_setup"
+  "run_payroll_setup",
+  "notification_tab",
+  "raven_bot_section",
+  "raven_bot_source",
+  "column_break_raven_bot",
+  "raven_bot",
+  "new_raven_bot_name",
+  "raven_channel_section",
+  "raven_channel_source",
+  "raven_channel",
+  "column_break_raven_channel",
+  "new_raven_channel_name",
+  "new_raven_channel_type",
+  "raven_workspace",
+  "raven_channel_roles",
+  "raven_events_section",
+  "raven_notifications"
  ],
  "fields": [
   {
@@ -823,12 +839,116 @@
    "fieldname": "run_payroll_setup",
    "fieldtype": "Button",
    "label": "Create Components, Structures & Tax Slab"
+  },
+  {
+   "fieldname": "notification_tab",
+   "fieldtype": "Tab Break",
+   "label": "Notifications"
+  },
+  {
+   "description": "The bot that posts attendance alerts. Pick an existing Raven Bot or create one named Nepal HRMS (reused if it already exists).",
+   "fieldname": "raven_bot_section",
+   "fieldtype": "Section Break",
+   "label": "Raven Bot"
+  },
+  {
+   "default": "Create New Bot",
+   "fieldname": "raven_bot_source",
+   "fieldtype": "Select",
+   "label": "Bot Source",
+   "options": "Existing Bot\nCreate New Bot"
+  },
+  {
+   "fieldname": "column_break_raven_bot",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval: doc.raven_bot_source == \"Existing Bot\"",
+   "description": "Name of an existing Raven Bot.",
+   "fieldname": "raven_bot",
+   "fieldtype": "Data",
+   "label": "Raven Bot"
+  },
+  {
+   "default": "Nepal HRMS",
+   "depends_on": "eval: doc.raven_bot_source == \"Create New Bot\"",
+   "description": "Created on save if it does not already exist.",
+   "fieldname": "new_raven_bot_name",
+   "fieldtype": "Data",
+   "label": "New Bot Name"
+  },
+  {
+   "description": "Default channel for events that have Channel checked but do not pick their own. Creating it also adds the bot and users who have the roles below (only if they are already Raven Users).",
+   "fieldname": "raven_channel_section",
+   "fieldtype": "Section Break",
+   "label": "Raven Channel"
+  },
+  {
+   "default": "Create New Channel",
+   "fieldname": "raven_channel_source",
+   "fieldtype": "Select",
+   "label": "Channel Source",
+   "options": "Existing Channel\nCreate New Channel"
+  },
+  {
+   "depends_on": "eval: doc.raven_channel_source == \"Existing Channel\"",
+   "description": "Raven Channel document name (not the display title).",
+   "fieldname": "raven_channel",
+   "fieldtype": "Data",
+   "label": "Raven Channel"
+  },
+  {
+   "fieldname": "column_break_raven_channel",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "hr-attendance",
+   "depends_on": "eval: doc.raven_channel_source == \"Create New Channel\"",
+   "fieldname": "new_raven_channel_name",
+   "fieldtype": "Data",
+   "label": "New Channel Name"
+  },
+  {
+   "default": "Private",
+   "depends_on": "eval: doc.raven_channel_source == \"Create New Channel\"",
+   "fieldname": "new_raven_channel_type",
+   "fieldtype": "Select",
+   "label": "Channel Type",
+   "options": "Private\nPublic\nOpen"
+  },
+  {
+   "depends_on": "eval: doc.raven_channel_source == \"Create New Channel\"",
+   "description": "Raven Workspace to create the channel in. Defaults to Raven if left empty.",
+   "fieldname": "raven_workspace",
+   "fieldtype": "Data",
+   "label": "Workspace"
+  },
+  {
+   "description": "Users with these roles who are already Raven Users are added to the channel on each save.",
+   "fieldname": "raven_channel_roles",
+   "fieldtype": "Table",
+   "label": "Channel Member Roles",
+   "options": "Nepal HRMS Role"
+  },
+  {
+   "description": "Enable an event and choose who should be notified. Direct messages are skipped when the person is not a Raven User. All events start disabled.",
+   "fieldname": "raven_events_section",
+   "fieldtype": "Section Break",
+   "label": "Attendance Notifications"
+  },
+  {
+   "cannot_add_rows": 1,
+   "cannot_delete_rows": 1,
+   "fieldname": "raven_notifications",
+   "fieldtype": "Table",
+   "label": "Attendance Notifications",
+   "options": "Nepal HRMS Raven Notification"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-05 19:46:00.000000",
+ "modified": "2026-09-14 19:05:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Settings",

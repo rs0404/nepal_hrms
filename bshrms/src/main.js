@@ -207,7 +207,7 @@ router.beforeEach(async (to, _, next) => {
 		if (identityMatches(userResource, employeeResource)) {
 			refreshIdentityInBackground()
 			if (to.name === "Login") {
-				return next({ name: "Home" })
+				return next({ name: "AttendanceDashboard" })
 			}
 			return next()
 		}
