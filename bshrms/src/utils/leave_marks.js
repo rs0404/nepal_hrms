@@ -8,15 +8,25 @@ function isLeaveDay(info) {
 	)
 }
 
-export function leaveTypeKind(leaveType) {
+export function leaveTypeKind(leaveType, isLwp) {
 	const name = String(leaveType || "").toLowerCase()
+	if (
+		isLwp ||
+		name === "lwp" ||
+		name.includes("lwp") ||
+		name.includes("without pay") ||
+		name.includes("unpaid")
+	) {
+		return "lwp"
+	}
 	if (name.includes("sick")) return "sick"
 	if (name.includes("home")) return "home"
 	return ""
 }
 
-export function leaveTypeMarks(leaveType) {
-	const kind = leaveTypeKind(leaveType)
+export function leaveTypeMarks(leaveType, isLwp) {
+	const kind = leaveTypeKind(leaveType, isLwp)
+	if (kind === "lwp") return ["LWP"]
 	if (kind === "sick") return ["SL"]
 	if (kind === "home") return ["HL"]
 	return []
@@ -26,7 +36,7 @@ export function leaveDayMarks(info) {
 	if (!isLeaveDay(info)) return []
 	const marks = []
 	if (info.half_day) marks.push("1/2")
-	marks.push(...leaveTypeMarks(info.leave_type))
+	marks.push(...leaveTypeMarks(info.leave_type, info.is_lwp))
 	return marks
 }
 
@@ -38,7 +48,7 @@ export function leaveApplicationMarks(doc) {
 	if (!doc) return []
 	const marks = []
 	if (doc.half_day) marks.push("1/2")
-	marks.push(...leaveTypeMarks(doc.leave_type))
+	marks.push(...leaveTypeMarks(doc.leave_type, doc.is_lwp))
 	return marks
 }
 
@@ -46,5 +56,6 @@ export function leaveMarkClass(mark) {
 	if (mark === "1/2") return "half"
 	if (mark === "SL") return "sick"
 	if (mark === "HL") return "home"
+	if (mark === "LWP") return "lwp"
 	return ""
 }

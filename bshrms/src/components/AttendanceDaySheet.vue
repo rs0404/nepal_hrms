@@ -282,6 +282,7 @@ const dayLeaveMarks = computed(() => {
 		leave: details.value.flags?.leave,
 		half_day: details.value.flags?.half_day,
 		leave_type: details.value.flags?.leave_type,
+		is_lwp: details.value.flags?.is_lwp,
 	})
 })
 
@@ -367,5 +368,10 @@ function openRelatedApplication(app) {
 .leave-mark-badge.home {
 	color: #065f46;
 	background: #d1fae5;
+}
+
+.leave-mark-badge.lwp {
+	color: #334155;
+	background: #e2e8f0;
 }
 </style>

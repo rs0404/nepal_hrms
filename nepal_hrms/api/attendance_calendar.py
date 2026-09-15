@@ -9,6 +9,21 @@ from frappe.utils import add_days, cint, date_diff, getdate, get_first_day, toda
 from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
 
 
+def _lwp_leave_types():
+	return set(frappe.get_all("Leave Type", filters={"is_lwp": 1}, pluck="name"))
+
+
+def _is_lwp_leave(leave_type, lwp_types=None):
+	if not leave_type:
+		return 0
+	if lwp_types is not None:
+		return 1 if leave_type in lwp_types else 0
+	name = str(leave_type).strip().lower()
+	if "without pay" in name or "lwp" in name or "unpaid" in name:
+		return 1
+	return cint(frappe.db.get_value("Leave Type", leave_type, "is_lwp") or 0)
+
+
 def _leave_half_day_on(app):
 	"""AD date that is the half-day of a Leave Application, or None."""
 	if not cint(getattr(app, "half_day", 0)):
@@ -232,6 +247,8 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			from_date = month_start
 		if to_date < from_date:
 			return {}
+
+	lwp_types = _lwp_leave_types()
 
 	attendance_rows = frappe.get_all(
 		"Attendance",
@@ -531,6 +548,9 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			}
 			events[date_str] = info
 		info["ooo_required"] = 1
+
+	for info in events.values():
+		info["is_lwp"] = _is_lwp_leave(info.get("leave_type"), lwp_types)
 
 	return events
 
@@ -850,6 +870,11 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 			"leave_app_status": leave_app_status,
 			"leave_application": leave_application_name,
 			"half_day": half_day,
+			"is_lwp": _is_lwp_leave(
+				sandwich_leave_type
+				or (attendance.leave_type if attendance else None)
+				or leave_app_type
+			),
 		},
 		"links": links,
 		"actions": actions,

@@ -171,6 +171,9 @@
 				<span class="inline-flex items-center gap-1">
 					<span class="leave-mark-badge home">HL</span>{{ __("Home leave") }}
 				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="leave-mark-badge lwp">LWP</span>{{ __("Leave without pay") }}
+				</span>
 			</div>
 		</div>
 	</div>
@@ -441,5 +444,10 @@ watch(
 .leave-mark-badge.home {
 	color: #065f46;
 	background: #d1fae5;
+}
+
+.leave-mark-badge.lwp {
+	color: #334155;
+	background: #e2e8f0;
 }
 </style>

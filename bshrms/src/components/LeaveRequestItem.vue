@@ -98,4 +98,9 @@ const colorMap = {
 	color: #065f46;
 	background: #d1fae5;
 }
+
+.leave-mark-badge.lwp {
+	color: #334155;
+	background: #e2e8f0;
+}
 </style>
