@@ -514,9 +514,31 @@
 
 .sheet-bs-audit-main {
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 1px;
     min-width: 24px;
+    line-height: 1.2;
+}
+
+.sheet-bs-cnr-main {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.sheet-bs-cnr-sub {
+    font-size: 10px;
+    font-weight: 600;
+    color: #475569;
+}
+
+.attendance-cell--penalty-half .attendance-bar {
+    box-shadow: inset 0 0 0 1px #f59e0b;
+}
+
+.attendance-cell--penalty-full .attendance-bar {
+    box-shadow: inset 0 0 0 1px #dc2626;
 }
 
 .sheet-bs-audit-cell--pending {
@@ -757,6 +779,29 @@
     font-size: 10px;
 }
 
+.sheet-bs-app-ad,
+.sheet-bs-app-bs,
+.sheet-bs-app-relative {
+    display: block;
+}
+
+.sheet-bs-app-ad {
+    color: #334155;
+    font-weight: 600;
+}
+
+.sheet-bs-app-bs {
+    margin-top: 1px;
+    color: #64748b;
+}
+
+.sheet-bs-app-relative {
+    margin-top: 1px;
+    color: #475569;
+    font-size: 10px;
+    font-weight: 600;
+}
+
 .sheet-bs-app-reason {
     grid-column: 1 / -1;
     color: #475569;
@@ -862,30 +907,54 @@
     color: #1d4ed8;
 }
 
+.sheet-bs-daily-apps {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.sheet-bs-daily-apps .sheet-bs-audit-subtitle {
+    margin-top: 0;
+}
+
 .sheet-bs-daily-documents {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .sheet-bs-daily-doc {
-    display: grid;
-    grid-template-columns: minmax(130px, 1fr) auto;
-    gap: 10px;
-    padding: 6px 8px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
+    border-radius: 8px;
     background: #f8fafc;
     color: #475569;
     text-decoration: none;
 }
 
-.sheet-bs-daily-doc strong {
-    color: #2563eb;
-    font-weight: 600;
+.sheet-bs-daily-doc-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
 }
 
-.sheet-bs-daily-doc:hover strong {
+.sheet-bs-daily-doc-type {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.sheet-bs-daily-doc .sheet-bs-app-status {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.sheet-bs-daily-doc:hover .sheet-bs-daily-doc-type {
+    color: #2563eb;
     text-decoration: underline;
 }
 

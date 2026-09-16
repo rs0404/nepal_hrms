@@ -53,22 +53,53 @@
 
 				<div v-if="hasFlags" class="flex flex-wrap gap-1.5">
 					<span
-						v-if="details.flags.late"
-						class="flag-chip bg-orange-50 text-orange-700 ring-orange-200"
+						v-if="lateChip"
+						class="flag-chip"
+						:class="
+							lateChip.after
+								? 'bg-orange-100 text-orange-800 ring-orange-300'
+								: 'bg-orange-50 text-orange-600 ring-orange-200'
+						"
 					>
-						<i class="flag-dot bg-orange-600" />{{ __("Late Entry") }}
+						<i
+							class="chip-delay-dot late"
+							:class="lateChip.after ? 'after' : 'grace'"
+						/>
+						{{ lateChip.label }}
+						<i
+							v-if="lateChip.app"
+							class="app-mark"
+							:class="appStatusClass(lateChip.app)"
+							:title="__(lateChip.app)"
+						/>
 					</span>
 					<span
-						v-if="details.flags.early"
-						class="flag-chip bg-violet-50 text-violet-700 ring-violet-200"
+						v-if="earlyChip"
+						class="flag-chip"
+						:class="
+							earlyChip.after
+								? 'bg-violet-100 text-violet-800 ring-violet-300'
+								: 'bg-violet-50 text-violet-600 ring-violet-200'
+						"
 					>
-						<i class="flag-dot bg-violet-600" />{{ __("Early Exit") }}
+						<i
+							class="chip-delay-dot early"
+							:class="earlyChip.after ? 'after' : 'grace'"
+						/>
+						{{ earlyChip.label }}
+						<i
+							v-if="earlyChip.app"
+							class="app-mark"
+							:class="appStatusClass(earlyChip.app)"
+							:title="__(earlyChip.app)"
+						/>
 					</span>
 					<span
-						v-if="details.flags.ooo_required"
+						v-if="oooChip"
 						class="flag-chip bg-teal-50 text-teal-700 ring-teal-200"
 					>
-						<i class="flag-dot bg-teal-600" />{{ __("Out of Office required") }}
+						<i class="flag-dot bg-teal-600" />{{ oooChip.label }}
+						<i v-if="oooChip.app" class="app-mark" :class="appStatusClass(oooChip.app)" />
 					</span>
 					<span
 						v-if="details.flags.sandwich"
@@ -158,10 +189,19 @@
 						class="w-full text-left bg-blue-50 border border-blue-100 rounded-lg px-3 py-2"
 						@click="openRelatedApplication(app)"
 					>
-						<div class="text-sm font-medium text-blue-800">{{ __(app.doctype) }}</div>
-						<div class="text-xs text-blue-600 truncate">
-							{{ app.name }}
-							<span v-if="app.status" class="text-blue-400"> · {{ __(app.status) }}</span>
+						<div class="flex items-start justify-between gap-2">
+							<div class="min-w-0">
+								<div class="text-sm font-medium text-blue-800">{{ __(app.doctype) }}</div>
+								<div class="text-xs text-blue-600 truncate">{{ app.name }}</div>
+							</div>
+							<span
+								v-if="app.status"
+								class="inline-flex items-center gap-1 shrink-0 text-xs font-semibold"
+								:class="relatedStatusClass(app.status)"
+							>
+								<i class="app-mark" :class="appStatusClass(app.status)" />
+								{{ __(app.status) }}
+							</span>
 						</div>
 					</button>
 				</div>
@@ -200,6 +240,7 @@ import { useRouter } from "vue-router"
 
 import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import { appStatusClass, normalizeAppStatus } from "@/utils/app_status"
 
 const props = defineProps({
 	date: { type: String, required: true },
@@ -283,15 +324,69 @@ const dayLeaveMarks = computed(() => {
 		half_day: details.value.flags?.half_day,
 		leave_type: details.value.flags?.leave_type,
 		is_lwp: details.value.flags?.is_lwp,
+		pool_penalty: details.value.flags?.pool_penalty,
+		penalty_mark: details.value.flags?.penalty_mark,
 	})
 })
+
+function delayChip(mins, grace, appStatus, afterLabel, withinLabel, appOnlyLabel) {
+	const minutes = Number(mins) || 0
+	const app = normalizeAppStatus(appStatus)
+	if (minutes <= 0 && !app) return null
+	const after = minutes > (Number(grace) || 15)
+	let label = appOnlyLabel
+	if (minutes > 0) label = after ? afterLabel : withinLabel
+	return { after, app, label }
+}
+
+const lateChip = computed(() => {
+	if (!details.value) return null
+	return delayChip(
+		details.value.late_mins,
+		details.value.grace_mins,
+		details.value.flags?.late_app_status,
+		__("Late Entry · after grace"),
+		__("Late Entry · within grace"),
+		__("Late Entry")
+	)
+})
+
+const earlyChip = computed(() => {
+	if (!details.value) return null
+	return delayChip(
+		details.value.early_mins,
+		details.value.grace_mins,
+		details.value.flags?.early_app_status,
+		__("Early Exit · after grace"),
+		__("Early Exit · within grace"),
+		__("Early Exit")
+	)
+})
+
+const oooChip = computed(() => {
+	if (!details.value) return null
+	const app = normalizeAppStatus(details.value.flags?.ooo_app_status)
+	if (!details.value.flags?.ooo_required && !app) return null
+	const label = details.value.flags?.ooo_required
+		? __("Out of Office required")
+		: __("Out of Office")
+	return { app, label }
+})
+
+function relatedStatusClass(status) {
+	const value = normalizeAppStatus(status)
+	if (value === "Approved") return "text-green-700"
+	if (value === "Rejected") return "text-red-600"
+	if (value === "Draft") return "text-amber-600"
+	return "text-blue-500"
+}
 
 const hasFlags = computed(
 	() =>
 		details.value &&
-		(details.value.flags?.late ||
-			details.value.flags?.early ||
-			details.value.flags?.ooo_required ||
+		(lateChip.value ||
+			earlyChip.value ||
+			oooChip.value ||
 			details.value.flags?.sandwich ||
 			leaveChip.value ||
 			dayLeaveMarks.value.length ||
@@ -343,6 +438,33 @@ function openRelatedApplication(app) {
 	flex-shrink: 0;
 }
 
+.chip-delay-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	box-sizing: border-box;
+}
+
+.chip-delay-dot.late.grace {
+	background-color: #fff;
+	box-shadow: inset 0 0 0 1.5px #ea580c;
+}
+
+.chip-delay-dot.late.after {
+	background-color: #ea580c;
+}
+
+.chip-delay-dot.early.grace {
+	background-color: #fff;
+	box-shadow: inset 0 0 0 1.5px #7c3aed;
+}
+
+.chip-delay-dot.early.after {
+	background-color: #7c3aed;
+}
+
 .leave-mark-badge {
 	display: inline-flex;
 	align-items: center;
@@ -370,8 +492,48 @@ function openRelatedApplication(app) {
 	background: #d1fae5;
 }
 
+.leave-mark-badge.penalty-half {
+	background: #f59e0b;
+	color: #451a03;
+}
+.leave-mark-badge.penalty-full {
+	background: #dc2626;
+	color: #fff7ed;
+}
 .leave-mark-badge.lwp {
 	color: #334155;
 	background: #e2e8f0;
+}
+
+.app-mark {
+	display: inline-block;
+	font-size: 11px;
+	font-weight: 800;
+	line-height: 1;
+	font-style: normal;
+}
+
+.app-mark.approved {
+	color: #16a34a;
+}
+
+.app-mark.approved::before {
+	content: "✓";
+}
+
+.app-mark.rejected {
+	color: #dc2626;
+}
+
+.app-mark.rejected::before {
+	content: "✕";
+}
+
+.app-mark.draft {
+	color: #d97706;
+}
+
+.app-mark.draft::before {
+	content: "○";
 }
 </style>

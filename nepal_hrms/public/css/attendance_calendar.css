@@ -188,12 +188,24 @@
 	background-color: #e11d48;
 }
 
-.calendar-wrapper .days-grid .day .day-markers .marker.late {
+.calendar-wrapper .days-grid .day .day-markers .marker.late.after,
+.calendar-wrapper .days-grid .day .day-markers .marker.late:not(.grace) {
 	background-color: #ea580c;
 }
 
-.calendar-wrapper .days-grid .day .day-markers .marker.early {
+.calendar-wrapper .days-grid .day .day-markers .marker.early.after,
+.calendar-wrapper .days-grid .day .day-markers .marker.early:not(.grace) {
 	background-color: #7c3aed;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.late.grace {
+	background-color: #fff !important;
+	box-shadow: inset 0 0 0 1.5px #fb923c !important;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.early.grace {
+	background-color: #fff !important;
+	box-shadow: inset 0 0 0 1.5px #a78bfa !important;
 }
 
 .calendar-wrapper .days-grid .day .day-markers .marker.ooo {
@@ -202,6 +214,46 @@
 
 .calendar-wrapper .days-grid .day .day-markers .marker.ooo::before {
 	content: "O";
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.late,
+.calendar-wrapper .days-grid .day .day-markers .marker.early,
+.calendar-wrapper .days-grid .day .day-markers .marker.ooo {
+	position: relative;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.app-approved,
+.calendar-wrapper .days-grid .day .day-markers .marker.app-rejected,
+.calendar-wrapper .days-grid .day .day-markers .marker.app-draft {
+	margin-bottom: 7px;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.app-approved::after,
+.calendar-wrapper .days-grid .day .day-markers .marker.app-rejected::after,
+.calendar-wrapper .days-grid .day .day-markers .marker.app-draft::after {
+	position: absolute;
+	top: calc(100% + 1px);
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 8px;
+	font-weight: 800;
+	font-style: normal;
+	line-height: 1;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.app-approved::after {
+	content: "✓";
+	color: #16a34a;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.app-rejected::after {
+	content: "✕";
+	color: #dc2626;
+}
+
+.calendar-wrapper .days-grid .day .day-markers .marker.app-draft::after {
+	content: "○";
+	color: #d97706;
 }
 
 .calendar-wrapper .days-grid .day.has-markers {

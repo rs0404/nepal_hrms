@@ -46,6 +46,7 @@ const SHEET_BS_SUMMARY_FLOAT_FIELDS = new Set([
 	"paid_leave_days", "paid_leave_full", "paid_leave_half",
 	"annual_home_leave_days", "sick_leave_days", "other_paid_leave_days",
 	"holiday_extra_present", "holiday_extra_hours", "total_no_of_days",
+	"penalty_half_days", "penalty_full_days", "penalty_paid_deduction",
 ]);
 const SHEET_BS_DAILY_HOVER_DATA = new Map();
 const SHEET_BS_AUDIT_HOVER_DATA = new Map();
@@ -118,8 +119,9 @@ function sheetBsAuditCell(display, title, body, options) {
 	// Keep hover HTML out of the cell so DataTable does not flatten it into a native title tooltip.
 	const key = `audit-${++sheetBsAuditHoverSeq}`;
 	SHEET_BS_AUDIT_HOVER_DATA.set(key, { title, body });
+	const main = options.htmlDisplay ? display : sheetBsEsc(display);
 	return `<div class="${classes}" tabindex="0" data-sheet-bs-audit-key="${sheetBsEsc(key)}">
-		<span class="sheet-bs-audit-main">${sheetBsEsc(display)}</span>
+		<span class="sheet-bs-audit-main">${main}</span>
 	</div>`;
 }
 
@@ -147,6 +149,9 @@ function sheetBsPaidDaysCell(row) {
 	if ((parseFloat(row.sandwich) || 0) > 0) causes.push(__("{0} sandwich-adjusted day(s)", [sheetBsFormatOneDecimal(row.sandwich)]));
 	if (cint(row.future_days_excluded)) causes.push(__("{0} future day(s) excluded", [cint(row.future_days_excluded)]));
 	if (cint(row.unmarked_today_excluded)) causes.push(__("Today is pending and excluded until attendance is marked"));
+	if (parseFloat(row.penalty_paid_deduction) > 0) {
+		causes.push(__("{0} day(s) of ½P / 1P are already inside Absent (gross), not an extra paid-day cut", [sheetBsFormatOneDecimal(row.penalty_paid_deduction)]));
+	}
 	if (mismatch && !causes.length) causes.push(__("Check overlapping or unsupported attendance statuses."));
 	body += `<div class="sheet-bs-audit-result sheet-bs-audit-result--${mismatch ? "bad" : "good"}">
 		${mismatch ? __("Checks do not reconcile") : __("All three checks reconcile within 0.05")}
@@ -185,13 +190,22 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 	const value = sheetBsFormatOneDecimal(row[fieldname] || 0);
 	let title = "";
 	let body = "";
+	let tone = "";
 	if (fieldname === "total_absent") {
+		const halfP = parseFloat(row.penalty_half_days) || 0;
+		const fullP = parseFloat(row.penalty_full_days) || 0;
 		title = __("Absent Days");
 		body = `<div class="sheet-bs-audit-section">
 			${sheetBsAuditRow(__("Full-day absences"), sheetBsFormatOneDecimal(row.absent_full || 0))}
 			${sheetBsAuditRow(__("Half-day absence entries"), sheetBsFormatOneDecimal((parseFloat(row.absent_half) || 0) * 2), __("{0} day units", [sheetBsFormatOneDecimal(row.absent_half || 0)]))}
 			${sheetBsAuditRow(__("Sandwich absences"), sheetBsFormatOneDecimal(row.sandwich_absent || 0))}
-		</div>`;
+			${sheetBsAuditRow("½P", sheetBsFormatOneDecimal(halfP), __("Half-day pool penalty · 0.5 absent at Gross"))}
+			${sheetBsAuditRow("1P", sheetBsFormatOneDecimal(fullP), __("Full-day pool penalty · 1.0 absent at Gross"))}
+		</div>
+		<div class="sheet-bs-audit-subtitle">${__("When ½P / 1P is charged")}</div>
+		${sheetBsPenaltyPolicyHTML(row)}
+		<div class="sheet-bs-audit-info">${__("½P and 1P write Attendance (Half Day / Absent) and are included in this Absent total. They are not a separate salary-slip component.")}</div>`;
+		if (halfP || fullP) tone = "rejected";
 	} else if (fieldname === "lwp_days") {
 		title = __("Leave Without Pay");
 		body = `<div class="sheet-bs-audit-section">
@@ -226,15 +240,78 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 		cellClass: ["total_absent", "lwp_days", "paid_leave_days"].includes(fieldname)
 			? "sheet-bs-summary-cell--total"
 			: "",
+		tone,
 	});
 }
 
+function sheetBsAdToBs(ad) {
+	if (!ad) return "";
+	const dateStr = String(ad).split(" ")[0];
+	try {
+		if (window.NepaliFunctions && typeof NepaliFunctions.AD2BS === "function") {
+			return NepaliFunctions.AD2BS(dateStr, false) || NepaliFunctions.AD2BS(dateStr, true) || "";
+		}
+		if (window.NepaliDateLib) {
+			if (NepaliDateLib.NepaliDate && NepaliDateLib.NepaliDate.fromAD) {
+				const nd = NepaliDateLib.NepaliDate.fromAD(new Date(`${dateStr}T12:00:00`));
+				return nd.format({ format: "YYYY-MM-DD", calendar: "BS" });
+			}
+			if (typeof NepaliDateLib.adToBs === "function") {
+				const bs = NepaliDateLib.adToBs(new Date(`${dateStr}T12:00:00`));
+				if (bs && bs.year) {
+					const month = (bs.monthIndex != null ? bs.monthIndex + 1 : bs.month);
+					return `${bs.year}-${String(month).padStart(2, "0")}-${String(bs.day).padStart(2, "0")}`;
+				}
+			}
+		}
+	} catch (e) {
+		return "";
+	}
+	return "";
+}
+
+function sheetBsRelativeDateHint(ad) {
+	if (!ad) return "";
+	if (window.nepal_hrms && typeof nepal_hrms.format_date_approval_hint === "function") {
+		return nepal_hrms.format_date_approval_hint(ad);
+	}
+	return "";
+}
+
+function sheetBsAppDateParts(ad, fromDate, toDate) {
+	const start = fromDate || ad;
+	const end = toDate;
+	if (!start && !end) return { ad: "", bs: "", hint: "" };
+	const startKey = start ? String(start).split(" ")[0] : "";
+	const endKey = end ? String(end).split(" ")[0] : "";
+	let adLabel = "";
+	let bs = "";
+	if (startKey && endKey && startKey !== endKey) {
+		adLabel = `${startKey} → ${endKey}`;
+		bs = `${sheetBsAdToBs(startKey) || startKey} → ${sheetBsAdToBs(endKey) || endKey}`;
+	} else {
+		const key = startKey || endKey;
+		adLabel = key;
+		bs = sheetBsAdToBs(key);
+	}
+	if (bs && bs === adLabel) bs = "";
+	return { ad: adLabel, bs, hint: sheetBsRelativeDateHint(startKey || endKey) };
+}
+
+function sheetBsAppDateHTML(ad, fromDate, toDate) {
+	const parts = sheetBsAppDateParts(ad, fromDate, toDate);
+	if (!parts.ad && !parts.bs && !parts.hint) return "";
+	return `<span class="sheet-bs-app-date">
+		${parts.ad ? `<span class="sheet-bs-app-ad">${sheetBsEsc(parts.ad)}</span>` : ""}
+		${parts.bs ? `<span class="sheet-bs-app-bs">${sheetBsEsc(parts.bs)}</span>` : ""}
+		${parts.hint ? `<span class="sheet-bs-app-relative">${sheetBsEsc(parts.hint)}</span>` : ""}
+	</span>`;
+}
+
 function sheetBsApplicationDetail(detail, doctype) {
-	const slug = String(doctype || "").toLowerCase().replace(/\s+/g, "-");
-	const date = detail.attendance_date
-		? detail.attendance_date
-		: `${detail.from_date || "?"} → ${detail.to_date || "?"}`;
-	const reason = detail.custom_rejection_reason || detail.reason || detail.type_of_work || "";
+	const slug = String(doctype || detail.slug || "").toLowerCase().replace(/\s+/g, "-");
+	const status = sheetBsApprovalLabel(detail.status || detail.status_label);
+	const reason = sheetBsApplicationReason(detail);
 	const timeDetails = [
 		[__("Estimated arrival"), detail.estimated_late_entry_time],
 		[__("Actual check-in"), detail.late_entry_time],
@@ -244,10 +321,13 @@ function sheetBsApplicationDetail(detail, doctype) {
 		[__("Actual to"), detail.to_time],
 	].filter(([, value]) => value);
 	return `<a class="sheet-bs-app-detail" href="/app/${sheetBsEsc(slug)}/${encodeURIComponent(detail.name)}" target="_blank" onclick="event.stopPropagation();">
-		<span class="sheet-bs-app-name">${sheetBsEsc(detail.name)}</span>
-		<span class="sheet-bs-app-date">${sheetBsEsc(date)}</span>
+		<span class="sheet-bs-app-name">${sheetBsEsc(detail.name)}
+			<span class="sheet-bs-app-status sheet-bs-app-status--${sheetBsEsc(sheetBsAppStatusTone(detail.status || detail.status_label))}">${sheetBsEsc(status)}</span>
+		</span>
+		${sheetBsAppDateHTML(detail.attendance_date, detail.from_date, detail.to_date)}
+		${detail.type_of_work ? `<span class="sheet-bs-app-date">${sheetBsEsc(detail.type_of_work)}</span>` : ""}
 		${timeDetails.map(([label, value]) => `<span class="sheet-bs-app-date">${sheetBsEsc(label)}: ${sheetBsEsc(value)}</span>`).join("")}
-		${reason ? `<span class="sheet-bs-app-reason">${sheetBsEsc(reason)}</span>` : ""}
+		${reason && sheetBsShowApplicationReason() ? `<span class="sheet-bs-app-reason">${sheetBsEsc(reason)}</span>` : ""}
 	</a>`;
 }
 
@@ -259,53 +339,131 @@ function sheetBsApplicationSection(label, kind, details, doctype) {
 	</div>`;
 }
 
-function sheetBsOccurrenceHTML(audit, kind) {
-	if (!audit || !Object.keys(audit).length || !["late_entry", "early_exit"].includes(kind)) return "";
-	const prefix = kind === "late_entry" ? "late" : "early";
+function sheetBsPenaltySettings(row) {
+	const audit = row.occurrence_audit || {};
+	const initial = cint(audit.initial_grace_occurrences || 2);
+	const step = cint(audit.subsequent_grace_step_occurrences || 2);
+	const firstCharge = initial + 1;
 	const free = typeof audit.free_remaining === "object"
-		? audit.free_remaining[prefix]
-		: audit.free_remaining;
-	return `<div class="sheet-bs-occurrence-audit">
-		<div class="sheet-bs-audit-subtitle">${__("Occurrence pool audit")}${cint(audit.combine_pools) ? ` · ${__("Combined late/early")}` : ""}</div>
-		${sheetBsAuditRow(__("Penalty policy enabled"), cint(audit.penalty_enabled) ? __("Yes") : __("No"))}
-		${sheetBsAuditRow(__("Pool occurrences"), cint(audit[`${prefix}_minor`]))}
-		${sheetBsAuditRow(__("Major occurrences"), cint(audit[`${prefix}_major`]))}
-		${sheetBsAuditRow(__("Initial free threshold"), cint(audit.initial_grace_occurrences))}
-		${sheetBsAuditRow(__("Subsequent free step"), cint(audit.subsequent_grace_step_occurrences))}
-		${sheetBsAuditRow(__("Free remaining"), cint(free))}
-		${sheetBsAuditRow(__("Half-day equivalents"), sheetBsFormatOneDecimal(audit[`${prefix}_half_days`] || 0))}
-		${sheetBsAuditRow(__("Full-day escalation equivalents"), sheetBsFormatOneDecimal(audit[`${prefix}_full_days`] || 0), __("Threshold {0}", [cint(audit.full_day_escalation_threshold)]))}
-		${sheetBsAuditRow(__("Full-day escalation active"), audit[`${prefix}_escalated`] ? __("Yes") : __("No"))}
-		<div class="sheet-bs-audit-info">${cint(audit.penalty_enabled)
-			? __("Audit only — occurrence-pool penalties are monetary deductions and are not subtracted from Total Paid Days.")
-			: __("Penalty policy is disabled. Values are audit projections only and are not subtracted from Total Paid Days.")}</div>
+		? audit.free_remaining
+		: { late: cint(audit.free_remaining), early: cint(audit.free_remaining) };
+	const escalate = cint(audit.full_day_escalation_enabled);
+	const threshold = cint(audit.full_day_escalation_threshold || 5);
+	return { audit, initial, step, firstCharge, free, escalate, threshold };
+}
+
+function sheetBsCnrApplicationsHTML(row, kinds) {
+	const wanted = kinds || ["late_entry", "early_exit", "out_of_office", "attendance_request"];
+	const audits = row.application_audits || {};
+	const sections = wanted.map((kind) => {
+		const stats = audits[kind] || {};
+		const details = Array.isArray(stats.details) ? stats.details : [];
+		if (!details.length) return "";
+		const grouped = {
+			approved: details.filter((item) => item.status === "approved"),
+			pending: details.filter((item) => item.status === "pending"),
+			rejected: details.filter((item) => item.status === "rejected"),
+		};
+		return `<div class="sheet-bs-audit-subtitle">${sheetBsEsc(stats.label || kind)}</div>
+			${sheetBsApplicationSection(__("Approved"), "approved", grouped.approved, stats.doctype)}
+			${sheetBsApplicationSection(__("Pending"), "pending", grouped.pending, stats.doctype)}
+			${sheetBsApplicationSection(__("Rejected"), "rejected", grouped.rejected, stats.doctype)}`;
+	}).filter(Boolean);
+	if (!sections.length) {
+		return `<div class="sheet-bs-audit-empty">${__("No applications this period")}</div>`;
+	}
+	return sections.join("");
+}
+
+function sheetBsPenaltyPolicyHTML(row) {
+	const { initial, step, firstCharge, free, escalate, threshold } = sheetBsPenaltySettings(row);
+	const nextCharge = __("Charged on occurrence {0}, then again after every {1} free day(s).", [firstCharge, step]);
+	return `<div class="sheet-bs-audit-section">
+		${sheetBsAuditRow(__("First charge after"), firstCharge, nextCharge)}
+		${sheetBsAuditRow(__("Initial free (setting)"), initial)}
+		${sheetBsAuditRow(__("Free days after a charge"), step)}
+		${sheetBsAuditRow(__("Free remaining now"), `${__("Late")} ${cint(free.late)} · ${__("Early")} ${cint(free.early)}`)}
+		${sheetBsAuditRow(
+			__("Full-day 1P after"),
+			escalate ? __("More than {0} pool days", [threshold]) : __("Off")
+		)}
 	</div>`;
+}
+
+function sheetBsOccurrenceHTML(row, kind) {
+	if (!["late_entry", "early_exit"].includes(kind)) return "";
+	const half = sheetBsFormatOneDecimal(row.penalty_half_days || 0);
+	const full = sheetBsFormatOneDecimal(row.penalty_full_days || 0);
+	const paid = sheetBsFormatOneDecimal(row.penalty_paid_deduction || 0);
+	if (!parseFloat(half) && !parseFloat(full)) {
+		return `<div class="sheet-bs-audit-info">${__("No ½P / 1P pool penalty this period.")}</div>`;
+	}
+	return `<div class="sheet-bs-audit-section">
+		${sheetBsAuditRow("½P", half)}
+		${sheetBsAuditRow("1P", full)}
+		${sheetBsAuditRow(__("Counted in Absent (gross)"), paid)}
+	</div>`;
+}
+
+function sheetBsCnrCellHTML(counts, kind) {
+	const applied = cint(counts.applied);
+	const approved = cint(counts.approved);
+	const appLine = `${applied}→${approved}`;
+	if (kind === "late_entry" || kind === "early_exit") {
+		return `<span class="sheet-bs-cnr-main">G${cint(counts.grace)} M${cint(counts.max_band)}</span>
+			<span class="sheet-bs-cnr-sub">${sheetBsEsc(appLine)}</span>`;
+	}
+	if (kind === "out_of_office") {
+		return `<span class="sheet-bs-cnr-main">W${cint(counts.within)} O${cint(counts.over)}</span>
+			<span class="sheet-bs-cnr-sub">${sheetBsEsc(appLine)}</span>`;
+	}
+	return `<span class="sheet-bs-cnr-main">${sheetBsEsc(appLine)}</span>`;
 }
 
 function sheetBsApplicationCell(row, kind) {
 	const stats = (row.application_audits || {})[kind] || {};
-	const approved = cint(stats.approved);
+	const counts = (row.cnr_counts || {})[kind] || {};
+	const approved = cint(counts.approved || stats.approved);
 	const pending = cint(stats.pending);
 	const rejected = cint(stats.rejected);
+	const applied = cint(counts.applied || (approved + pending + rejected));
+	let tone = approved ? "approved" : "neutral";
+	if (pending) tone = "pending";
+	if (rejected) tone = "rejected";
+	if ((kind === "late_entry" || kind === "early_exit")
+		&& (parseFloat(row.penalty_half_days) || parseFloat(row.penalty_full_days))) {
+		tone = "pending";
+	}
 	const details = Array.isArray(stats.details) ? stats.details : [];
 	const grouped = {
 		approved: details.filter((item) => item.status === "approved"),
 		pending: details.filter((item) => item.status === "pending"),
 		rejected: details.filter((item) => item.status === "rejected"),
 	};
-	let tone = approved ? "approved" : "neutral";
-	if (pending) tone = "pending";
-	if (rejected) tone = "rejected";
 	const body = `<div class="sheet-bs-app-counts">
+		${kind === "late_entry" || kind === "early_exit"
+			? `${sheetBsAuditRow(__("Within grace"), cint(counts.grace))}
+				${sheetBsAuditRow(__("Within max"), cint(counts.max_band))}`
+			: ""}
+		${kind === "out_of_office"
+			? `${sheetBsAuditRow(__("Within paid hours"), cint(counts.within))}
+				${sheetBsAuditRow(__("Over paid hours"), cint(counts.over))}`
+			: ""}
+		${sheetBsAuditRow(__("Applied"), applied)}
 		${sheetBsAuditRow(__("Approved"), approved)}
-		${sheetBsAuditRow(__("Applied / Pending"), pending)}
-		${sheetBsAuditRow(__("Rejected"), rejected)}
+		${pending ? sheetBsAuditRow(__("Pending"), pending) : ""}
+		${rejected ? sheetBsAuditRow(__("Rejected"), rejected) : ""}
 	</div>
 	${sheetBsApplicationSection(__("Approved"), "approved", grouped.approved, stats.doctype)}
-	${sheetBsApplicationSection(__("Applied / Pending"), "pending", grouped.pending, stats.doctype)}
+	${sheetBsApplicationSection(__("Pending"), "pending", grouped.pending, stats.doctype)}
 	${sheetBsApplicationSection(__("Rejected"), "rejected", grouped.rejected, stats.doctype)}
-	${sheetBsOccurrenceHTML(row.occurrence_audit, kind)}`;
-	return sheetBsAuditCell(approved, stats.label || __("Applications"), body, { tone });
+	${sheetBsOccurrenceHTML(row, kind)}`;
+	return sheetBsAuditCell(
+		sheetBsCnrCellHTML(counts, kind),
+		stats.label || __("Applications"),
+		body,
+		{ tone, htmlDisplay: true }
+	);
 }
 
 function sheetBsAppStatusTone(status) {
@@ -371,23 +529,32 @@ function sheetBsShowApplicationReason() {
 	return cint(boot.show_application_reason_on_sheet_hover) === 1;
 }
 
-function sheetBsDailyAppRow(doctype, name, statusLabel, tone, extras, reason) {
+function sheetBsDailyAppRow(doctype, name, statusLabel, tone, extras, reason, dateInfo) {
 	const slug = String(doctype || "").toLowerCase().replace(/\s+/g, "-");
-	const title = reason && sheetBsShowApplicationReason() ? ` title="${sheetBsEsc(reason)}"` : "";
-	return `<a class="sheet-bs-daily-doc"${title} href="/app/${sheetBsEsc(slug)}/${encodeURIComponent(name)}" target="_blank" onclick="event.stopPropagation();">
-		<span>${sheetBsEsc(__(doctype))}
+	const showReason = reason && sheetBsShowApplicationReason();
+	const parts = sheetBsAppDateParts(
+		dateInfo && dateInfo.attendance_date,
+		dateInfo && dateInfo.from_date,
+		dateInfo && dateInfo.to_date
+	);
+	const dateLine = [parts.ad, parts.bs, parts.hint].filter(Boolean).join(" · ");
+	return `<a class="sheet-bs-daily-doc" href="/app/${sheetBsEsc(slug)}/${encodeURIComponent(name)}" target="_blank" onclick="event.stopPropagation();">
+		<span class="sheet-bs-daily-doc-main">
+			<span class="sheet-bs-daily-doc-type">${sheetBsEsc(__(doctype))}</span>
+			${dateLine ? `<span class="sheet-bs-app-meta">${sheetBsEsc(dateLine)}</span>` : ""}
 			${extras && extras.length ? `<span class="sheet-bs-app-meta">${sheetBsEsc(extras.join(" · "))}</span>` : ""}
+			${showReason ? `<span class="sheet-bs-app-reason">${sheetBsEsc(reason)}</span>` : ""}
 		</span>
-		<strong><span class="sheet-bs-app-status sheet-bs-app-status--${sheetBsEsc(tone)}">${sheetBsEsc(statusLabel)}</span></strong>
+		<span class="sheet-bs-app-status sheet-bs-app-status--${sheetBsEsc(tone)}">${sheetBsEsc(statusLabel)}</span>
 	</a>`;
 }
 
-function sheetBsPushApplication(rows, seen, doctype, name, statusLabel, tone, extras, reason) {
+function sheetBsPushApplication(rows, seen, doctype, name, statusLabel, tone, extras, reason, dateInfo) {
 	if (!name) return;
 	const key = `${doctype}:${name}`;
 	if (seen.has(key)) return;
 	seen.add(key);
-	rows.push(sheetBsDailyAppRow(doctype, name, statusLabel, tone, extras, reason));
+	rows.push(sheetBsDailyAppRow(doctype, name, statusLabel, tone, extras, reason, dateInfo));
 }
 
 function sheetBsDailyApplicationsHTML(apps, cellData) {
@@ -407,7 +574,12 @@ function sheetBsDailyApplicationsHTML(apps, cellData) {
 			sheetBsApprovalLabel(app.status || app.status_label),
 			sheetBsAppStatusTone(app.status || app.status_label),
 			extras,
-			sheetBsApplicationReason(app)
+			sheetBsApplicationReason(app),
+			{
+				attendance_date: app.attendance_date || (cellData && cellData.attendance_date),
+				from_date: app.from_date,
+				to_date: app.to_date,
+			}
 		);
 	});
 	[
@@ -417,7 +589,17 @@ function sheetBsDailyApplicationsHTML(apps, cellData) {
 		["Attendance Request", cellData && cellData.attendance_request],
 		["Leave Application", cellData && cellData.leave_application],
 	].forEach(([doctype, name]) => {
-		sheetBsPushApplication(rows, seen, doctype, name, __("Approved"), "approved", [], "");
+		sheetBsPushApplication(
+			rows,
+			seen,
+			doctype,
+			name,
+			__("Approved"),
+			"approved",
+			[],
+			"",
+			{ attendance_date: cellData && cellData.attendance_date }
+		);
 	});
 	if (cellData && cellData.attendance_doc) {
 		const status = cellData.attendance_status || __("Marked");
@@ -429,7 +611,8 @@ function sheetBsDailyApplicationsHTML(apps, cellData) {
 			__(status),
 			sheetBsAttendanceTone(status),
 			[],
-			""
+			"",
+			{ attendance_date: cellData.attendance_date }
 		);
 	}
 	if (!rows.length) {
@@ -457,62 +640,33 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 	const leaveLabel = cellData.leave_acronym
 		? `${cellData.leave_type} (${cellData.leave_acronym})`
 		: cellData.leave_type;
+	const penaltyLabel = cellData.pool_penalty === "full"
+		? __("1P full-day pool penalty — counted as 1.0 Absent (gross)")
+		: cellData.pool_penalty === "half"
+			? __("½P half-day pool penalty — counted as 0.5 Absent (gross)")
+			: "";
 	const left = `<div class="sheet-bs-daily-col">
 		<div class="sheet-bs-audit-section">
 			${sheetBsAuditRow(__("Status"), statusLabels[status] || status)}
 			${sheetBsAuditRow(__("Worked"), cellData.wh || "0h")}
-			${sheetBsAuditRow(__("Target"), `${sheetBsFormatOneDecimal(cellData.target || 0)}h`)}
-			${leaveLabel ? sheetBsAuditRow(__("Leave Type"), leaveLabel) : ""}
-			${cellData.leave_app_status ? sheetBsAuditRow(__("Leave Status"), sheetBsApprovalLabel(cellData.leave_app_status)) : ""}
-			${cint(cellData.half_day) ? sheetBsAuditRow(__("Half Day"), __("Yes")) : ""}
-			${cellData.other_half_label ? sheetBsAuditRow(__("Other Half"), cellData.other_half_title || cellData.other_half_label) : ""}
-			${cint(cellData.sandwich) ? sheetBsAuditRow(__("Sandwich"), leaveLabel ? __("Sandwich Leave") : __("Sandwich Absence")) : ""}
-		</div>
-		<div class="sheet-bs-audit-subtitle">${__("Check-in / Check-out Logs")}</div>
-		${sheetBsCheckinLogsHTML(cellData.checkins)}
-	</div>`;
-
-	let right = "";
-	if (lateMins || earlyMins || cint(barData.ooo_mins) || cint(barData.extra_mins) || cellData.worked_on_holiday) {
-		right += `<div class="sheet-bs-audit-subtitle">${__("Time audit")}</div>
-		<div class="sheet-bs-audit-section">
+			${leaveLabel ? sheetBsAuditRow(__("Leave"), leaveLabel) : ""}
+			${penaltyLabel ? sheetBsAuditRow(__("Penalty"), penaltyLabel) : ""}
 			${lateMins ? sheetBsAuditRow(__("Late"), formatMins(lateMins), lateKindLabel(cellData.late_kind)) : ""}
 			${earlyMins ? sheetBsAuditRow(__("Early"), formatMins(earlyMins), lateKindLabel(cellData.early_kind)) : ""}
-			${cint(barData.ooo_mins) ? sheetBsAuditRow(__("Out of Office Work"), formatMins(barData.ooo_mins)) : ""}
-			${cint(barData.extra_mins) ? sheetBsAuditRow(__("Extra Work"), formatMins(barData.extra_mins)) : ""}
-			${cellData.worked_on_holiday ? sheetBsAuditRow(__("WO/Holiday Work"), __("Counted as extra work")) : ""}
-		</div>`;
-	}
-	const segmentLabels = {
-		normal: __("In Office"),
-		ooo: __("Out of Office Work"),
-		wfh: __("Work From Home"),
-		halfday: __("Half Day Leave"),
-		gap: __("Attendance Gap"),
-		extra: __("Extra Work"),
-		holiday: __("Holiday / Weekly Off"),
-	};
-	if (Array.isArray(barData.segments) && barData.segments.length) {
-		right += `<div class="sheet-bs-audit-subtitle">${__("Time segments")}</div>
-			<div class="sheet-bs-audit-section">${barData.segments.map((segment) => {
-				const start = timeToMinutes(segment.start);
-				let end = timeToMinutes(segment.end);
-				if (end < start) end += 1440;
-				return sheetBsAuditRow(
-					segmentLabels[segment.type] || segment.type,
-					formatMins(Math.max(0, end - start)),
-					`${segment.start} → ${segment.end}`
-				);
-			}).join("")}</div>`;
-	}
+		</div>
+	</div>`;
 	return `<div class="sheet-bs-audit-hover sheet-bs-daily-audit" role="tooltip">
 		<div class="sheet-bs-audit-title">${sheetBsEsc(__("Attendance details · {0}", [attendanceDate]))}</div>
 		<div class="sheet-bs-daily-grid">
 			${left}
-			<div class="sheet-bs-daily-col">${right}</div>
+			<div class="sheet-bs-daily-col">
+				${sheetBsCheckinLogsHTML(cellData.checkins)}
+			</div>
 		</div>
-		<div class="sheet-bs-audit-subtitle">${__("Related Applications")}</div>
-		${sheetBsDailyApplicationsHTML(cellData.applications, cellData)}
+		<div class="sheet-bs-daily-apps">
+			<div class="sheet-bs-audit-subtitle">${__("Applications")}</div>
+			${sheetBsDailyApplicationsHTML(cellData.applications, cellData)}
+		</div>
 		${cellData.paid_day_audit_included === false
 			? `<div class="sheet-bs-audit-info">${__("Pending/future day — excluded from the paid-day audit.")}</div>`
 			: ""}
@@ -820,7 +974,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					status, wh, checks, target, leave_type, leave_acronym, half_day,
 					bar_data, attendance_doc, late_entry_app, early_exit_app, ooo_app,
 					late_mins, early_mins, late_kind, early_kind,
-					other_half_label, other_half_kind, worked_on_holiday,
+					other_half_label, other_half_kind, worked_on_holiday, pool_penalty,
 				} = cellData;
 
 				const lateMinsVal = late_mins || (bar_data && bar_data.late_mins) || 0;
@@ -829,6 +983,8 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				let cellClass = "attendance-cell-container sheet-bs-hover-host";
 				if (worked_on_holiday) cellClass += " attendance-cell--holiday-extra";
 				if (isHalfDay) cellClass += " attendance-cell--half-day";
+				if (pool_penalty === "full") cellClass += " attendance-cell--penalty-full";
+				else if (pool_penalty === "half") cellClass += " attendance-cell--penalty-half";
 
 				let barHTML = "";
 				if (bar_data) {
@@ -849,7 +1005,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					: "";
 				let pillHTML = getHalfDayPillsHTML(
 					status, wh, target, attendance_doc, half_day, leave_acronym,
-					other_half_label, other_half_kind
+					other_half_label, other_half_kind, pool_penalty
 				);
 				let badgeRow = (lateBadge || earlyBadge || oooBadge)
 					? `<div class="cnr-badge-row">
@@ -867,6 +1023,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				SHEET_BS_DAILY_HOVER_DATA.set(hoverKey, {
 					attendanceDate,
 					cellData: Object.assign({}, cellData, {
+						attendance_date: attendanceDate,
 						late_mins: lateMinsVal,
 						early_mins: earlyMinsVal,
 					}),
@@ -903,6 +1060,35 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 
 		if (["total_absent", "lwp_days", "paid_leave_days", "other_paid_leave_days"].includes(colId) && rowData) {
 			return sheetBsLeaveSummaryCell(rowData, colId);
+		}
+
+		if (colId === "penalty_half_days" && rowData) {
+			const n = parseFloat(rowData.penalty_half_days) || 0;
+			const { firstCharge } = sheetBsPenaltySettings(rowData);
+			return sheetBsAuditCell(
+				n ? `½P ${sheetBsFormatOneDecimal(n)}` : "0",
+				__("Half-day pool penalties"),
+				`${sheetBsPenaltyPolicyHTML(rowData)}
+				<div class="sheet-bs-audit-subtitle">${__("Applications")}</div>
+				${sheetBsCnrApplicationsHTML(rowData, ["late_entry", "early_exit"])}
+				<div class="sheet-bs-audit-info">${__("½P starts on pool occurrence {0} (and later penalty slots). Attendance becomes Half Day (other half Absent). Payroll counts 0.5 in Absent at the unapproved / Gross rate. No separate salary component.", [firstCharge])}</div>`,
+				{ tone: n ? "rejected" : "neutral" }
+			);
+		}
+		if (colId === "penalty_full_days" && rowData) {
+			const n = parseFloat(rowData.penalty_full_days) || 0;
+			const { threshold, escalate } = sheetBsPenaltySettings(rowData);
+			return sheetBsAuditCell(
+				n ? `1P ${sheetBsFormatOneDecimal(n)}` : "0",
+				__("Full-day pool penalties"),
+				`${sheetBsPenaltyPolicyHTML(rowData)}
+				<div class="sheet-bs-audit-subtitle">${__("Applications")}</div>
+				${sheetBsCnrApplicationsHTML(rowData, ["late_entry", "early_exit"])}
+				<div class="sheet-bs-audit-info">${escalate
+					? __("1P starts after more than {0} pool days. Attendance becomes Absent. Payroll counts 1.0 in Absent at the unapproved / Gross rate. No separate salary component.", [threshold])
+					: __("Full-day escalation is off in Nepal HRMS Settings.")}</div>`,
+				{ tone: n ? "rejected" : "neutral" }
+			);
 		}
 
 		const applicationFields = {
@@ -1243,8 +1429,8 @@ function getOtherHalfPillHTML(label, kind, attendance_doc) {
 	</div>${linkEnd}`;
 }
 
-function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind) {
-	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym);
+function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind, poolPenalty) {
+	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym, poolPenalty);
 	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
 	if (!isHalfDay || !otherHalfLabel) {
 		return main;
@@ -1253,34 +1439,45 @@ function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFl
 	return `<div class="cnr-pill-row cnr-pill-row--dual">${main}${other}</div>`;
 }
 
-function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym) {
+function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym, poolPenalty) {
 	appLinks = appLinks || {};
 	if (status === "NONE" || !status) {
 		return `<div style='height:8px;width:8px;border-radius:50%;background:#cbd5e1;'></div>`;
 	}
 
 	let bgColor = "#f3f4f6", color = "#1f2937", text = wh ? wh : status;
-	if (status === "Lv") {
+	if (poolPenalty === "full") {
+		text = "1P";
+		bgColor = "#dc2626";
+		color = "#fff7ed";
+	} else if (poolPenalty === "half") {
+		text = "½P";
+		bgColor = "#f59e0b";
+		color = "#451a03";
+	}
+	if (status === "Lv" && !poolPenalty) {
 		text = (leaveAcronym || "Lv").toString().slice(0, 3);
 	}
 	let workedHours = parseFloat((wh || "0").toString().replace('h', '')) || 0;
 	let targetHours = parseFloat(targetAmount) || 0;
 	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
 
-	if (targetHours === 0 && workedHours > 0) {
-		bgColor = "#1e40af";
-		color = "#ffffff";
-	} else if (isHalfDay) {
-		bgColor = "#a855f7";
-		color = "#faf5ff";
-	} else if (status === "P" || status === "WFH") {
-		if (workedHours > 0 && workedHours < targetHours) { bgColor = "#ffd43b"; color = "#453403"; }
-		else { bgColor = "#6fe5a9"; color = "#042f1c"; }
-	} else if (status === "Ab") {
-		bgColor = "#ff6b7e"; color = "#450a0a"; text = "Ab";
-	} else if (status === "Lv") {
-		bgColor = "#dae5ff"; color = "#1e293b";
-	} else if (status === "WO" || status === "Hol") { bgColor = "#e5e7eb"; color = "#4b5563"; text = status; }
+	if (!poolPenalty) {
+		if (targetHours === 0 && workedHours > 0) {
+			bgColor = "#1e40af";
+			color = "#ffffff";
+		} else if (isHalfDay) {
+			bgColor = "#a855f7";
+			color = "#faf5ff";
+		} else if (status === "P" || status === "WFH") {
+			if (workedHours > 0 && workedHours < targetHours) { bgColor = "#ffd43b"; color = "#453403"; }
+			else { bgColor = "#6fe5a9"; color = "#042f1c"; }
+		} else if (status === "Ab") {
+			bgColor = "#ff6b7e"; color = "#450a0a"; text = "Ab";
+		} else if (status === "Lv") {
+			bgColor = "#dae5ff"; color = "#1e293b";
+		} else if (status === "WO" || status === "Hol") { bgColor = "#e5e7eb"; color = "#4b5563"; text = status; }
+	}
 
 	let linkStart = attendance_doc ? `<a href="/app/attendance/${attendance_doc}" target="_blank" style="text-decoration: none; color: inherit; display: inline-block;">` : "";
 	let linkEnd = attendance_doc ? `</a>` : "";

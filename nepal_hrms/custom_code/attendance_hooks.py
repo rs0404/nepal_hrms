@@ -6,6 +6,7 @@ from nepal_hrms.custom_code.attendance_policy import (
 	_cnr_tracking_changed,
 	apply_late_early_to_attendance,
 	maybe_comment_cnr_attendance_change,
+	sync_month_pool_penalties,
 )
 
 
@@ -56,8 +57,10 @@ def before_submit_attendance(doc, method=None):
 def on_update_attendance(doc, method=None):
 	"""Post C&R timeline comment after a successful save."""
 	_flush_cnr_comment(doc)
+	sync_month_pool_penalties(doc.employee, doc.attendance_date, current_name=doc.name)
 
 
 def after_insert_attendance(doc, method=None):
 	"""Post C&R timeline comment after first insert (new Attendance)."""
 	_flush_cnr_comment(doc)
+	sync_month_pool_penalties(doc.employee, doc.attendance_date, current_name=doc.name)

@@ -311,10 +311,7 @@ def compute_nepal_hr_variables(doc, data):
         frappe.log_error(frappe.get_traceback(), "Nepal HRMS settings unavailable for payroll")
         settings = frappe._dict()
 
-    from nepal_hrms.custom_code.attendance_policy import (
-        get_approved_application,
-        split_occurrence_penalty,
-    )
+    from nepal_hrms.custom_code.attendance_policy import get_approved_application
 
     late_entry_half_days = 0.0
     early_exit_half_days = 0.0
@@ -337,12 +334,8 @@ def compute_nepal_hr_variables(doc, data):
     # get_singles_dict returns Check/Int fields as strings ("0"/"1"), so truthiness
     # and numeric compares must go through cint().
     if cint(getattr(settings, "enable_late_early_penalty", 0)):
-        initial_grace = cint(settings.initial_grace_occurrences or 2)
-        subsequent_step = cint(settings.subsequent_grace_step_occurrences or 2)
         grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
         max_delay = cint(getattr(settings, "late_early_max_delay_mins", None) or 60)
-        escalate_full = cint(getattr(settings, "enable_late_full_day_escalation", 0) or 0)
-        escalate_after = cint(getattr(settings, "late_full_day_after_occurrences", 5) or 5)
 
         att_meta = frappe.get_meta("Attendance")
         has_late_pool = att_meta.has_field("custom_cnr_late_in_pool")
@@ -425,42 +418,13 @@ def compute_nepal_hr_variables(doc, data):
                 elif result == "major":
                     major_early_count += 1
 
-        if cint(getattr(settings, "combine_late_and_early_pool", 0)):
-            combined_minor = minor_late_count + minor_early_count
-            combined_major = major_late_count + major_early_count
-            penalty = split_occurrence_penalty(
-                combined_minor,
-                combined_major,
-                initial_grace,
-                subsequent_step,
-                escalate_full,
-                escalate_after,
-            )
-            late_entry_half_days = penalty.half_days
-            late_entry_full_days = penalty.full_days
-            early_exit_half_days = 0.0
-            early_exit_full_days = 0.0
-        else:
-            late_penalty = split_occurrence_penalty(
-                minor_late_count,
-                major_late_count,
-                initial_grace,
-                subsequent_step,
-                escalate_full,
-                escalate_after,
-            )
-            early_penalty = split_occurrence_penalty(
-                minor_early_count,
-                major_early_count,
-                initial_grace,
-                subsequent_step,
-                escalate_full,
-                escalate_after,
-            )
-            late_entry_half_days = late_penalty.half_days
-            late_entry_full_days = late_penalty.full_days
-            early_exit_half_days = early_penalty.half_days
-            early_exit_full_days = early_penalty.full_days
+        # Pool ½P / 1P now change Attendance (Half Day absent / Absent) and
+        # are counted in absent_days at the unapproved-absence (gross) rate.
+        # Do not also charge them on Leave and Late Deduction.
+        late_entry_half_days = float(major_late_count)
+        late_entry_full_days = 0.0
+        early_exit_half_days = float(major_early_count)
+        early_exit_full_days = 0.0
 
     # 2. Out of Office Overages
     # Personal Work OOO Application over max paid hours => half-day.
@@ -620,9 +584,6 @@ def compute_nepal_hr_variables(doc, data):
     # Each late/early/OOO penalty count represents half a day.
     late_deduction_rate = half_day_base_daily * 0.5
 
-    # Fold escalated full-day pool penalties into unapproved absent days (gross)
-    escalated_full_days = flt(late_entry_full_days) + flt(early_exit_full_days)
-    unapproved_absent_days = flt(unapproved_absent_days) + escalated_full_days
     half_day_penalties = flt(
         late_entry_half_days + early_exit_half_days + out_of_office_half_days
     )

@@ -129,22 +129,12 @@ def get_pwa_access_permissions():
 	}
 
 
-@frappe.whitelist()
-def get_calendar_viewable_employees(search_text=None):
-	"""Active employees for the PWA calendar employee picker.
-
-	Only available to users with the view-others-calendar permission;
-	returns label/value pairs for the Autocomplete.
-	"""
-	if not can_view_others_calendar():
-		frappe.throw(_("Not permitted"), frappe.PermissionError)
-
+def _search_active_employees(search_text=None):
 	filters = {"status": "Active"}
 	or_filters = None
 	if search_text:
 		like = f"%{search_text}%"
 		or_filters = {"name": ["like", like], "employee_name": ["like", like]}
-
 	rows = frappe.get_all(
 		"Employee",
 		filters=filters,
@@ -164,7 +154,27 @@ def get_calendar_viewable_employees(search_text=None):
 
 
 @frappe.whitelist()
-def get_pwa_live_attendance(attendance_date=None):
+def get_calendar_viewable_employees(search_text=None):
+	"""Active employees for the PWA calendar employee picker.
+
+	Only available to users with the view-others-calendar permission;
+	returns label/value pairs for the Autocomplete.
+	"""
+	if not can_view_others_calendar():
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	return _search_active_employees(search_text)
+
+
+@frappe.whitelist()
+def get_live_board_employees(search_text=None):
+	"""Active employees for the Live Attendance Board search field."""
+	if not can_view_live_board() and not can_view_leave_board():
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	return _search_active_employees(search_text)
+
+
+@frappe.whitelist()
+def get_pwa_live_attendance(attendance_date=None, employee=None):
 	"""Live Attendance Board payload for BSHRMS, gated by PWA Access Control."""
 	if not can_view_live_board() and not can_view_leave_board():
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
@@ -173,7 +183,7 @@ def get_pwa_live_attendance(attendance_date=None):
 		get_live_data,
 	)
 
-	data = get_live_data(attendance_date)
+	data = get_live_data(attendance_date, employee=employee)
 	if can_view_live_board():
 		return data
 

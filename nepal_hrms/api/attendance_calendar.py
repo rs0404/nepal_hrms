@@ -4,13 +4,132 @@
 """Rich attendance calendar payload for bshrms (status + leave / late / early markers)."""
 
 import frappe
-from frappe.utils import add_days, cint, date_diff, getdate, get_first_day, today
+from frappe.utils import add_days, cint, date_diff, get_first_day, get_last_day, getdate, today
 
 from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
 
 
 def _lwp_leave_types():
 	return set(frappe.get_all("Leave Type", filters={"is_lwp": 1}, pluck="name"))
+
+
+def _grace_after_flags(mins, grace):
+	"""Return (within_grace, after_grace) for a late/early minute count."""
+	mins = cint(mins)
+	if mins <= 0:
+		return 0, 0
+	if mins <= cint(grace or 15):
+		return 1, 0
+	return 0, 1
+
+
+_CNR_APP_RANK = {"Approved": 3, "Draft": 2, "Rejected": 1}
+_CNR_APP_FIELDS = (
+	("Late Entry Application", "late_app_status", "late"),
+	("Early Exit Application", "early_app_status", "early"),
+	("Out of Office Application", "ooo_app_status", "ooo"),
+)
+
+
+def _normalize_cnr_app_status(status, docstatus=None):
+	status = (status or "").strip()
+	if status == "Cancelled" or (docstatus is not None and cint(docstatus) == 2):
+		return None
+	if status == "Approved":
+		return "Approved"
+	if status == "Rejected":
+		return "Rejected"
+	return "Draft"
+
+
+def _better_cnr_app_status(current, incoming):
+	if _CNR_APP_RANK.get(incoming or "", 0) >= _CNR_APP_RANK.get(current or "", 0):
+		return incoming
+	return current
+
+
+def _cnr_status_from_links(links, doctype):
+	best = None
+	for link in links or []:
+		if link.get("doctype") != doctype:
+			continue
+		incoming = _normalize_cnr_app_status(link.get("status"))
+		if incoming:
+			best = _better_cnr_app_status(best, incoming)
+	return best
+
+
+def _apply_cnr_application_statuses(employee, from_date, to_date, events):
+	"""Attach Approved / Draft / Rejected CNR slips to calendar days."""
+	for doctype, status_field, marker_field in _CNR_APP_FIELDS:
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		for app in frappe.get_all(
+			doctype,
+			filters={
+				"employee": employee,
+				"docstatus": ["<", 2],
+				"attendance_date": ["between", [from_date, to_date]],
+			},
+			fields=["attendance_date", "status", "docstatus"],
+		):
+			incoming = _normalize_cnr_app_status(app.status, app.docstatus)
+			if not incoming:
+				continue
+			date_str = getdate(app.attendance_date).strftime("%Y-%m-%d")
+			info = events.get(date_str)
+			if not info:
+				info = _blank_calendar_day()
+				events[date_str] = info
+			info[status_field] = _better_cnr_app_status(info.get(status_field), incoming)
+
+
+def _blank_calendar_day():
+	return {
+		"status": None,
+		"leave": 0,
+		"late": 0,
+		"early": 0,
+		"late_grace": 0,
+		"late_after": 0,
+		"early_grace": 0,
+		"early_after": 0,
+		"late_in_pool": 0,
+		"early_in_pool": 0,
+		"ooo": 0,
+		"ooo_required": 0,
+		"late_app_status": None,
+		"early_app_status": None,
+		"ooo_app_status": None,
+		"leave_type": None,
+		"leave_app_status": None,
+		"leave_application": None,
+		"sandwich": 0,
+		"half_day": 0,
+	}
+
+
+def _month_pool_penalty(employee, day):
+	from nepal_hrms.custom_code.attendance_policy import (
+		assign_employee_pool_penalties_for_range,
+		get_hr_settings,
+		penalty_mark,
+	)
+
+	day = getdate(day)
+	meta = frappe.get_meta("Attendance")
+	if not (
+		meta.has_field("custom_cnr_late_in_pool")
+		or meta.has_field("custom_cnr_early_in_pool")
+	):
+		return "", ""
+	try:
+		settings = get_hr_settings()
+	except Exception:
+		settings = frappe._dict()
+	assigned = assign_employee_pool_penalties_for_range(employee, day, day, settings)
+	kind = assigned.get(day) or ""
+	return kind, penalty_mark(kind)
 
 
 def _is_lwp_leave(leave_type, lwp_types=None):
@@ -215,8 +334,15 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 	    "YYYY-MM-DD": {
 	      "status": "Present" | "Absent" | "On Leave" | "Leave Pending" | "Leave Rejected" | ...,
 	      "leave": 0|1,
-	      "late": 0|1,   # minor late day (occurrence)
-	      "early": 0|1,  # minor early day (occurrence)
+	      "late": 0|1,         # any late minutes, including within grace
+	      "late_grace": 0|1,   # delay still inside late_early_grace_mins
+	      "late_after": 0|1,   # delay past grace (pool / major)
+	      "early": 0|1,
+	      "early_grace": 0|1,
+	      "early_after": 0|1,
+	      "late_app_status": "Approved" | "Draft" | "Rejected" | None,
+	      "early_app_status": "Approved" | "Draft" | "Rejected" | None,
+	      "ooo_app_status": "Approved" | "Draft" | "Rejected" | None,
 	      "leave_type": str | None,
 	      "leave_app_status": "Approved" | "Pending" | "Rejected" | None,
 	      "leave_application": str | None,
@@ -261,8 +387,13 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			"attendance_date",
 			"status",
 			"leave_type",
+			"in_time",
+			"out_time",
+			"shift",
 			"custom_cnr_late_in_pool",
 			"custom_cnr_early_in_pool",
+			"custom_late_mins",
+			"custom_early_mins",
 		],
 	)
 
@@ -270,21 +401,54 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 	meta = frappe.get_meta("Attendance")
 	has_late = meta.has_field("custom_cnr_late_in_pool")
 	has_early = meta.has_field("custom_cnr_early_in_pool")
+	from nepal_hrms.custom_code.attendance_policy import (
+		compute_late_early_minutes,
+		get_hr_settings,
+	)
+
+	try:
+		settings = get_hr_settings()
+	except Exception:
+		settings = frappe._dict()
+	grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
 
 	for row in attendance_rows:
 		d = getdate(row.attendance_date)
-		att_by_date[d] = {
-			"status": row.status,
-			"leave": 1 if row.status == "On Leave" else 0,
-			"late": cint(row.custom_cnr_late_in_pool) if has_late else 0,
-			"early": cint(row.custom_cnr_early_in_pool) if has_early else 0,
-			"ooo_required": 0,
-			"leave_type": row.leave_type or None,
-			"leave_app_status": None,
-			"leave_application": None,
-			"sandwich": 0,
-			"half_day": 0,
-		}
+		late_pool = cint(row.custom_cnr_late_in_pool) if has_late else 0
+		early_pool = cint(row.custom_cnr_early_in_pool) if has_early else 0
+		late_mins = cint(getattr(row, "custom_late_mins", 0) or 0)
+		early_mins = cint(getattr(row, "custom_early_mins", 0) or 0)
+		if row.in_time or row.out_time:
+			calc_late, calc_early = compute_late_early_minutes(
+				employee,
+				d,
+				in_time=row.in_time,
+				out_time=row.out_time,
+				shift=row.shift,
+			)
+			if row.in_time:
+				late_mins = calc_late
+			if row.out_time:
+				early_mins = calc_early
+		late_grace, late_after = _grace_after_flags(late_mins, grace_mins)
+		early_grace, early_after = _grace_after_flags(early_mins, grace_mins)
+		info = _blank_calendar_day()
+		info.update(
+			{
+				"status": row.status,
+				"leave": 1 if row.status == "On Leave" else 0,
+				"late": 1 if late_grace or late_after else 0,
+				"early": 1 if early_grace or early_after else 0,
+				"late_grace": late_grace,
+				"late_after": late_after,
+				"early_grace": early_grace,
+				"early_after": early_after,
+				"late_in_pool": late_pool,
+				"early_in_pool": early_pool,
+				"leave_type": row.leave_type or None,
+			}
+		)
+		att_by_date[d] = info
 
 	# Leave applications covering the range (Pending / Approved / Rejected)
 	# Priority when multiple apps cover a day: Approved > Pending > Rejected
@@ -324,21 +488,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		cur = max(getdate(app.from_date), from_date)
 		end = min(getdate(app.to_date), to_date)
 		while cur <= end:
-			info = att_by_date.setdefault(
-				cur,
-				{
-					"status": None,
-					"leave": 0,
-					"late": 0,
-					"early": 0,
-					"ooo_required": 0,
-					"leave_type": None,
-					"leave_app_status": None,
-					"leave_application": None,
-					"sandwich": 0,
-					"half_day": 0,
-				},
-			)
+			info = att_by_date.setdefault(cur, _blank_calendar_day())
 			prev_rank = _LEAVE_STATUS_RANK.get(info.get("leave_app_status") or "", 0)
 			has_attendance = info.get("status") not in (
 				None,
@@ -423,18 +573,8 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 				is_hol = True
 			if is_hol:
 				holiday_days.add(date)
-				info = {
-					"status": "Holiday",
-					"leave": 0,
-					"late": 0,
-					"early": 0,
-					"ooo_required": 0,
-					"leave_type": None,
-					"leave_app_status": None,
-					"leave_application": None,
-					"sandwich": 0,
-					"half_day": 0,
-				}
+				info = _blank_calendar_day()
+				info["status"] = "Holiday"
 				# Prefer Weekly Off when the holiday list marks it
 				if use_scoped:
 					try:
@@ -458,18 +598,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			if is_sandwiched(employee, date):
 				leave_application = covering_leave_application(employee, date)
 				date_str = date.strftime("%Y-%m-%d")
-				info = events.get(date_str) or att_by_date.get(date) or {
-					"status": None,
-					"leave": 0,
-					"late": 0,
-					"early": 0,
-					"ooo_required": 0,
-					"leave_type": None,
-					"leave_app_status": None,
-					"leave_application": None,
-					"sandwich": 0,
-					"half_day": 0,
-				}
+				info = events.get(date_str) or att_by_date.get(date) or _blank_calendar_day()
 				info["sandwich"] = 1
 				if leave_application:
 					info["status"] = "On Leave"
@@ -534,23 +663,33 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		date_str = d.strftime("%Y-%m-%d")
 		info = events.get(date_str) or att_by_date.get(d)
 		if not info:
-			info = {
-				"status": None,
-				"leave": 0,
-				"late": 0,
-				"early": 0,
-				"ooo_required": 0,
-				"leave_type": None,
-				"leave_app_status": None,
-				"leave_application": None,
-				"sandwich": 0,
-				"half_day": 0,
-			}
+			info = _blank_calendar_day()
 			events[date_str] = info
 		info["ooo_required"] = 1
+		info["ooo"] = 1
+
+	_apply_cnr_application_statuses(employee, from_date, to_date, events)
 
 	for info in events.values():
 		info["is_lwp"] = _is_lwp_leave(info.get("leave_type"), lwp_types)
+
+	from nepal_hrms.custom_code.attendance_policy import (
+		assign_employee_pool_penalties_for_range,
+		get_hr_settings,
+		penalty_mark,
+	)
+
+	try:
+		settings = get_hr_settings()
+	except Exception:
+		settings = frappe._dict()
+	assigned = assign_employee_pool_penalties_for_range(
+		employee, from_date, to_date, settings
+	)
+	for date_str, info in events.items():
+		kind = assigned.get(getdate(date_str)) or ""
+		info["pool_penalty"] = kind
+		info["penalty_mark"] = penalty_mark(kind)
 
 	return events
 
@@ -674,11 +813,11 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 	late_mins, early_mins = compute_late_early_minutes(
 		employee, day, in_time=in_time, out_time=out_time, shift=shift
 	)
-	# Prefer stored minutes when already computed on Attendance
-	if attendance and cint(attendance.get("custom_late_mins") or 0):
-		late_mins = cint(attendance.custom_late_mins)
-	if attendance and cint(attendance.get("custom_early_mins") or 0):
-		early_mins = cint(attendance.custom_early_mins)
+	# Stored minutes are a fallback when this day's in/out times are missing.
+	if not in_time and attendance:
+		late_mins = cint(attendance.get("custom_late_mins") or 0)
+	if not out_time and attendance:
+		early_mins = cint(attendance.get("custom_early_mins") or 0)
 
 	settings = get_hr_settings()
 	grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
@@ -686,9 +825,10 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 	late_kind = classify_delay(late_mins, grace_mins, max_delay_mins)  # None | minor | major
 	early_kind = classify_delay(early_mins, grace_mins, max_delay_mins)
 
-	# Flags for UI chips: beyond grace counts as late/early
-	late = late_kind in ("minor", "major")
-	early = early_kind in ("minor", "major")
+	late_grace, late_after = _grace_after_flags(late_mins, grace_mins)
+	early_grace, early_after = _grace_after_flags(early_mins, grace_mins)
+	late = late_grace or late_after
+	early = early_grace or early_after
 	leave = bool(status == "On Leave" or (attendance and attendance.leave_type))
 
 	related = get_attendance_related_applications(employee=employee, attendance_date=day_str)
@@ -823,6 +963,7 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		and status not in leave_blocked_statuses
 		and leave_app_status != "Approved"
 	)
+	pool_penalty, penalty_label = _month_pool_penalty(employee, day)
 	if can_offer_leave:
 		# Beyond max allowed late → half-day leave (in addition to Late Entry)
 		if late_kind == "major":
@@ -858,7 +999,11 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		"early_kind": early_kind,
 		"flags": {
 			"late": late,
+			"late_grace": late_grace,
+			"late_after": late_after,
 			"early": early,
+			"early_grace": early_grace,
+			"early_after": early_after,
 			"leave": leave,
 			"ooo_required": 1 if ooo_required else 0,
 			"sandwich": 1 if sandwich else 0,
@@ -875,6 +1020,11 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 				or (attendance.leave_type if attendance else None)
 				or leave_app_type
 			),
+			"pool_penalty": pool_penalty,
+			"penalty_mark": penalty_label,
+			"late_app_status": _cnr_status_from_links(links, "Late Entry Application"),
+			"early_app_status": _cnr_status_from_links(links, "Early Exit Application"),
+			"ooo_app_status": _cnr_status_from_links(links, "Out of Office Application"),
 		},
 		"links": links,
 		"actions": actions,

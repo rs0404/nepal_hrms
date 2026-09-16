@@ -8,8 +8,10 @@ from frappe.utils import cint, flt, getdate, add_days, get_datetime, get_time, t
 import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
 
 from nepal_hrms.custom_code.attendance_policy import (
+    assign_employee_pool_penalties_for_range,
     free_occurrences_remaining,
     get_hr_settings,
+    penalty_mark,
     split_occurrence_penalty,
 )
 from nepal_hrms.custom_code.leave_type_acronym import (
@@ -200,6 +202,18 @@ def get_columns(filters, start_ad, end_ad, leave_types=None):
                 "fieldtype": "Float",
                 "width": 115,
             },
+            {
+                "label": _("½P Penalty"),
+                "fieldname": "penalty_half_days",
+                "fieldtype": "Float",
+                "width": 90,
+            },
+            {
+                "label": _("1P Penalty"),
+                "fieldname": "penalty_full_days",
+                "fieldtype": "Float",
+                "width": 90,
+            },
         ]
     )
     for spec in APPLICATION_SPECS.values():
@@ -207,8 +221,8 @@ def get_columns(filters, start_ad, end_ad, leave_types=None):
             {
                 "label": spec["label"],
                 "fieldname": spec["fieldname"],
-                "fieldtype": "Int",
-                "width": spec["width"],
+                "fieldtype": "Data",
+                "width": max(cint(spec["width"]), 120),
             }
         )
     return columns
@@ -281,6 +295,7 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         "custom_cnr_unexcused_early",
         "custom_cnr_late_in_pool",
         "custom_cnr_early_in_pool",
+        "custom_cnr_pool_penalty",
     ):
         if att_meta.has_field(fname):
             att_fields.append(fname)
@@ -780,6 +795,7 @@ def classify_attendance_day(
     is_sandwich=False,
     sandwich_leave_type=None,
     leave_type_details=None,
+    pool_penalty=None,
 ):
     """Return mutually exclusive paid/unpaid units for one employee-date."""
     leave_type_details = leave_type_details or {}
@@ -802,6 +818,16 @@ def classify_attendance_day(
             day["paid_leave_full"] + day["paid_leave_half"]
         )
         return day
+
+    if not is_holiday and not is_sandwich:
+        if pool_penalty == "full":
+            day["absent_full"] = 1.0
+            return day
+        if pool_penalty == "half":
+            day["absent_half"] = 0.5
+            day["present_half"] = 0.5
+            day["paid_flag"] = 0.5
+            return day
 
     if is_holiday or status in ("Holiday", "Weekly Off"):
         day["holiday"] = 1.0
@@ -1014,6 +1040,107 @@ def _occurrence_audits(attendance_map, settings, employee_names=None):
             "early_escalated": bool(early_penalty.escalated),
         }
     return result
+
+
+def _pool_day_flags(attendance_map, employee):
+    flags = []
+    for (emp, day), att in attendance_map.items():
+        if emp != employee:
+            continue
+        flags.append(
+            (
+                day,
+                cint(getattr(att, "custom_cnr_late_in_pool", 0) or 0),
+                cint(getattr(att, "custom_cnr_early_in_pool", 0) or 0),
+            )
+        )
+    return flags
+
+
+def _assign_report_pool_penalties(settings, employee_names, period_start, period_end):
+    return {
+        employee: assign_employee_pool_penalties_for_range(
+            employee, period_start, period_end, settings
+        )
+        for employee in employee_names or []
+    }
+
+
+def _apply_pool_penalty_to_day(day, penalty):
+    """Reduce this day's paid_flag. Returns the amount deducted."""
+    if penalty == "full":
+        want = 1.0
+    elif penalty == "half":
+        want = 0.5
+    else:
+        return 0.0
+    deduct = min(flt(day.get("paid_flag") or 0), want)
+    day["paid_flag"] = flt(day.get("paid_flag") or 0) - deduct
+    return deduct
+
+
+def _delay_band(mins, grace, max_delay):
+    mins = cint(mins)
+    grace = cint(grace) or 15
+    max_delay = cint(max_delay) or 60
+    if mins <= 0:
+        return None
+    if mins <= grace:
+        return "grace"
+    if mins <= max_delay:
+        return "max"
+    return "major"
+
+
+def _empty_cnr_counts():
+    return {
+        "attendance_request": {"grace": 0, "max_band": 0, "applied": 0, "approved": 0},
+        "late_entry": {"grace": 0, "max_band": 0, "applied": 0, "approved": 0},
+        "early_exit": {"grace": 0, "max_band": 0, "applied": 0, "approved": 0},
+        "out_of_office": {"grace": 0, "max_band": 0, "applied": 0, "approved": 0, "within": 0, "over": 0},
+    }
+
+
+def _cnr_count_label(counts, kind):
+    applied = cint(counts.get("applied"))
+    approved = cint(counts.get("approved"))
+    if kind in ("late_entry", "early_exit"):
+        grace = cint(counts.get("grace"))
+        max_band = cint(counts.get("max_band"))
+        if not (grace or max_band or applied):
+            return "0"
+        return f"G{grace} M{max_band} · {applied}→{approved}"
+    if kind == "out_of_office":
+        within = cint(counts.get("within"))
+        over = cint(counts.get("over"))
+        if not (within or over or applied):
+            return "0"
+        return f"W{within} O{over} · {applied}→{approved}"
+    if not applied:
+        return "0"
+    return f"{applied}→{approved}"
+
+
+def _fill_cnr_application_counts(cnr_counts, application_audits, settings=None):
+    max_paid_ooo = flt(getattr(settings, "max_paid_out_of_office_hours", None) or 2) if settings else 2
+    for kind, counts in cnr_counts.items():
+        stats = application_audits.get(kind) or {}
+        counts["applied"] = (
+            cint(stats.get("approved"))
+            + cint(stats.get("pending"))
+            + cint(stats.get("rejected"))
+        )
+        counts["approved"] = cint(stats.get("approved"))
+        if kind != "out_of_office":
+            continue
+        for detail in stats.get("details") or []:
+            if detail.get("status") != "approved":
+                continue
+            hours = flt(detail.get("total_hours") or 0)
+            if hours > max_paid_ooo:
+                counts["over"] += 1
+            else:
+                counts["within"] += 1
 
 
 def _covering_leave_from_rows(leave_rows, day):
@@ -1331,11 +1458,16 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
     try:
         settings = get_hr_settings()
         grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
+        max_delay_mins = cint(getattr(settings, "late_early_max_delay_mins", None) or 60)
     except Exception:
         settings = frappe._dict()
         grace_mins = 15
+        max_delay_mins = 60
     occurrence_audits = _occurrence_audits(
         attendance_map, settings, [employee.name for employee in employees]
+    )
+    pool_penalties = _assign_report_pool_penalties(
+        settings, [employee.name for employee in employees], start_ad, end_ad
     )
 
     company_holiday_list = frappe.db.get_value('Company', filters.get('company'), 'default_holiday_list')
@@ -1403,12 +1535,15 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             "unconfigured_paid_leave_breakdown": {},
             "application_audits": application_audits.get(emp.name, {}),
             "occurrence_audit": occurrence_audits.get(emp.name, {}),
+            "cnr_counts": _empty_cnr_counts(),
+            "penalty_half_days": 0,
+            "penalty_full_days": 0,
+            "penalty_paid_deduction": 0,
         }
-        for kind, spec in APPLICATION_SPECS.items():
-            stats = row["application_audits"].get(kind) or _empty_application_stats(
-                spec
-            )
-            row[spec["fieldname"]] = cint(stats.get("approved"))
+        emp_penalties = pool_penalties.get(emp.name) or {}
+        _fill_cnr_application_counts(
+            row["cnr_counts"], row["application_audits"], settings
+        )
 
         total_worked = 0.0
         total_target = 0.0
@@ -1579,6 +1714,9 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 target_hours = 0.0
                 is_half_day = 0
 
+            day_penalty = emp_penalties.get(curr) or (
+                getattr(att, "custom_cnr_pool_penalty", None) if att else None
+            )
             day_classification = classify_attendance_day(
                 status=status,
                 half_day_status=getattr(att, "half_day_status", None) if att else None,
@@ -1588,6 +1726,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 is_sandwich=is_sandwich,
                 sandwich_leave_type=sandwich_leave_type,
                 leave_type_details=leave_type_details,
+                pool_penalty=day_penalty,
             )
             include_in_paid_audit = _include_in_paid_day_audit(
                 curr,
@@ -1599,12 +1738,28 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             if include_in_paid_audit:
                 row["total_days_in_period"] += 1
                 row["audit_through_date"] = str(curr)
+                if day_penalty == "full":
+                    row["penalty_full_days"] += 1
+                    row["penalty_paid_deduction"] += 1
+                elif day_penalty == "half":
+                    row["penalty_half_days"] += 1
+                    row["penalty_paid_deduction"] += 0.5
                 _accumulate_day(row, day_classification)
                 total_worked += wh
                 if late_entry:
                     row["total_late_entry"] += 1
                 if early_exit:
                     row["total_early_exit"] += 1
+                late_band = _delay_band(late_mins, grace_mins, max_delay_mins)
+                early_band = _delay_band(early_mins, grace_mins, max_delay_mins)
+                if late_band == "grace":
+                    row["cnr_counts"]["late_entry"]["grace"] += 1
+                elif late_band == "max":
+                    row["cnr_counts"]["late_entry"]["max_band"] += 1
+                if early_band == "grace":
+                    row["cnr_counts"]["early_exit"]["grace"] += 1
+                elif early_band == "max":
+                    row["cnr_counts"]["early_exit"]["max_band"] += 1
             elif curr > current_date:
                 row["future_days_excluded"] += 1
             else:
@@ -1702,10 +1857,18 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "worked_on_holiday": worked_on_holiday,
                 "sandwich": is_sandwich,
                 "paid_day_audit_included": include_in_paid_audit,
+                "pool_penalty": day_penalty or "",
+                "penalty_mark": penalty_mark(day_penalty),
+                "late_grace": 1 if _delay_band(late_mins, grace_mins, max_delay_mins) == "grace" else 0,
+                "late_max": 1 if _delay_band(late_mins, grace_mins, max_delay_mins) == "max" else 0,
+                "early_grace": 1 if _delay_band(early_mins, grace_mins, max_delay_mins) == "grace" else 0,
+                "early_max": 1 if _delay_band(early_mins, grace_mins, max_delay_mins) == "max" else 0,
             })
 
             curr = add_days(curr, 1)
 
+        for kind, spec in APPLICATION_SPECS.items():
+            row[spec["fieldname"]] = _cnr_count_label(row["cnr_counts"].get(kind) or {}, kind)
         _finalize_paid_days(row)
         row["total_no_of_days"] = (
             row["total_present"] + row["holiday_extra_present"]

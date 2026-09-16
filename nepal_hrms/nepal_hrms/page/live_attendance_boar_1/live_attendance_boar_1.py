@@ -4,16 +4,20 @@ import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
 
 
 @frappe.whitelist()
-def get_live_data(attendance_date=None):
+def get_live_data(attendance_date=None, employee=None):
 	day = getdate(attendance_date) if attendance_date else getdate(nowdate())
 	day_str = str(day)
 	today_str = nowdate()
 	day_bs = nepali_date.format_bs(day)
+	employee = (employee or "").strip() or None
 
 	# 1. Active employees not yet relieved as of selected day
+	emp_filters = {"status": "Active"}
+	if employee:
+		emp_filters["name"] = employee
 	employees = frappe.get_all(
 		"Employee",
-		filters={"status": "Active"},
+		filters=emp_filters,
 		or_filters=[
 			["relieving_date", "is", "not set"],
 			["relieving_date", ">=", day_str],

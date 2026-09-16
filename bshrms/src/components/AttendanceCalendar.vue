@@ -77,12 +77,77 @@
 					</div>
 					<div
 						v-if="hasMarkers(getEventOnDate(index))"
-						class="flex gap-0.5 mt-0.5 h-1.5 items-center justify-center"
+						class="flex gap-0.5 mt-0.5 min-h-[14px] items-start justify-center"
 					>
 						<i v-if="dayMarkers(getEventOnDate(index)).leave" class="marker-dot" :class="dayMarkers(getEventOnDate(index)).pending ? 'pending' : 'leave'" />
 						<i v-if="dayMarkers(getEventOnDate(index)).sandwich" class="marker-dot sandwich" />
-						<i v-if="dayMarkers(getEventOnDate(index)).late" class="marker-dot late" />
-						<i v-if="dayMarkers(getEventOnDate(index)).early" class="marker-dot early" />
+						<span
+							v-if="
+								dayMarkers(getEventOnDate(index)).lateDelay ||
+								dayMarkers(getEventOnDate(index)).late_app
+							"
+							class="marker-stack"
+						>
+							<i
+								v-if="dayMarkers(getEventOnDate(index)).lateDelay"
+								class="marker-dot late"
+								:class="
+									dayMarkers(getEventOnDate(index)).late_grace ? 'grace' : 'after'
+								"
+								:title="
+									appStatusTitle(
+										dayMarkers(getEventOnDate(index)).late_grace
+											? __('Late (within grace)')
+											: __('Late (after grace)'),
+										dayMarkers(getEventOnDate(index)).late_app
+									)
+								"
+							/>
+							<i
+								v-if="dayMarkers(getEventOnDate(index)).late_app"
+								class="app-mark"
+								:class="appStatusClass(dayMarkers(getEventOnDate(index)).late_app)"
+							/>
+						</span>
+						<span
+							v-if="
+								dayMarkers(getEventOnDate(index)).earlyDelay ||
+								dayMarkers(getEventOnDate(index)).early_app
+							"
+							class="marker-stack"
+						>
+							<i
+								v-if="dayMarkers(getEventOnDate(index)).earlyDelay"
+								class="marker-dot early"
+								:class="
+									dayMarkers(getEventOnDate(index)).early_grace ? 'grace' : 'after'
+								"
+								:title="
+									appStatusTitle(
+										dayMarkers(getEventOnDate(index)).early_grace
+											? __('Early (within grace)')
+											: __('Early (after grace)'),
+										dayMarkers(getEventOnDate(index)).early_app
+									)
+								"
+							/>
+							<i
+								v-if="dayMarkers(getEventOnDate(index)).early_app"
+								class="app-mark"
+								:class="appStatusClass(dayMarkers(getEventOnDate(index)).early_app)"
+							/>
+						</span>
+						<span v-if="dayMarkers(getEventOnDate(index)).ooo" class="marker-stack">
+							<i
+								class="marker-dot ooo"
+								:title="appStatusTitle(__('Out of Office'), dayMarkers(getEventOnDate(index)).ooo_app)"
+							/>
+							<i
+								v-if="dayMarkers(getEventOnDate(index)).ooo_app"
+								class="app-mark"
+								:class="appStatusClass(dayMarkers(getEventOnDate(index)).ooo_app)"
+							/>
+						</span>
 					</div>
 				</div>
 			</div>
@@ -148,16 +213,28 @@
 
 			<div class="flex flex-wrap gap-x-3 gap-y-1 mx-1 text-[11px] text-gray-600">
 				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot leave" />{{ __("Approved") }}
+					<i class="marker-dot late grace" />{{ __("Late · grace") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot pending" />{{ __("Pending") }}
+					<i class="marker-dot late after" />{{ __("Late · after grace") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot late" />{{ __("Late") }}
+					<i class="marker-dot early grace" />{{ __("Early · grace") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot early" />{{ __("Early exit") }}
+					<i class="marker-dot early after" />{{ __("Early · after grace") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="marker-dot ooo" />{{ __("Out of Office") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="app-mark approved" />{{ __("Approved application") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="app-mark rejected" />{{ __("Rejected application") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="app-mark draft" />{{ __("Draft application") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
 					<i class="marker-dot sandwich" />{{ __("Sandwich") }}
@@ -174,6 +251,12 @@
 				<span class="inline-flex items-center gap-1">
 					<span class="leave-mark-badge lwp">LWP</span>{{ __("Leave without pay") }}
 				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="leave-mark-badge penalty-half">½P</span>{{ __("Half-day pool penalty") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="leave-mark-badge penalty-full">1P</span>{{ __("Full-day pool penalty") }}
+				</span>
 			</div>
 		</div>
 	</div>
@@ -184,6 +267,12 @@ import { computed, inject, ref, watch } from "vue"
 import { createResource, FeatherIcon } from "frappe-ui"
 import { groupContiguousDates } from "@/utils/leave_ranges"
 import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import {
+	appStatusClass,
+	appStatusTitle,
+	hasDelayGraceAfter,
+	normalizeAppStatus,
+} from "@/utils/app_status"
 
 const emit = defineEmits(["select-day", "create-leave", "refresh"])
 
@@ -234,8 +323,17 @@ const dayMarkers = (info) => {
 			pending: false,
 			rejected: false,
 			sandwich: false,
-			late: false,
-			early: false,
+			lateDelay: false,
+			late_grace: false,
+			late_after: false,
+			late_app: "",
+			earlyDelay: false,
+			early_grace: false,
+			early_after: false,
+			early_app: "",
+			ooo: false,
+			oooDelay: false,
+			ooo_app: "",
 		}
 	}
 	const status = info.status || null
@@ -245,13 +343,27 @@ const dayMarkers = (info) => {
 		status === "On Leave" ||
 		status === "Leave Pending" ||
 		status === "Leave Rejected"
+	const lateDelay = hasDelayGraceAfter(info, "late")
+	const earlyDelay = hasDelayGraceAfter(info, "early")
+	const late_app = normalizeAppStatus(info.late_app_status)
+	const early_app = normalizeAppStatus(info.early_app_status)
+	const ooo_app = normalizeAppStatus(info.ooo_app_status)
 	return {
 		leave,
 		pending: leave && (app === "Pending" || status === "Leave Pending"),
 		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
 		sandwich: !!info.sandwich,
-		late: !!info.late,
-		early: !!info.early,
+		lateDelay: lateDelay.delay,
+		late_grace: lateDelay.grace,
+		late_after: lateDelay.after,
+		late_app,
+		earlyDelay: earlyDelay.delay,
+		early_grace: earlyDelay.grace,
+		early_after: earlyDelay.after,
+		early_app,
+		ooo: !!(info.ooo_required || ooo_app),
+		oooDelay: !!info.ooo_required,
+		ooo_app,
 	}
 }
 
@@ -267,7 +379,16 @@ function resolvePaintStatus(info) {
 
 const hasMarkers = (info) => {
 	const m = dayMarkers(info)
-	return m.leave || m.sandwich || m.late || m.early
+	return (
+		m.leave ||
+		m.sandwich ||
+		m.lateDelay ||
+		m.earlyDelay ||
+		m.oooDelay ||
+		m.late_app ||
+		m.early_app ||
+		m.ooo_app
+	)
 }
 
 const isDaySelectable = (date) => {
@@ -316,7 +437,12 @@ const onDayClick = (index) => {
 	}
 	const info = getEventOnDate(index)
 	const m = dayMarkers(info)
-	emit("select-day", { date, late: m.late, early: m.early, status: resolvePaintStatus(info) })
+	emit("select-day", {
+		date,
+		late: m.lateDelay,
+		early: m.earlyDelay,
+		status: resolvePaintStatus(info),
+	})
 }
 
 const statusColor = (info) => {
@@ -408,16 +534,71 @@ watch(
 	background-color: #d97706;
 }
 
-.marker-dot.late {
+.marker-dot.late.after,
+.marker-dot.late:not(.grace) {
 	background-color: #ea580c;
 }
 
-.marker-dot.early {
+.marker-dot.early.after,
+.marker-dot.early:not(.grace) {
 	background-color: #7c3aed;
+}
+
+.marker-dot.late.grace {
+	background-color: #fff;
+	box-shadow: inset 0 0 0 1.5px #fb923c;
+}
+
+.marker-dot.early.grace {
+	background-color: #fff;
+	box-shadow: inset 0 0 0 1.5px #a78bfa;
+}
+
+.marker-dot.ooo {
+	background-color: #0f766e;
 }
 
 .marker-dot.sandwich {
 	background-color: #be123c;
+}
+
+.marker-stack {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	line-height: 1;
+}
+
+.app-mark {
+	display: inline-block;
+	font-size: 8px;
+	font-weight: 800;
+	line-height: 1;
+	font-style: normal;
+}
+
+.app-mark.approved {
+	color: #16a34a;
+}
+
+.app-mark.approved::before {
+	content: "✓";
+}
+
+.app-mark.rejected {
+	color: #dc2626;
+}
+
+.app-mark.rejected::before {
+	content: "✕";
+}
+
+.app-mark.draft {
+	color: #d97706;
+}
+
+.app-mark.draft::before {
+	content: "○";
 }
 
 .leave-mark-badge {
@@ -446,6 +627,14 @@ watch(
 	background: #d1fae5;
 }
 
+.leave-mark-badge.penalty-half {
+	background: #f59e0b;
+	color: #451a03;
+}
+.leave-mark-badge.penalty-full {
+	background: #dc2626;
+	color: #fff7ed;
+}
 .leave-mark-badge.lwp {
 	color: #334155;
 	background: #e2e8f0;

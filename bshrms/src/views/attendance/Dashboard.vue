@@ -187,7 +187,16 @@
 							<div class="text-amber-700 font-semibold">
 								{{ poolSummary.data.half_days_so_far }}
 							</div>
-							<div class="text-amber-600">{{ __("Half-days so far") }}</div>
+							<div class="text-amber-600">{{ __("½P so far") }}</div>
+						</div>
+						<div
+							v-if="poolSummary.data.full_days_so_far"
+							class="rounded-md bg-red-50 px-2 py-1.5 text-center"
+						>
+							<div class="text-red-700 font-semibold">
+								{{ poolSummary.data.full_days_so_far }}
+							</div>
+							<div class="text-red-600">{{ __("1P so far") }}</div>
 						</div>
 					</div>
 					<div

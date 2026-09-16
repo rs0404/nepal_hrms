@@ -8,6 +8,7 @@ frappe.pages['live_attendance_boar-1'].on_page_load = function(wrapper) {
 	$(frappe.render_template("live_attendance_boar_1", {})).appendTo(page.body);
 
 	let selected_date = frappe.datetime.get_today();
+	let selected_employee = "";
 	let viewing_today = true;
 	let date_bs_base = "----";
 
@@ -31,6 +32,30 @@ frappe.pages['live_attendance_boar-1'].on_page_load = function(wrapper) {
 	});
 	date_control.refresh();
 	date_control.set_value(selected_date);
+
+	const employee_control = frappe.ui.form.make_control({
+		parent: $("#lab-employee-control"),
+		df: {
+			fieldtype: "Link",
+			fieldname: "employee",
+			options: "Employee",
+			label: __("Employee"),
+			placeholder: __("Search employee"),
+			get_query: () => ({
+				filters: { status: "Active" },
+			}),
+			change: function () {
+				const val = employee_control.get_value() || "";
+				if (val === selected_employee) {
+					return;
+				}
+				selected_employee = val;
+				load_board();
+			},
+		},
+		render_input: true,
+	});
+	employee_control.refresh();
 
 	function update_time() {
 		if (!viewing_today) {
@@ -58,7 +83,10 @@ frappe.pages['live_attendance_boar-1'].on_page_load = function(wrapper) {
 
 		frappe.call({
 			method: "nepal_hrms.nepal_hrms.page.live_attendance_boar_1.live_attendance_boar_1.get_live_data",
-			args: { attendance_date: selected_date },
+			args: {
+				attendance_date: selected_date,
+				employee: selected_employee || undefined,
+			},
 			callback: function (r) {
 				if (r.message) {
 					render_board(r.message);

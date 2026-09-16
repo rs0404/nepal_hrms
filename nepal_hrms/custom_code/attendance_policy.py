@@ -5,7 +5,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, get_datetime, get_time, getdate, time_diff_in_hours
+from frappe.utils import add_days, cint, flt, get_datetime, get_time, getdate, time_diff_in_hours
 
 
 def get_hr_settings():
@@ -79,26 +79,40 @@ def compute_late_early_minutes(employee, attendance_date, in_time=None, out_time
 	if in_time:
 		in_dt = get_datetime(in_time)
 		delta = (in_dt - shift_start).total_seconds() / 60.0
-		if delta > 0:
-			late_mins = cint(round(delta))
+		# Full minutes only — 09:30:54 vs a 09:30 start is on time, not 1 min late.
+		if delta >= 1:
+			late_mins = int(delta)
 
 	if out_time:
 		out_dt = get_datetime(out_time)
 		delta = (shift_end - out_dt).total_seconds() / 60.0
-		if delta > 0:
-			early_mins = cint(round(delta))
+		if delta >= 1:
+			early_mins = int(delta)
 
 	return late_mins, early_mins
 
 
+def _is_genuine_absent(doc):
+	"""Absent that is not an occurrence-pool 1P we wrote."""
+	if (doc.status or "").strip() != "Absent":
+		return False
+	if (getattr(doc, "custom_cnr_pool_penalty", None) or "") == "full":
+		return False
+	if cint(getattr(doc, "custom_cnr_late_in_pool", 0)) or cint(
+		getattr(doc, "custom_cnr_early_in_pool", 0)
+	):
+		return False
+	return True
+
+
 def _protected_status(doc):
-	"""Do not override leave / absent rows."""
-	status = (doc.status or "").strip()
-	if status in ("On Leave", "Absent", "Work From Home"):
-		return True
+	"""Do not override leave / genuine absent / WFH rows."""
 	if getattr(doc, "leave_type", None):
 		return True
-	return False
+	status = (doc.status or "").strip()
+	if status in ("On Leave", "Work From Home"):
+		return True
+	return _is_genuine_absent(doc)
 
 
 def _has_half_day_leave(employee, attendance_date):
@@ -123,7 +137,7 @@ def delay_excused_for_attendance_status(mins, app, employee, attendance_date, gr
 	Whether Attendance should stay/restore Present for this late/early delay.
 
 	- Within grace: yes
-	- Minor (grace < mins <= max): yes — status stays Present; payroll uses occurrence pool
+	- Minor (grace < mins <= max): yes here — later pool logic may still write ½P / 1P on the charged day
 	- Office Work approved slip: yes (full excuse, including major)
 	- Major + Personal / no slip: only if half-day leave covers the date
 	"""
@@ -155,11 +169,79 @@ def _month_bounds(attendance_date):
 	return start, end
 
 
+def _pool_period_bounds(attendance_date, settings=None):
+	"""Payroll period containing attendance_date (BS month or Custom Day Range)."""
+	from nepal_hrms.custom_code.payroll.period import period_containing
+
+	settings = settings if settings is not None else get_hr_settings()
+	start, end, _days = period_containing(getdate(attendance_date), settings)
+	if start and end:
+		return getdate(start), getdate(end)
+	return _month_bounds(attendance_date)
+
+
+def _iter_periods_intersecting(from_date, to_date, settings=None):
+	"""Distinct payroll periods overlapping [from_date, to_date]."""
+	settings = settings if settings is not None else get_hr_settings()
+	from_date = getdate(from_date)
+	to_date = getdate(to_date)
+	if to_date < from_date:
+		from_date, to_date = to_date, from_date
+	seen = set()
+	cursor = from_date
+	while cursor <= to_date:
+		start, end = _pool_period_bounds(cursor, settings)
+		key = (start, end)
+		if key not in seen:
+			seen.add(key)
+			yield start, end
+		cursor = add_days(end, 1)
+
+
+def _pool_flags_between(employee, start, end, exclude_name=None, extra=None):
+	filters = {
+		"employee": employee,
+		"attendance_date": ["between", [getdate(start), getdate(end)]],
+		"docstatus": ["<", 2],
+	}
+	if exclude_name:
+		filters["name"] = ["!=", exclude_name]
+	fields = ["attendance_date"]
+	meta = frappe.get_meta("Attendance")
+	if meta.has_field("custom_cnr_late_in_pool"):
+		fields.append("custom_cnr_late_in_pool")
+	if meta.has_field("custom_cnr_early_in_pool"):
+		fields.append("custom_cnr_early_in_pool")
+	flags = []
+	for row in frappe.get_all("Attendance", filters=filters, fields=fields):
+		flags.append(
+			(
+				row.attendance_date,
+				cint(getattr(row, "custom_cnr_late_in_pool", 0) or 0),
+				cint(getattr(row, "custom_cnr_early_in_pool", 0) or 0),
+			)
+		)
+	if extra:
+		flags.append(extra)
+	return flags
+
+
+def assign_employee_pool_penalties_for_range(employee, from_date, to_date, settings=None):
+	"""Assign ½P/1P using payroll-period pool counts (each period counted separately)."""
+	settings = settings if settings is not None else get_hr_settings()
+	merged = {}
+	for start, end in _iter_periods_intersecting(from_date, to_date, settings):
+		flags = _pool_flags_between(employee, start, end)
+		merged.update(assign_employee_pool_penalties(flags, settings))
+	return merged
+
+
 def count_month_pool(employee, attendance_date, pool_field, current_in_pool=0, exclude_name=None):
-	"""Calendar-month pool size including the current attendance row's contribution."""
+	"""Payroll-period pool size including the current attendance row's contribution."""
 	if not frappe.get_meta("Attendance").has_field(pool_field):
 		return cint(current_in_pool)
-	start, end = _month_bounds(attendance_date)
+	settings = get_hr_settings()
+	start, end = _pool_period_bounds(attendance_date, settings=settings)
 	filters = {
 		"employee": employee,
 		"attendance_date": ["between", [start, end]],
@@ -172,12 +254,142 @@ def count_month_pool(employee, attendance_date, pool_field, current_in_pool=0, e
 	return cint(count) + (1 if cint(current_in_pool) else 0)
 
 
+def _month_pool_flags(employee, attendance_date, exclude_name=None, extra=None):
+	settings = get_hr_settings()
+	start, end = _pool_period_bounds(attendance_date, settings=settings)
+	return _pool_flags_between(employee, start, end, exclude_name=exclude_name, extra=extra)
+
+
+def _current_doc_pool_penalty(doc, settings):
+	att_name = getattr(doc, "name", None)
+	exclude = att_name if att_name and not str(att_name).startswith("new-") else None
+	assigned = assign_employee_pool_penalties(
+		_month_pool_flags(
+			doc.employee,
+			doc.attendance_date,
+			exclude_name=exclude,
+			extra=(
+				doc.attendance_date,
+				cint(getattr(doc, "custom_cnr_late_in_pool", 0) or 0),
+				cint(getattr(doc, "custom_cnr_early_in_pool", 0) or 0),
+			),
+		),
+		settings,
+	)
+	return assigned.get(getdate(doc.attendance_date)) or ""
+
+
+def _apply_pool_or_major_status(doc, pool_kind, unexcused, was_cnr_half_day):
+	if _protected_status(doc):
+		if hasattr(doc, "custom_cnr_pool_penalty"):
+			doc.custom_cnr_pool_penalty = ""
+		return
+	previous = (getattr(doc, "custom_cnr_pool_penalty", None) or "").strip()
+	if hasattr(doc, "custom_cnr_pool_penalty"):
+		doc.custom_cnr_pool_penalty = pool_kind or ""
+	if pool_kind == "full":
+		doc.status = "Absent"
+		if hasattr(doc, "half_day_status"):
+			doc.half_day_status = None
+		return
+	if pool_kind == "half":
+		doc.status = "Half Day"
+		if hasattr(doc, "half_day_status"):
+			doc.half_day_status = "Absent"
+		return
+	if unexcused:
+		if (doc.status or "") in ("Present", "Half Day", "Absent"):
+			doc.status = "Half Day"
+			if hasattr(doc, "half_day_status"):
+				doc.half_day_status = "Present"
+		return
+	if (
+		was_cnr_half_day
+		or previous in ("half", "full")
+		or (
+			(doc.status or "") in ("Half Day", "Absent")
+			and not getattr(doc, "leave_type", None)
+		)
+	) and (doc.status or "") in ("Half Day", "Absent", "Present"):
+		# Only restore rows we previously marked as pool/major C&R
+		if previous in ("half", "full") or was_cnr_half_day:
+			doc.status = "Present"
+			if hasattr(doc, "half_day_status"):
+				doc.half_day_status = None
+
+
+def sync_month_pool_penalties(employee, attendance_date, current_name=None):
+	"""Rewrite ½P / 1P status on other days in the same payroll period."""
+	if not employee or not attendance_date:
+		return
+	if frappe.flags.get("in_pool_penalty_sync"):
+		return
+	frappe.flags.in_pool_penalty_sync = True
+	try:
+		settings = get_hr_settings()
+		if not cint(getattr(settings, "enable_late_early_penalty", 0)):
+			return
+		assigned = assign_employee_pool_penalties(
+			_month_pool_flags(employee, attendance_date), settings
+		)
+		start, end = _pool_period_bounds(attendance_date, settings)
+		meta = frappe.get_meta("Attendance")
+		fields = [
+			"name",
+			"attendance_date",
+			"status",
+			"leave_type",
+			"half_day_status",
+			"custom_cnr_unexcused_late",
+			"custom_cnr_unexcused_early",
+			"custom_cnr_late_in_pool",
+			"custom_cnr_early_in_pool",
+		]
+		if meta.has_field("custom_cnr_pool_penalty"):
+			fields.append("custom_cnr_pool_penalty")
+		for att in frappe.get_all(
+			"Attendance",
+			filters={
+				"employee": employee,
+				"attendance_date": ["between", [start, end]],
+				"docstatus": ["<", 2],
+			},
+			fields=fields,
+		):
+			if current_name and att.name == current_name:
+				continue
+			kind = assigned.get(getdate(att.attendance_date)) or ""
+			before_penalty = getattr(att, "custom_cnr_pool_penalty", None) or ""
+			_apply_pool_or_major_status(
+				att,
+				kind,
+				cint(att.custom_cnr_unexcused_late) or cint(att.custom_cnr_unexcused_early),
+				False,
+			)
+			values = {}
+			if meta.has_field("custom_cnr_pool_penalty"):
+				values["custom_cnr_pool_penalty"] = getattr(att, "custom_cnr_pool_penalty", None) or ""
+			if (att.status or "") != (frappe.db.get_value("Attendance", att.name, "status") or ""):
+				values["status"] = att.status
+				if meta.has_field("half_day_status"):
+					values["half_day_status"] = getattr(att, "half_day_status", None) or None
+			elif values.get("custom_cnr_pool_penalty") != before_penalty:
+				if meta.has_field("half_day_status"):
+					values["half_day_status"] = getattr(att, "half_day_status", None) or None
+			if values:
+				frappe.db.set_value("Attendance", att.name, values, update_modified=False)
+	finally:
+		frappe.flags.in_pool_penalty_sync = False
+
+
 def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 	"""
 	Store custom_late_mins / custom_early_mins and set late_entry / early_exit
 	using Nepal Compliance Settings grace minutes (not Shift Type grace alone).
 
-	Minor (grace→max) without approved app: Present + in occurrence pool.
+	Minor (grace→max) without approved app: in occurrence pool.
+	The Nth pool day (settings) is ½P = Half Day / half_day_status=Absent,
+	or 1P = Absent when full-day escalation is on.
 	Major unexcused: Half Day (half_day_status=Present) with unexcused flags.
 	"""
 	if not doc.employee or not doc.attendance_date:
@@ -259,13 +471,19 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 				if getattr(doc, "name", None) and not str(doc.name).startswith("new-")
 				else None,
 			)
-		if apply_unexcused_status and was_cnr_half_day:
+		previous_penalty = (getattr(doc, "custom_cnr_pool_penalty", None) or "").strip()
+		if hasattr(doc, "custom_cnr_pool_penalty"):
+			doc.custom_cnr_pool_penalty = ""
+		if apply_unexcused_status and (was_cnr_half_day or previous_penalty in ("half", "full")):
 			doc.status = "Present"
 			if hasattr(doc, "half_day_status"):
 				doc.half_day_status = None
 		return
 
-	if penalty_on and not _protected_status(doc):
+	if penalty_on and not getattr(doc, "leave_type", None) and (doc.status or "") not in (
+		"On Leave",
+		"Work From Home",
+	):
 		if doc.late_entry:
 			lea = get_approved_application(
 				"Late Entry Application", doc.employee, doc.attendance_date
@@ -318,16 +536,15 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 	if not apply_unexcused_status:
 		return
 
-	if unexcused_late or unexcused_early:
-		if (doc.status or "") in ("Present", "Half Day") and not getattr(doc, "leave_type", None):
-			doc.status = "Half Day"
-			if hasattr(doc, "half_day_status"):
-				doc.half_day_status = "Present"
-	elif was_cnr_half_day and not (unexcused_late or unexcused_early):
-		# Excused now (approved slip within rules / within grace) — restore Present
-		doc.status = "Present"
-		if hasattr(doc, "half_day_status"):
-			doc.half_day_status = None
+	pool_kind = ""
+	if penalty_on and not _protected_status(doc):
+		pool_kind = _current_doc_pool_penalty(doc, settings) or ""
+	_apply_pool_or_major_status(
+		doc,
+		pool_kind,
+		unexcused_late or unexcused_early,
+		was_cnr_half_day,
+	)
 
 
 def get_attendance_for_employee_date(employee, attendance_date):
@@ -415,6 +632,7 @@ def _cnr_snapshot(doc):
 		custom_cnr_unexcused_early=cint(getattr(doc, "custom_cnr_unexcused_early", 0)),
 		custom_cnr_late_in_pool=cint(getattr(doc, "custom_cnr_late_in_pool", 0)),
 		custom_cnr_early_in_pool=cint(getattr(doc, "custom_cnr_early_in_pool", 0)),
+		custom_cnr_pool_penalty=getattr(doc, "custom_cnr_pool_penalty", None) or "",
 		custom_late_mins=cint(getattr(doc, "custom_late_mins", 0)),
 		custom_early_mins=cint(getattr(doc, "custom_early_mins", 0)),
 	)
@@ -721,6 +939,10 @@ def classify_delay(mins, grace, max_delay):
 	return "minor"
 
 
+PENALTY_HALF_MARK = "½P"
+PENALTY_FULL_MARK = "1P"
+
+
 def occurrence_half_days(count, initial_grace, subsequent_step):
 	"""
 	C&R occurrence pool:
@@ -736,6 +958,88 @@ def occurrence_half_days(count, initial_grace, subsequent_step):
 		return 0
 	# Distance past the free pool; penalties every (step + 1) starting at 1
 	return 1 + ((count - initial_grace - 1) // (subsequent_step + 1))
+
+
+def occurrence_is_penalty(index, initial_grace, subsequent_step):
+	"""True when the 1-based pool occurrence is a penalty slot (3rd, 6th, …)."""
+	index = cint(index)
+	initial_grace = cint(initial_grace) or 2
+	subsequent_step = cint(subsequent_step) or 2
+	if index <= 0 or index <= initial_grace:
+		return False
+	return ((index - initial_grace - 1) % (subsequent_step + 1)) == 0
+
+
+def assign_pool_penalty_dates(occurrences, initial_grace, subsequent_step, escalated=False):
+	"""Map occurrence dates to half/full penalty marks. Dates may repeat."""
+	assigned = {}
+	kind = "full" if escalated else "half"
+	for i, day in enumerate(occurrences, start=1):
+		if not occurrence_is_penalty(i, initial_grace, subsequent_step):
+			continue
+		day = getdate(day)
+		if assigned.get(day) != "full":
+			assigned[day] = kind
+	return assigned
+
+
+def assign_employee_pool_penalties(day_flags, settings):
+	"""
+	Assign ½P / 1P to pool days for one employee.
+
+	day_flags: iterable of (date, late_in_pool, early_in_pool)
+	Returns {date: "half"|"full"}.
+	"""
+	initial = cint(getattr(settings, "initial_grace_occurrences", 2) or 2)
+	step = cint(getattr(settings, "subsequent_grace_step_occurrences", 2) or 2)
+	combine = cint(getattr(settings, "combine_late_and_early_pool", 0) or 0)
+	escalate = cint(getattr(settings, "enable_late_full_day_escalation", 0) or 0)
+	after = cint(getattr(settings, "late_full_day_after_occurrences", 5) or 5)
+
+	rows = sorted(
+		(
+			(getdate(day), cint(late), cint(early))
+			for day, late, early in (day_flags or [])
+			if cint(late) or cint(early)
+		),
+		key=lambda item: item[0],
+	)
+	if combine:
+		occurrences = []
+		for day, late, early in rows:
+			if late:
+				occurrences.append(day)
+			if early:
+				occurrences.append(day)
+		return assign_pool_penalty_dates(
+			occurrences, initial, step, bool(escalate and len(occurrences) > after)
+		)
+
+	late_map = assign_pool_penalty_dates(
+		[day for day, late, _early in rows if late],
+		initial,
+		step,
+		bool(escalate and sum(late for _day, late, _early in rows if late) > after),
+	)
+	early_map = assign_pool_penalty_dates(
+		[day for day, _late, early in rows if early],
+		initial,
+		step,
+		bool(escalate and sum(early for _day, _late, early in rows if early) > after),
+	)
+	merged = dict(late_map)
+	for day, kind in early_map.items():
+		if merged.get(day) != "full":
+			merged[day] = kind
+	return merged
+
+
+def penalty_mark(kind):
+	if kind == "full":
+		return PENALTY_FULL_MARK
+	if kind == "half":
+		return PENALTY_HALF_MARK
+	return ""
 
 
 def split_occurrence_penalty(
@@ -819,6 +1123,8 @@ def recompute_attendance_late_early(name, update_status=True, source_doc=None, p
 	):
 		if meta.has_field(field):
 			values[field] = cint(getattr(doc, field, 0))
+	if meta.has_field("custom_cnr_pool_penalty"):
+		values["custom_cnr_pool_penalty"] = getattr(doc, "custom_cnr_pool_penalty", None) or ""
 
 	if update_status and not _protected_status(doc):
 		values["status"] = doc.status
@@ -826,6 +1132,8 @@ def recompute_attendance_late_early(name, update_status=True, source_doc=None, p
 			values["half_day_status"] = doc.half_day_status or None
 
 	frappe.db.set_value("Attendance", name, values, update_modified=False)
+	if update_status:
+		sync_month_pool_penalties(doc.employee, doc.attendance_date, current_name=name)
 
 	if update_status and post_comment:
 		maybe_comment_cnr_attendance_change(

@@ -95,33 +95,28 @@
 
 		<div class="flex flex-wrap gap-x-3 gap-y-1 mx-1 text-[11px] text-gray-600">
 			<span class="inline-flex items-center gap-1">
-				<span class="status-swatch" style="background:#dcfce7;box-shadow:inset 0 0 0 1px #4ade80" />
-				{{ __("Present") }}
+				<i class="marker-dot late grace" />{{ __("Late · grace") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
-				<span class="status-swatch" style="background:#fef9c3;box-shadow:inset 0 0 0 1px #facc15" />
-				{{ __("Half Day") }}
+				<i class="marker-dot late after" />{{ __("Late · after grace") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
-				<span class="status-swatch" style="background:#dbeafe;box-shadow:inset 0 0 0 1px #60a5fa" />
-				{{ __("Approved") }}
+				<i class="marker-dot early grace" />{{ __("Early · grace") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
-				<span
-					class="status-swatch"
-					style="background:#fff7ed;box-shadow:inset 0 0 0 1px #fb923c;background-image:repeating-linear-gradient(-45deg,transparent,transparent 2px,rgba(245,158,11,.2) 2px,rgba(245,158,11,.2) 4px)"
-				/>
-				{{ __("Pending") }}
+				<i class="marker-dot early after" />{{ __("Early · after grace") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
-				<span class="status-swatch" style="background:#fee2e2;box-shadow:inset 0 0 0 1px #f87171" />
-				{{ __("Absent") }}
+				<i class="marker-dot ooo" />{{ __("Out of Office") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot late" />{{ __("Late") }}
+				<i class="app-mark approved" />{{ __("Approved application") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot early" />{{ __("Early") }}
+				<i class="app-mark rejected" />{{ __("Rejected application") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<i class="app-mark draft" />{{ __("Draft application") }}
 			</span>
 			<span class="inline-flex items-center gap-1">
 				<i class="marker-dot sandwich" />{{ __("Sandwich") }}
@@ -138,6 +133,12 @@
 			<span class="inline-flex items-center gap-1">
 				<span class="leave-mark-badge lwp">LWP</span>{{ __("Leave without pay") }}
 			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="leave-mark-badge penalty-half">½P</span>{{ __("Half-day pool penalty") }}
+			</span>
+			<span class="inline-flex items-center gap-1">
+				<span class="leave-mark-badge penalty-full">1P</span>{{ __("Full-day pool penalty") }}
+			</span>
 		</div>
 	</div>
 </template>
@@ -148,6 +149,12 @@ import { createResource, FeatherIcon } from "frappe-ui"
 import { ensureNepaliCalendar } from "@/utils/nepali_calendar"
 import { groupContiguousDates } from "@/utils/leave_ranges"
 import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import {
+	appStatusClass,
+	appStatusTitle,
+	hasDelayGraceAfter,
+	normalizeAppStatus,
+} from "@/utils/app_status"
 
 const emit = defineEmits(["select-day", "create-leave", "refresh"])
 
@@ -235,8 +242,16 @@ const dayMarkers = (info) => {
 			pending: false,
 			rejected: false,
 			sandwich: false,
-			late: false,
-			early: false,
+			lateDelay: false,
+			late_grace: false,
+			late_after: false,
+			late_app: "",
+			earlyDelay: false,
+			early_grace: false,
+			early_after: false,
+			early_app: "",
+			oooDelay: false,
+			ooo_app: "",
 		}
 	}
 	const status = info.status || null
@@ -246,13 +261,26 @@ const dayMarkers = (info) => {
 		status === "On Leave" ||
 		status === "Leave Pending" ||
 		status === "Leave Rejected"
+	const lateDelay = hasDelayGraceAfter(info, "late")
+	const earlyDelay = hasDelayGraceAfter(info, "early")
+	const late_app = normalizeAppStatus(info.late_app_status)
+	const early_app = normalizeAppStatus(info.early_app_status)
+	const ooo_app = normalizeAppStatus(info.ooo_app_status)
 	return {
 		leave,
 		pending: leave && (app === "Pending" || status === "Leave Pending"),
 		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
 		sandwich: !!info.sandwich,
-		late: !!info.late,
-		early: !!info.early,
+		lateDelay: lateDelay.delay,
+		late_grace: lateDelay.grace,
+		late_after: lateDelay.after,
+		late_app,
+		earlyDelay: earlyDelay.delay,
+		early_grace: earlyDelay.grace,
+		early_after: earlyDelay.after,
+		early_app,
+		oooDelay: !!info.ooo_required,
+		ooo_app,
 	}
 }
 
@@ -322,13 +350,118 @@ function applyLeaveSelection() {
 	cancelSelectMode()
 }
 
+function ensureNepaliMarker(button, kind, shouldShow, title) {
+	let wrap = button.querySelector(".day-markers")
+	let el = wrap?.querySelector(`.${kind}`)
+	if (!shouldShow) {
+		el?.remove()
+		if (wrap && !wrap.querySelector(".marker")) {
+			wrap.remove()
+			button.classList.remove("has-markers")
+		}
+		return null
+	}
+	if (el) return el
+	if (!wrap) {
+		wrap = document.createElement("span")
+		wrap.className = "day-markers"
+		wrap.setAttribute("aria-hidden", "true")
+		button.appendChild(wrap)
+		button.classList.add("has-markers")
+	}
+	el = document.createElement("i")
+	el.className = `marker ${kind}`
+	el.title = title
+	wrap.appendChild(el)
+	return el
+}
+
+function applyNepaliAppMark(el, status, title) {
+	el.classList.toggle("app-approved", status === "Approved")
+	el.classList.toggle("app-rejected", status === "Rejected")
+	el.classList.toggle("app-draft", status === "Draft")
+	if (title) el.setAttribute("title", title)
+}
+
+function syncNepaliAppOnlyMark(button, className, show, status, kind) {
+	let el = button.querySelector(`.${className}`)
+	if (!show || !status) {
+		el?.remove()
+		return
+	}
+	if (!el) {
+		el = document.createElement("i")
+		el.className = `${className} app-mark ${appStatusClass(status)}`
+		el.setAttribute("aria-hidden", "true")
+		button.appendChild(el)
+	} else {
+		el.className = `${className} app-mark ${appStatusClass(status)}`
+	}
+	el.setAttribute("title", appStatusTitle(kind, status))
+}
+
 function syncLeaveSelection() {
 	const root = calendarContainer.value
 	if (!root) return
 	root.querySelectorAll(".days-grid .day[data-ad]").forEach((button) => {
 		const date = button.getAttribute("data-ad")
+		const info = attendanceEvents.data?.[date]
 		button.classList.toggle("leave-selected", selectedDates.value.has(date))
-		const marks = leaveDayMarks(attendanceEvents.data?.[date])
+		const delay = dayMarkers(info)
+		const lateDot = ensureNepaliMarker(button, "late", delay.lateDelay, "Late")
+		if (lateDot) {
+			lateDot.classList.toggle("grace", delay.late_grace)
+			lateDot.classList.toggle("after", delay.late_after)
+			applyNepaliAppMark(
+				lateDot,
+				delay.late_app,
+				appStatusTitle(
+					delay.late_grace
+						? "Late (within grace)"
+						: delay.late_after
+							? "Late (after grace)"
+							: "Late",
+					delay.late_app
+				)
+			)
+		}
+		syncNepaliAppOnlyMark(button, "late-app", delay.late_app && !delay.lateDelay, delay.late_app, "Late")
+		const earlyDot = ensureNepaliMarker(button, "early", delay.earlyDelay, "Early exit")
+		if (earlyDot) {
+			earlyDot.classList.toggle("grace", delay.early_grace)
+			earlyDot.classList.toggle("after", delay.early_after)
+			applyNepaliAppMark(
+				earlyDot,
+				delay.early_app,
+				appStatusTitle(
+					delay.early_grace
+						? "Early (within grace)"
+						: delay.early_after
+							? "Early (after grace)"
+							: "Early exit",
+					delay.early_app
+				)
+			)
+		}
+		const oooDot = ensureNepaliMarker(button, "ooo", delay.oooDelay, "Out of office")
+		if (oooDot) {
+			applyNepaliAppMark(oooDot, delay.ooo_app, appStatusTitle("Out of office", delay.ooo_app))
+		}
+		syncNepaliAppOnlyMark(
+			button,
+			"early-app",
+			delay.early_app && !delay.earlyDelay,
+			delay.early_app,
+			"Early exit"
+		)
+		syncNepaliAppOnlyMark(
+			button,
+			"ooo-app",
+			delay.ooo_app && !delay.oooDelay,
+			delay.ooo_app,
+			"Out of office"
+		)
+		const marks = leaveDayMarks(info)
 		let wrap = button.querySelector(".leave-marks")
 		if (!marks.length) {
 			wrap?.remove()
@@ -381,8 +514,8 @@ const renderCalendar = async () => {
 			const status = resolvePaintStatus(info)
 			emit("select-day", {
 				date: ad,
-				late: m.late,
-				early: m.early,
+				late: m.lateDelay,
+				early: m.earlyDelay,
 				status,
 			})
 		},
@@ -453,16 +586,120 @@ watch(
 	flex-shrink: 0;
 }
 
-.marker-dot.late {
+.marker-dot.late.after,
+.marker-dot.late:not(.grace),
+:deep(.days-grid .day .marker.late.after),
+:deep(.days-grid .day .marker.late:not(.grace)) {
 	background-color: #ea580c;
 }
 
-.marker-dot.early {
+.marker-dot.early.after,
+.marker-dot.early:not(.grace),
+:deep(.days-grid .day .marker.early.after),
+:deep(.days-grid .day .marker.early:not(.grace)) {
 	background-color: #7c3aed;
+}
+
+.marker-dot.late.grace,
+:deep(.days-grid .day .marker.late.grace) {
+	background-color: #fff !important;
+	box-shadow: inset 0 0 0 1.5px #fb923c !important;
+}
+
+.marker-dot.early.grace,
+:deep(.days-grid .day .marker.early.grace) {
+	background-color: #fff !important;
+	box-shadow: inset 0 0 0 1.5px #a78bfa !important;
+}
+
+.marker-dot.ooo {
+	background-color: #0f766e;
 }
 
 .marker-dot.sandwich {
 	background-color: #be123c;
+}
+
+.app-mark {
+	display: inline-block;
+	font-size: 8px;
+	font-weight: 800;
+	line-height: 1;
+	font-style: normal;
+}
+
+:deep(.days-grid .day .marker.late),
+:deep(.days-grid .day .marker.early),
+:deep(.days-grid .day .marker.ooo) {
+	position: relative;
+}
+
+:deep(.days-grid .day .marker.app-approved),
+:deep(.days-grid .day .marker.app-rejected),
+:deep(.days-grid .day .marker.app-draft) {
+	margin-bottom: 7px;
+}
+
+.app-mark.approved,
+:deep(.days-grid .day .marker.app-approved)::after {
+	color: #16a34a;
+}
+
+.app-mark.approved::before {
+	content: "✓";
+}
+
+.app-mark.rejected,
+:deep(.days-grid .day .marker.app-rejected)::after {
+	color: #dc2626;
+}
+
+.app-mark.rejected::before {
+	content: "✕";
+}
+
+.app-mark.draft,
+:deep(.days-grid .day .marker.app-draft)::after {
+	color: #d97706;
+}
+
+.app-mark.draft::before {
+	content: "○";
+}
+
+:deep(.days-grid .day .marker.app-approved)::after,
+:deep(.days-grid .day .marker.app-rejected)::after,
+:deep(.days-grid .day .marker.app-draft)::after {
+	position: absolute;
+	top: calc(100% + 1px);
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 8px;
+	font-weight: 800;
+	font-style: normal;
+	line-height: 1;
+}
+
+:deep(.days-grid .day .marker.app-approved)::after {
+	content: "✓";
+}
+
+:deep(.days-grid .day .marker.app-rejected)::after {
+	content: "✕";
+}
+
+:deep(.days-grid .day .marker.app-draft)::after {
+	content: "○";
+}
+
+:deep(.days-grid .day .late-app),
+:deep(.days-grid .day .early-app),
+:deep(.days-grid .day .ooo-app) {
+	position: absolute;
+	top: 4px;
+	right: 5px;
+	z-index: 2;
+	pointer-events: none;
 }
 
 :deep(.days-grid .day .leave-marks) {
@@ -501,6 +738,14 @@ watch(
 	background: #d1fae5;
 }
 
+:deep(.leave-mark-badge.penalty-half) {
+	background: #f59e0b;
+	color: #451a03;
+}
+:deep(.leave-mark-badge.penalty-full) {
+	background: #dc2626;
+	color: #fff7ed;
+}
 :deep(.leave-mark-badge.lwp) {
 	color: #334155;
 	background: #e2e8f0;

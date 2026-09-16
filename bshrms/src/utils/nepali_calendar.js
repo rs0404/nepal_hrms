@@ -1,5 +1,5 @@
 const DATE_LIB = "/assets/nepal_compliance/js/nepali_date_lib.js?v=20260812e"
-const CALENDAR_LIB = "/assets/nepal_compliance/js/nepali_calendar_lib.js?v=20260901a"
+const CALENDAR_LIB = "/assets/nepal_compliance/js/nepali_calendar_lib.js?v=20260916a"
 const REACT = "https://unpkg.com/react@18.3.1/umd/react.production.min.js"
 const REACT_DOM = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
 

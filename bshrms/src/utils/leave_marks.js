@@ -8,6 +8,13 @@ function isLeaveDay(info) {
 	)
 }
 
+export function penaltyMarks(info) {
+	if (!info || typeof info === "string") return []
+	if (info.pool_penalty === "full" || info.penalty_mark === "1P") return ["1P"]
+	if (info.pool_penalty === "half" || info.penalty_mark === "½P") return ["½P"]
+	return []
+}
+
 export function leaveTypeKind(leaveType, isLwp) {
 	const name = String(leaveType || "").toLowerCase()
 	if (
@@ -33,10 +40,13 @@ export function leaveTypeMarks(leaveType, isLwp) {
 }
 
 export function leaveDayMarks(info) {
-	if (!isLeaveDay(info)) return []
-	const marks = []
-	if (info.half_day) marks.push("1/2")
-	marks.push(...leaveTypeMarks(info.leave_type, info.is_lwp))
+	if (!info || typeof info === "string") return []
+	const marks = [...penaltyMarks(info)]
+	if (marks.length) return marks
+	if (isLeaveDay(info)) {
+		if (info.half_day) marks.push("1/2")
+		marks.push(...leaveTypeMarks(info.leave_type, info.is_lwp))
+	}
 	return marks
 }
 
@@ -57,5 +67,7 @@ export function leaveMarkClass(mark) {
 	if (mark === "SL") return "sick"
 	if (mark === "HL") return "home"
 	if (mark === "LWP") return "lwp"
+	if (mark === "½P") return "penalty-half"
+	if (mark === "1P") return "penalty-full"
 	return ""
 }

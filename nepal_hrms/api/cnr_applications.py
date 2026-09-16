@@ -177,15 +177,15 @@ def get_late_early_pool_summary(employee=None, month_date=None, from_date=None, 
 	if not can_read_employee_attendance(employee):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
+	settings = get_hr_settings()
 	if from_date and to_date:
 		start = getdate(from_date)
 		end = getdate(to_date)
 	else:
-		ref = getdate(month_date or today())
-		start = get_first_day(ref)
-		end = get_last_day(ref)
+		from nepal_hrms.custom_code.attendance_policy import _pool_period_bounds
 
-	settings = get_hr_settings()
+		ref = getdate(month_date or today())
+		start, end = _pool_period_bounds(ref, settings=settings)
 	initial_grace = cint(getattr(settings, "initial_grace_occurrences", None) or 2)
 	subsequent_step = cint(getattr(settings, "subsequent_grace_step_occurrences", None) or 2)
 	combine = cint(getattr(settings, "combine_late_and_early_pool", 0) or 0)
@@ -234,6 +234,10 @@ def get_late_early_pool_summary(employee=None, month_date=None, from_date=None, 
 			escalate and (late_pool_count > escalate_after or early_pool_count > escalate_after)
 		)
 
+	full_days_so_far = half_days_so_far if escalation_active else 0
+	if escalation_active:
+		half_days_so_far = 0
+
 	return {
 		"employee": employee,
 		"from_date": str(start),
@@ -247,6 +251,7 @@ def get_late_early_pool_summary(employee=None, month_date=None, from_date=None, 
 		"subsequent_grace_step_occurrences": subsequent_step,
 		"free_remaining": free_remaining,
 		"half_days_so_far": half_days_so_far,
+		"full_days_so_far": full_days_so_far,
 		"full_day_escalation_enabled": escalate,
 		"full_day_escalation_threshold": escalate_after,
 		"full_day_escalation_active": escalation_active,

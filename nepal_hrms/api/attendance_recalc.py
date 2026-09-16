@@ -436,18 +436,21 @@ def _list_attendance_names(employee, from_date, to_date):
 	)
 
 
-def _month_key(attendance_date):
-	d = getdate(attendance_date)
-	return (d.year, d.month)
+def _pool_period_key(attendance_date):
+	from nepal_hrms.custom_code.attendance_policy import _pool_period_bounds, get_hr_settings
+
+	settings = get_hr_settings()
+	return _pool_period_bounds(attendance_date, settings=settings)
 
 
 def _outside_batch_month_pool(employee, attendance_date, pool_field, batch_names):
-	"""DB pool count for the calendar month, excluding every Attendance in this batch."""
-	from nepal_hrms.custom_code.attendance_policy import _month_bounds
+	"""DB pool count for the payroll period, excluding every Attendance in this batch."""
+	from nepal_hrms.custom_code.attendance_policy import _pool_period_bounds, get_hr_settings
 
 	if not frappe.get_meta("Attendance").has_field(pool_field):
 		return 0
-	start, end = _month_bounds(attendance_date)
+	settings = get_hr_settings()
+	start, end = _pool_period_bounds(attendance_date, settings=settings)
 	filters = {
 		"employee": employee,
 		"attendance_date": ["between", [start, end]],
@@ -463,17 +466,17 @@ def _simulated_month_pool_count(
 	employee, attendance_date, pool_field, batch_names, simulated_flags, as_of_date
 ):
 	"""
-	Month pool as it would look after applying the batch in date order.
-	= outside-batch DB pool days in the month
-	  + simulated in-pool batch days in the same month with date <= as_of_date
+	Payroll-period pool as it would look after applying the batch in date order.
+	= outside-batch DB pool days in the period
+	  + simulated in-pool batch days in the same period with date <= as_of_date
 	"""
 	outside = _outside_batch_month_pool(employee, attendance_date, pool_field, batch_names)
-	month = _month_key(attendance_date)
+	period = _pool_period_key(attendance_date)
 	as_of = getdate(as_of_date)
 	flag_key = "late" if pool_field.endswith("late_in_pool") else "early"
 	sim = 0
 	for _name, info in simulated_flags.items():
-		if _month_key(info["attendance_date"]) != month:
+		if _pool_period_key(info["attendance_date"]) != period:
 			continue
 		if getdate(info["attendance_date"]) > as_of:
 			continue

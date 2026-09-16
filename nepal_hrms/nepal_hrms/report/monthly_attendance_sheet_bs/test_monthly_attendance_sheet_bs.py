@@ -151,7 +151,7 @@ class TestCanonicalPaidDays(TestCase):
 			)
 		)
 
-	def test_occurrence_audit_does_not_change_paid_days(self):
+	def test_occurrence_audit_marks_third_pool_day(self):
 		def attendance():
 			return frappe._dict(
 				employee="EMP-1",
@@ -178,8 +178,16 @@ class TestCanonicalPaidDays(TestCase):
 
 		self.assertEqual(audit["EMP-1"]["late_half_days"], 1)
 		self.assertEqual(audit["EMP-1"]["late_full_days"], 0)
-		paid = self.classify(status="Present")
-		self.assertEqual(paid["paid_flag"], 1)
+		half = self.classify(status="Present", pool_penalty="half")
+		self.assertEqual(half["absent_half"], 0.5)
+		self.assertEqual(half["present_half"], 0.5)
+		self.assertEqual(half["paid_flag"], 0.5)
+		full = self.classify(status="Present", pool_penalty="full")
+		self.assertEqual(full["absent_full"], 1)
+		self.assertEqual(full["paid_flag"], 0)
+		plain_half = self.classify(status="Half Day", half_day_status="Absent")
+		self.assertEqual(plain_half["absent_half"], 1.0)
+		self.assertEqual(plain_half["paid_flag"], 0)
 
 	def test_summary_column_order_is_exact(self):
 		columns = report.get_columns({}, date(2026, 1, 2), date(2026, 1, 1))
@@ -196,6 +204,8 @@ class TestCanonicalPaidDays(TestCase):
 				"other_paid_leave_days",
 				"holiday_extra_present",
 				"holiday_extra_hours",
+				"penalty_half_days",
+				"penalty_full_days",
 				"attendance_request_apps",
 				"late_entry_apps",
 				"early_exit_apps",
@@ -387,6 +397,8 @@ class TestAttendanceSheetExport(TestCase):
 		self.assertIn("Paid Leave: Home Leave", headers)
 		self.assertIn("Paid Days: Canonical Daily Flags", headers)
 		self.assertTrue(any("Status" in str(header) for header in headers))
+		self.assertTrue(any("Penalty" in str(header) for header in headers))
+		self.assertTrue(any("Late Grace" in str(header) for header in headers))
 
 	def test_xlsx_total_columns_are_bold(self):
 		from openpyxl import load_workbook

@@ -1,5 +1,13 @@
 <template>
 	<div class="flex flex-col gap-3">
+		<Autocomplete
+			class="w-full"
+			:placeholder="__('Search employee')"
+			v-model="selectedEmployeeOption"
+			:options="employeeOptions"
+			@update:query="onEmployeeQuery"
+		/>
+
 		<div class="flex items-center gap-1.5">
 			<button
 				type="button"
@@ -108,8 +116,8 @@
 </template>
 
 <script setup>
-import { computed, inject, ref } from "vue"
-import { createResource, Button } from "frappe-ui"
+import { computed, inject, ref, watch } from "vue"
+import { createResource, Button, Autocomplete, debounce } from "frappe-ui"
 
 import NepaliDatePickerDialog from "@/components/NepaliDatePickerDialog.vue"
 import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
@@ -125,6 +133,14 @@ const dayjs = inject("$dayjs")
 const attendanceDate = ref(dayjs().format("YYYY-MM-DD"))
 const showDatePicker = ref(false)
 const activeCol = ref(props.leaveBoardOnly ? "leave" : "pending")
+const selectedEmployeeOption = ref(null)
+const employeeQuery = ref("")
+
+const selectedEmployee = computed(() => {
+	const opt = selectedEmployeeOption.value
+	if (!opt) return ""
+	return typeof opt === "object" && opt.value !== undefined ? opt.value : opt
+})
 
 const isToday = computed(() => attendanceDate.value === dayjs().format("YYYY-MM-DD"))
 
@@ -187,14 +203,43 @@ const ALL_COLUMNS = [
 
 const liveBoard = createResource({
 	url: "nepal_hrms.api.pwa_access.get_pwa_live_attendance",
-	makeParams: () => ({ attendance_date: attendanceDate.value }),
+	makeParams: () => ({
+		attendance_date: attendanceDate.value,
+		employee: selectedEmployee.value || undefined,
+	}),
 	auto: true,
-	onSuccess() {
+	onSuccess(data) {
 		const cols = visibleColumns.value
+		if (selectedEmployee.value) {
+			const withEmp = cols.find((c) =>
+				flatten(data?.[c.key]).some((emp) => emp.name === selectedEmployee.value)
+			)
+			if (withEmp) {
+				activeCol.value = withEmp.key
+				return
+			}
+		}
 		if (!cols.find((c) => c.key === activeCol.value)) {
 			activeCol.value = cols[0]?.key
 		}
 	},
+})
+
+const liveEmployees = createResource({
+	url: "nepal_hrms.api.pwa_access.get_live_board_employees",
+	makeParams: () => ({ search_text: employeeQuery.value || undefined }),
+	auto: true,
+})
+
+const employeeOptions = computed(() => liveEmployees.data || [])
+
+const onEmployeeQuery = debounce((query) => {
+	employeeQuery.value = query || ""
+	liveEmployees.reload()
+}, 300)
+
+watch(selectedEmployee, () => {
+	liveBoard.reload()
 })
 
 function flatten(grouped) {

@@ -34,6 +34,8 @@ SUMMARY_EXPORT_FIELDS = (
 	("other_paid_leave_days", "Other Paid Leaves"),
 	("holiday_extra_present", "Present on WO/Hol"),
 	("holiday_extra_hours", "Extra Hrs (WO/Hol)"),
+	("penalty_half_days", "½P Penalty"),
+	("penalty_full_days", "1P Penalty"),
 	("attendance_request_apps", "Attendance Request"),
 	("late_entry_apps", "Late Entry"),
 	("early_exit_apps", "Early Exit"),
@@ -201,6 +203,17 @@ def build_export_table(filters, export_mode="daily"):
 			headers.append(f"{prefix} {_('Check In')}")
 			headers.append(f"{prefix} {_('Check Out')}")
 			headers.append(f"{prefix} {_('Worked Hrs')}")
+			headers.append(f"{prefix} {_('Penalty')}")
+			headers.append(f"{prefix} {_('Late Grace')}")
+			headers.append(f"{prefix} {_('Late Max')}")
+			headers.append(f"{prefix} {_('Late Applied')}")
+			headers.append(f"{prefix} {_('Late Approved')}")
+			headers.append(f"{prefix} {_('Early Grace')}")
+			headers.append(f"{prefix} {_('Early Max')}")
+			headers.append(f"{prefix} {_('Early Applied')}")
+			headers.append(f"{prefix} {_('Early Approved')}")
+			headers.append(f"{prefix} {_('OOO Applied')}")
+			headers.append(f"{prefix} {_('OOO Approved')}")
 			if export_mode == "full":
 				headers.extend(
 					[
@@ -279,7 +292,29 @@ def build_export_table(filters, export_mode="daily"):
 						check_in = parts[0]
 						check_out = parts[-1] if len(parts) > 1 else ""
 				worked = _worked_hours(row, fname, cell)
-				line.extend([status, check_in, check_out, worked])
+				apps = cell.get("applications") or []
+				late_apps = [app for app in apps if app.get("doctype") == "Late Entry Application"]
+				early_apps = [app for app in apps if app.get("doctype") == "Early Exit Application"]
+				ooo_apps = [app for app in apps if app.get("doctype") == "Out of Office Application"]
+				line.extend(
+					[
+						status,
+						check_in,
+						check_out,
+						worked,
+						cell.get("penalty_mark") or "",
+						cint(cell.get("late_grace") or 0) or "",
+						cint(cell.get("late_max") or 0) or "",
+						len(late_apps) or "",
+						sum(1 for app in late_apps if app.get("status") == "approved") or "",
+						cint(cell.get("early_grace") or 0) or "",
+						cint(cell.get("early_max") or 0) or "",
+						len(early_apps) or "",
+						sum(1 for app in early_apps if app.get("status") == "approved") or "",
+						len(ooo_apps) or "",
+						sum(1 for app in ooo_apps if app.get("status") == "approved") or "",
+					]
+				)
 				if export_mode == "full":
 					line.extend(
 						[
@@ -340,7 +375,7 @@ def build_export_table(filters, export_mode="daily"):
 					cint(occurrence.get("full_day_escalation_threshold")),
 					_("Yes") if cint(occurrence.get("combine_pools")) else _("No"),
 					_(
-						"Monetary deduction only; not subtracted from Total Paid Days"
+						"½P / 1P counted as Absent (gross)"
 						if cint(occurrence.get("penalty_enabled"))
 						else "Policy disabled; audit projection only"
 					),
