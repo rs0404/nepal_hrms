@@ -56,6 +56,19 @@ export function formatNepaliMonthYearPeriod(fromDate, toDate) {
 	return `${from} – ${to}`
 }
 
+/** BS { year, month } (month 1-based) for an AD date, or null. */
+export function getBsYearMonth(adDate) {
+	const NepaliDate = window.NepaliDateLib?.NepaliDate
+	if (!NepaliDate || !adDate) return null
+	try {
+		const nd = NepaliDate.fromAD(adDate instanceof Date ? adDate : new Date(adDate))
+		return { year: nd.year, month: nd.monthIndex + 1 }
+	} catch (e) {
+		console.error("BS year/month conversion error:", e)
+		return null
+	}
+}
+
 /** AD YYYY-MM-DD bounds for the BS month containing `refDate` (default: today). */
 export function getBsMonthAdRange(refDate = new Date()) {
 	const NepaliDate = window.NepaliDateLib?.NepaliDate

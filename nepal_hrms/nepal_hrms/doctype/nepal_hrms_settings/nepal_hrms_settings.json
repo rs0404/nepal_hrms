@@ -12,6 +12,7 @@
   "show_application_reason_on_sheet_hover",
   "late_early_enable_section",
   "enable_late_early_penalty",
+  "excuse_late_early_on_attendance_request",
   "penalty_windows_section",
   "late_early_grace_mins",
   "column_break_penalty_windows",
@@ -66,6 +67,7 @@
   "unapproved_absence_deduction_base",
   "column_break_deduction",
   "lwp_deduction_base",
+  "penalty_deduction_base",
   "earned_salary_deduction_section",
   "calculate_attendance_deductions_through_earned_salary",
   "column_break_earned_salary_deduction",
@@ -179,6 +181,14 @@
    "fieldname": "enable_late_early_penalty",
    "fieldtype": "Check",
    "label": "Enable Late Entry & Early Exit Penalty Rules"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval: doc.enable_late_early_penalty === 1",
+   "description": "When enabled, a day covered by a submitted and approved Attendance Request is fully excused: no Late Entry / Early Exit flag, no occurrence-pool count, and no \u00bdP / 1P penalty. Late and early minutes are still recorded for reference. When disabled, late and early are decided only from the actual check-in and check-out times, regardless of any Attendance Request.",
+   "fieldname": "excuse_late_early_on_attendance_request",
+   "fieldtype": "Check",
+   "label": "Approved Attendance Request Excuses Late / Early"
   },
   {
    "depends_on": "eval: doc.enable_late_early_penalty === 1",
@@ -493,7 +503,7 @@
    "fieldname": "half_day_deduction_base",
    "fieldtype": "Select",
    "label": "Half-Day Deduction Base",
-   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)"
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)\nAssignment Base (Total Salary)"
   },
   {
    "default": "Total Fixed Remuneration (Gross)",
@@ -501,7 +511,7 @@
    "fieldname": "unapproved_absence_deduction_base",
    "fieldtype": "Select",
    "label": "Unapproved Absence Deduction Base",
-   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)"
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)\nAssignment Base (Total Salary)"
   },
   {
    "fieldname": "column_break_deduction",
@@ -513,7 +523,14 @@
    "fieldname": "lwp_deduction_base",
    "fieldtype": "Select",
    "label": "LWP Deduction Base",
-   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)"
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)\nAssignment Base (Total Salary)"
+  },
+  {
+   "description": "Base for late / early occurrence-pool penalties (\u00bdP counts 0.5 day, 1P counts 1.0 day). Leave blank to keep charging them on the Half-Day Deduction Base.",
+   "fieldname": "penalty_deduction_base",
+   "fieldtype": "Select",
+   "label": "Penalty Deduction Base",
+   "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)\nAssignment Base (Total Salary)"
   },
   {
    "description": "Controls whether the complete attendance deduction (late entry, early exit, out of office, LWP and unapproved absence) reduces earned salary components instead of posting as a separate deduction.",

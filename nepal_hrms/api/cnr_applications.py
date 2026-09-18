@@ -273,9 +273,9 @@ def get_cnr_application_counts(employee=None, from_date=None, to_date=None):
 	if not can_read_employee_attendance(employee):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
-	ref = getdate(from_date or today()) if from_date else getdate(today())
-	start = getdate(from_date) if from_date else get_first_day(ref)
-	end = getdate(to_date) if to_date else get_last_day(ref)
+	from nepal_hrms.api.attendance_calendar import _default_payroll_window
+
+	start, end = _default_payroll_window(from_date, to_date)
 
 	result = {}
 	for doctype in CNR_DOCTYPES:

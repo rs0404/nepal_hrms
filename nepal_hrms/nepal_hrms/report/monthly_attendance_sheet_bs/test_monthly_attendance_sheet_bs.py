@@ -104,6 +104,8 @@ class TestCanonicalPaidDays(TestCase):
 			"present_half": 0,
 			"absent_full": 0,
 			"absent_half": 0,
+			"penalty_full": 0,
+			"penalty_half": 0,
 			"lwp_full": 0,
 			"lwp_half": 0,
 			"paid_leave_full": 0,
@@ -178,15 +180,20 @@ class TestCanonicalPaidDays(TestCase):
 
 		self.assertEqual(audit["EMP-1"]["late_half_days"], 1)
 		self.assertEqual(audit["EMP-1"]["late_full_days"], 0)
+		# ½P / 1P land in penalty_*, never in absent_*: the sheet reports and payroll
+		# charges them separately, but they still cost the same paid days.
 		half = self.classify(status="Present", pool_penalty="half")
-		self.assertEqual(half["absent_half"], 0.5)
+		self.assertEqual(half["penalty_half"], 0.5)
+		self.assertEqual(half["absent_half"], 0)
 		self.assertEqual(half["present_half"], 0.5)
 		self.assertEqual(half["paid_flag"], 0.5)
 		full = self.classify(status="Present", pool_penalty="full")
-		self.assertEqual(full["absent_full"], 1)
+		self.assertEqual(full["penalty_full"], 1)
+		self.assertEqual(full["absent_full"], 0)
 		self.assertEqual(full["paid_flag"], 0)
 		plain_half = self.classify(status="Half Day", half_day_status="Absent")
 		self.assertEqual(plain_half["absent_half"], 1.0)
+		self.assertEqual(plain_half["penalty_half"], 0)
 		self.assertEqual(plain_half["paid_flag"], 0)
 
 	def test_summary_column_order_is_exact(self):
@@ -197,6 +204,7 @@ class TestCanonicalPaidDays(TestCase):
 				"total_days_in_period",
 				"payable_days",
 				"total_absent",
+				"penalty_days",
 				"lwp_days",
 				"paid_leave_days",
 				"annual_home_leave_days",
@@ -358,6 +366,8 @@ class TestAttendanceSheetExport(TestCase):
 			{
 				"absent_full": 0,
 				"absent_half": 0,
+				"penalty_full": 0,
+				"penalty_half": 0,
 				"lwp_full": 0,
 				"lwp_half": 0,
 				"paid_leave_full": 1,

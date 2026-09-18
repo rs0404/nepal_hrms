@@ -19,10 +19,28 @@ from nepal_hrms.custom_code.leave_type_acronym import (
     leave_type_acronym,
 )
 
+# Day classification moved to custom_code so the PWA can reach it without importing
+# a report. Re-exported here: this module's own tests, download_attendance_sheet_bs,
+# api/attendance_calendar and api/attendance_recalc all still import these names
+# from the report.
+from nepal_hrms.custom_code.attendance_classification import (  # noqa: F401
+    DAY_COUNT_DATE_FIELDS,
+    LEAVE_GROUP_ANNUAL_HOME,
+    LEAVE_GROUP_OTHER,
+    LEAVE_GROUP_SICK,
+    _accumulate_day,
+    _add_leave_unit,
+    _collect_day_dates,
+    _date_labels,
+    _finalize_paid_days,
+    _get_leave_type_details,
+    _include_in_paid_day_audit,
+    _merge_breakdown,
+    _new_day_classification,
+    classify_attendance_day,
+)
 
-LEAVE_GROUP_ANNUAL_HOME = "Annual/Home"
-LEAVE_GROUP_SICK = "Sick"
-LEAVE_GROUP_OTHER = "Other Paid"
+
 APPLICATION_SPECS = {
     "attendance_request": {
         "doctype": "Attendance Request",
@@ -161,6 +179,12 @@ def get_columns(filters, start_ad, end_ad, leave_types=None):
                 "width": 95,
             },
             {
+                "label": _("Penalty Days"),
+                "fieldname": "penalty_days",
+                "fieldtype": "Float",
+                "width": 100,
+            },
+            {
                 "label": _("Leave Without Pay"),
                 "fieldname": "lwp_days",
                 "fieldtype": "Float",
@@ -267,6 +291,10 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         else:
             emp_conditions["name"] = "None"
 
+    # Load-bearing, and it must stay AFTER the has_full_access block above: an
+    # explicit employee filter overrides the role scope entirely. summarize_period
+    # relies on that, which is exactly why every caller of this loader has to do
+    # its own permission check first (see api/attendance_calendar.py).
     if filters.get("employee"): emp_conditions["name"] = filters.get("employee")
     if filters.get("department"): emp_conditions["department"] = filters.get("department")
     if filters.get("shift"): emp_conditions["default_shift"] = filters.get("shift")
@@ -384,30 +412,6 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         "day_app_maps": day_app_maps,
         "leave_day_map": leave_day_map,
     }, leave_types
-
-
-def _get_leave_type_details():
-    fields = ["name", "is_lwp"]
-    meta = frappe.get_meta("Leave Type")
-    group_field = "custom_attendance_sheet_leave_group"
-    acronym_field = "custom_attendance_sheet_acronym"
-    if meta.has_field(group_field):
-        fields.append(group_field)
-    if meta.has_field(acronym_field):
-        fields.append(acronym_field)
-    rows = frappe.get_all("Leave Type", fields=fields, ignore_permissions=True)
-    details = {}
-    for row in rows:
-        group = getattr(row, group_field, None) or LEAVE_GROUP_OTHER
-        details[row.name] = frappe._dict(
-            is_lwp=bool(cint(row.is_lwp)),
-            group=group,
-            configured=bool(getattr(row, group_field, None)),
-            acronym=format_leave_type_acronym(
-                row.name, getattr(row, acronym_field, None)
-            ),
-        )
-    return details
 
 
 def _empty_application_stats(spec):
@@ -708,242 +712,25 @@ def _half_day_other_half(status_abbr, leave_type, leave_type_details):
     return "Ab", "absent", _("Absent / unpaid half")
 
 
-def _new_day_classification():
-    return {
-        "present_full": 0.0,
-        "present_half": 0.0,
-        "absent_full": 0.0,
-        "absent_half": 0.0,
-        "lwp_full": 0.0,
-        "lwp_half": 0.0,
-        "paid_leave_full": 0.0,
-        "paid_leave_half": 0.0,
-        "annual_home_leave": 0.0,
-        "sick_leave": 0.0,
-        "other_paid_leave": 0.0,
-        "holiday": 0.0,
-        "holiday_extra_present": 0.0,
-        "holiday_extra_hours": 0.0,
-        "paid_flag": 0.0,
-        "unmarked": 0,
-        "unclassified_leave": 0,
-        "sandwich": 0,
-        "sandwich_absent": 0.0,
-        "leave_breakdown": {},
-        "lwp_breakdown": {},
-        "other_paid_breakdown": {},
-        "unconfigured_paid_leave_breakdown": {},
-    }
+def _counts_toward_cnr(is_holiday, is_sandwich):
+    """Whether a day may contribute to late / early / penalty totals.
+
+    classify_attendance_day already refuses to classify a penalty on a holiday or a
+    sandwich day; without this the row counters disagreed with it, so the same row
+    reported penalty_days = 0 and penalty_half_days = 1.
+    """
+    return not is_holiday and not is_sandwich
 
 
-def _include_in_paid_day_audit(
-    attendance_date,
-    current_date,
-    *,
-    has_attendance=False,
-    is_holiday=False,
-    is_sandwich=False,
+def _occurrence_audits(
+    attendance_map, settings, employee_names=None, holiday_dates=None
 ):
-    """Exclude future days and an unmarked current working day from paid totals."""
-    attendance_date = getdate(attendance_date)
-    current_date = getdate(current_date)
-    if attendance_date > current_date:
-        return False
-    if attendance_date < current_date:
-        return True
-    return bool(has_attendance or is_holiday or is_sandwich)
+    """holiday_dates: {employee: set(date)} whose days never count toward the pool.
 
-
-def _add_leave_unit(day, leave_type, amount, leave_type_details, full=False):
-    details = leave_type_details.get(leave_type) if leave_type else None
-    if not details:
-        day["unclassified_leave"] += 1
-        return
-    suffix = "full" if full else "half"
-    target_breakdown = (
-        day["lwp_breakdown"] if details.is_lwp else day["leave_breakdown"]
-    )
-    target_breakdown[leave_type] = target_breakdown.get(leave_type, 0) + amount
-    if details.is_lwp:
-        day[f"lwp_{suffix}"] += amount
-        return
-
-    day[f"paid_leave_{suffix}"] += amount
-    group = details.group or LEAVE_GROUP_OTHER
-    if group == LEAVE_GROUP_ANNUAL_HOME:
-        day["annual_home_leave"] += amount
-    elif group == LEAVE_GROUP_SICK:
-        day["sick_leave"] += amount
-    else:
-        day["other_paid_leave"] += amount
-        day["other_paid_breakdown"][leave_type] = (
-            day["other_paid_breakdown"].get(leave_type, 0) + amount
-        )
-    if not details.configured:
-        day["unconfigured_paid_leave_breakdown"][leave_type] = (
-            day["unconfigured_paid_leave_breakdown"].get(leave_type, 0) + amount
-        )
-
-
-def classify_attendance_day(
-    *,
-    status=None,
-    half_day_status=None,
-    leave_type=None,
-    working_hours=0,
-    is_holiday=False,
-    is_sandwich=False,
-    sandwich_leave_type=None,
-    leave_type_details=None,
-    pool_penalty=None,
-):
-    """Return mutually exclusive paid/unpaid units for one employee-date."""
-    leave_type_details = leave_type_details or {}
-    status = (status or "").strip()
-    day = _new_day_classification()
-
-    if is_holiday and is_sandwich:
-        day["sandwich"] = 1
-        effective_leave = sandwich_leave_type or (
-            leave_type if status == "On Leave" else None
-        )
-        if effective_leave:
-            _add_leave_unit(
-                day, effective_leave, 1.0, leave_type_details, full=True
-            )
-        else:
-            day["absent_full"] = 1.0
-            day["sandwich_absent"] = 1.0
-        day["paid_flag"] = (
-            day["paid_leave_full"] + day["paid_leave_half"]
-        )
-        return day
-
-    if not is_holiday and not is_sandwich:
-        if pool_penalty == "full":
-            day["absent_full"] = 1.0
-            return day
-        if pool_penalty == "half":
-            day["absent_half"] = 0.5
-            day["present_half"] = 0.5
-            day["paid_flag"] = 0.5
-            return day
-
-    if is_holiday or status in ("Holiday", "Weekly Off"):
-        day["holiday"] = 1.0
-        day["paid_flag"] = 1.0
-        if status in ("Present", "Work From Home"):
-            day["holiday_extra_present"] = 1.0
-            day["holiday_extra_hours"] = flt(working_hours)
-        elif status == "Half Day" and half_day_status == "Present":
-            day["holiday_extra_present"] = 0.5
-            day["holiday_extra_hours"] = flt(working_hours)
-        return day
-
-    if status in ("Present", "Work From Home"):
-        day["present_full"] = 1.0
-        day["paid_flag"] = 1.0
-        return day
-    if status == "Absent":
-        day["absent_full"] = 1.0
-        return day
-    if status == "On Leave":
-        _add_leave_unit(day, leave_type, 1.0, leave_type_details, full=True)
-        day["paid_flag"] = day["paid_leave_full"]
-        return day
-    if status == "Half Day":
-        if half_day_status == "Present":
-            day["present_half"] = 0.5
-        else:
-            day["absent_half"] = 0.5
-        if leave_type:
-            _add_leave_unit(day, leave_type, 0.5, leave_type_details, full=False)
-        else:
-            day["absent_half"] += 0.5
-        day["paid_flag"] = (
-            day["present_half"] + day["paid_leave_half"]
-        )
-        return day
-
-    day["unmarked"] = 1
-    return day
-
-
-def _merge_breakdown(target, source):
-    for key, value in source.items():
-        target[key] = target.get(key, 0) + flt(value)
-
-
-def _accumulate_day(row, day):
-    fields = (
-        "present_full",
-        "present_half",
-        "absent_full",
-        "absent_half",
-        "lwp_full",
-        "lwp_half",
-        "paid_leave_full",
-        "paid_leave_half",
-        "annual_home_leave",
-        "sick_leave",
-        "other_paid_leave",
-        "holiday",
-        "holiday_extra_present",
-        "holiday_extra_hours",
-        "paid_flag",
-        "unmarked",
-        "unclassified_leave",
-        "sandwich",
-        "sandwich_absent",
-    )
-    for fieldname in fields:
-        row[fieldname] = row.get(fieldname, 0) + day.get(fieldname, 0)
-    _merge_breakdown(row["leave_breakdown"], day["leave_breakdown"])
-    _merge_breakdown(row["lwp_breakdown"], day["lwp_breakdown"])
-    _merge_breakdown(
-        row["other_paid_breakdown"], day["other_paid_breakdown"]
-    )
-    _merge_breakdown(
-        row["unconfigured_paid_leave_breakdown"],
-        day["unconfigured_paid_leave_breakdown"],
-    )
-
-
-def _finalize_paid_days(row, tolerance=0.05):
-    row["total_present"] = flt(row["present_full"]) + flt(row["present_half"])
-    row["total_absent"] = flt(row["absent_full"]) + flt(row["absent_half"])
-    row["lwp_days"] = flt(row["lwp_full"]) + flt(row["lwp_half"])
-    row["paid_leave_days"] = flt(row["paid_leave_full"]) + flt(
-        row["paid_leave_half"]
-    )
-    row["total_holiday"] = flt(row["holiday"])
-    row["annual_home_leave_days"] = flt(row["annual_home_leave"])
-    row["sick_leave_days"] = flt(row["sick_leave"])
-    row["other_paid_leave_days"] = flt(row["other_paid_leave"])
-
-    method_period = (
-        flt(row["total_days_in_period"])
-        - flt(row["lwp_days"])
-        - flt(row["total_absent"])
-    )
-    method_components = (
-        flt(row["total_present"])
-        + flt(row["paid_leave_days"])
-        + flt(row["total_holiday"])
-    )
-    method_daily = flt(row["paid_flag"])
-    row["paid_days_period_method"] = method_period
-    row["paid_days_component_method"] = method_components
-    row["paid_days_daily_method"] = method_daily
-    row["payable_days"] = method_daily
-    row["payable_days_policy"] = method_daily
-    row["payable_days_mismatch"] = int(
-        abs(method_period - method_daily) > tolerance
-        or abs(method_components - method_daily) > tolerance
-    )
-
-
-def _occurrence_audits(attendance_map, settings, employee_names=None):
+    Trailing keyword so existing positional callers keep working. Keyed off the
+    attendance_map tuple rather than att.attendance_date, which stubs may omit.
+    """
+    holiday_dates = holiday_dates or {}
     counts = defaultdict(
         lambda: {
             "late_minor": 0,
@@ -952,7 +739,11 @@ def _occurrence_audits(attendance_map, settings, employee_names=None):
             "early_major": 0,
         }
     )
-    for att in attendance_map.values():
+    for key, att in attendance_map.items():
+        if holiday_dates:
+            day = key[1] if isinstance(key, tuple) and len(key) > 1 else None
+            if day is not None and day in holiday_dates.get(att.employee, ()):
+                continue
         item = counts[att.employee]
         item["late_minor"] += cint(
             getattr(att, "custom_cnr_late_in_pool", 0) or 0
@@ -1040,21 +831,6 @@ def _occurrence_audits(attendance_map, settings, employee_names=None):
             "early_escalated": bool(early_penalty.escalated),
         }
     return result
-
-
-def _pool_day_flags(attendance_map, employee):
-    flags = []
-    for (emp, day), att in attendance_map.items():
-        if emp != employee:
-            continue
-        flags.append(
-            (
-                day,
-                cint(getattr(att, "custom_cnr_late_in_pool", 0) or 0),
-                cint(getattr(att, "custom_cnr_early_in_pool", 0) or 0),
-            )
-        )
-    return flags
 
 
 def _assign_report_pool_penalties(settings, employee_names, period_start, period_end):
@@ -1463,13 +1239,6 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
         settings = frappe._dict()
         grace_mins = 15
         max_delay_mins = 60
-    occurrence_audits = _occurrence_audits(
-        attendance_map, settings, [employee.name for employee in employees]
-    )
-    pool_penalties = _assign_report_pool_penalties(
-        settings, [employee.name for employee in employees], start_ad, end_ad
-    )
-
     company_holiday_list = frappe.db.get_value('Company', filters.get('company'), 'default_holiday_list')
     holiday_lists = set(e.holiday_list for e in employees if e.holiday_list)
     if company_holiday_list: holiday_lists.add(company_holiday_list)
@@ -1491,6 +1260,22 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             ignore_permissions=True,
         )
         holidays_by_list[hl] = {getdate(h.holiday_date): bool(h.weekly_off) for h in h_records}
+    # Holiday days never count toward the occurrence pool, so the holiday map has
+    # to exist before the audit runs.
+    holiday_dates_by_employee = {
+        e.name: set(holidays_by_list.get(e.holiday_list or company_holiday_list, {}))
+        for e in employees
+    }
+    occurrence_audits = _occurrence_audits(
+        attendance_map,
+        settings,
+        [employee.name for employee in employees],
+        holiday_dates=holiday_dates_by_employee,
+    )
+    pool_penalties = _assign_report_pool_penalties(
+        settings, [employee.name for employee in employees], start_ad, end_ad
+    )
+
     sandwich_map = _build_sandwich_map(
         employees,
         start_ad,
@@ -1522,6 +1307,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             "payable_days_mismatch": 0, "lwp_days": 0, "paid_leave_days": 0,
             "present_full": 0, "present_half": 0,
             "absent_full": 0, "absent_half": 0,
+            "penalty_full": 0, "penalty_half": 0, "penalty_days": 0,
             "lwp_full": 0, "lwp_half": 0,
             "paid_leave_full": 0, "paid_leave_half": 0,
             "annual_home_leave": 0, "sick_leave": 0, "other_paid_leave": 0,
@@ -1532,6 +1318,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             "holiday_extra_present": 0, "holiday_extra_hours": 0,
             "leave_breakdown": {}, "lwp_breakdown": {},
             "other_paid_breakdown": {},
+            **{field: [] for field in DAY_COUNT_DATE_FIELDS},
             "unconfigured_paid_leave_breakdown": {},
             "application_audits": application_audits.get(emp.name, {}),
             "occurrence_audit": occurrence_audits.get(emp.name, {}),
@@ -1735,31 +1522,35 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 is_holiday=is_holiday,
                 is_sandwich=is_sandwich,
             )
+            count_cnr_day = _counts_toward_cnr(is_holiday, is_sandwich)
             if include_in_paid_audit:
                 row["total_days_in_period"] += 1
                 row["audit_through_date"] = str(curr)
-                if day_penalty == "full":
-                    row["penalty_full_days"] += 1
-                    row["penalty_paid_deduction"] += 1
-                elif day_penalty == "half":
-                    row["penalty_half_days"] += 1
-                    row["penalty_paid_deduction"] += 0.5
+                if count_cnr_day:
+                    if day_penalty == "full":
+                        row["penalty_full_days"] += 1
+                        row["penalty_paid_deduction"] += 1
+                    elif day_penalty == "half":
+                        row["penalty_half_days"] += 1
+                        row["penalty_paid_deduction"] += 0.5
                 _accumulate_day(row, day_classification)
+                _collect_day_dates(row, curr, day_classification)
                 total_worked += wh
-                if late_entry:
-                    row["total_late_entry"] += 1
-                if early_exit:
-                    row["total_early_exit"] += 1
-                late_band = _delay_band(late_mins, grace_mins, max_delay_mins)
-                early_band = _delay_band(early_mins, grace_mins, max_delay_mins)
-                if late_band == "grace":
-                    row["cnr_counts"]["late_entry"]["grace"] += 1
-                elif late_band == "max":
-                    row["cnr_counts"]["late_entry"]["max_band"] += 1
-                if early_band == "grace":
-                    row["cnr_counts"]["early_exit"]["grace"] += 1
-                elif early_band == "max":
-                    row["cnr_counts"]["early_exit"]["max_band"] += 1
+                if count_cnr_day:
+                    if late_entry:
+                        row["total_late_entry"] += 1
+                    if early_exit:
+                        row["total_early_exit"] += 1
+                    late_band = _delay_band(late_mins, grace_mins, max_delay_mins)
+                    early_band = _delay_band(early_mins, grace_mins, max_delay_mins)
+                    if late_band == "grace":
+                        row["cnr_counts"]["late_entry"]["grace"] += 1
+                    elif late_band == "max":
+                        row["cnr_counts"]["late_entry"]["max_band"] += 1
+                    if early_band == "grace":
+                        row["cnr_counts"]["early_exit"]["grace"] += 1
+                    elif early_band == "max":
+                        row["cnr_counts"]["early_exit"]["max_band"] += 1
             elif curr > current_date:
                 row["future_days_excluded"] += 1
             else:
@@ -1799,9 +1590,9 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             if not early_kind and early_exit:
                 early_kind = "excused" if day_eea else "unexcused"
 
-            if include_in_paid_audit and late_kind == "grace":
+            if include_in_paid_audit and count_cnr_day and late_kind == "grace":
                 row["total_grace_late"] += 1
-            elif include_in_paid_audit and late_kind == "unexcused":
+            elif include_in_paid_audit and count_cnr_day and late_kind == "unexcused":
                 row["total_unexcused_late"] += 1
 
             other_half_label, other_half_kind, other_half_title = "", "", ""

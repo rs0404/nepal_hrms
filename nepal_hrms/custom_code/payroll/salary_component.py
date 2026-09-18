@@ -251,11 +251,7 @@ def create_multiple_salary_components():
             },
             {
                 "amount_based_on_formula": 1,
-                "formula": (
-                    "(late_entry_half_days + early_exit_half_days + out_of_office_half_days) * late_deduction_rate "
-                    "+ lwp_days * lwp_deduction_rate "
-                    "+ unapproved_absent_days * unapproved_absent_rate"
-                ),
+                "formula": LEAVE_LATE_FORMULA,
                 "name": "Leave and Late Deduction",
                 "salary_component": "Leave and Late Deduction",
                 "salary_component_abbr": "leave_and_late_deduction",
@@ -289,9 +285,11 @@ def create_multiple_salary_components():
 LEAVE_LATE_FORMULA = (
     "(late_entry_half_days + early_exit_half_days + out_of_office_half_days) * late_deduction_rate "
     "+ lwp_days * lwp_deduction_rate "
-    "+ unapproved_absent_days * unapproved_absent_rate"
+    "+ unapproved_absent_days * unapproved_absent_rate "
+    "+ penalty_days * penalty_deduction_rate"
 )
-# Note: escalated late/early full-day pool penalties are folded into unapproved_absent_days (gross).
+# Note: ½P / 1P occurrence-pool penalties are charged through penalty_days on their
+# own configured base, and are excluded from unapproved_absent_days.
 
 
 def update_salary_component_formulas():

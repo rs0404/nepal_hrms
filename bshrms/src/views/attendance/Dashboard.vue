@@ -453,7 +453,7 @@ import AttendanceCalendar from "@/components/AttendanceCalendar.vue"
 import NepaliAttendanceCalendar from "@/components/NepaliAttendanceCalendar.vue"
 import AttendanceDaySheet from "@/components/AttendanceDaySheet.vue"
 import LiveAttendanceBoard from "@/components/LiveAttendanceBoard.vue"
-import { getBsMonthAdRange, formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
+import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 import { encodeLeaveRanges } from "@/utils/leave_ranges"
 import { consumeAttendanceRefresh } from "@/utils/attendance_refresh"
 import { pwaAccess } from "@/data/pwa_access"
@@ -536,74 +536,47 @@ const showSandwichDialog = ref(false)
 const sandwichInfo = ref(null)
 const pendingLeaveRange = ref(null)
 
-const monthRange = computed(() => {
-	if (activeCalendar.value === "Nepali") {
-		const bs = getBsMonthAdRange()
-		if (bs) return bs
-	}
-	return {
-		from_date: dayjs().startOf("month").format("YYYY-MM-DD"),
-		to_date: dayjs().endOf("month").format("YYYY-MM-DD"),
-	}
-})
+// The window is resolved server-side, from the configured payroll period, so all
+// of these agree with the attendance summary and with the desk report. Doing the
+// date maths here in JS is what let the dashboard drift out of step.
 
 const poolSummary = createResource({
 	url: "nepal_hrms.api.cnr_applications.get_late_early_pool_summary",
-	makeParams: () => ({
-		employee: calendarEmployee.value,
-		from_date: monthRange.value.from_date,
-		to_date: monthRange.value.to_date,
-	}),
+	makeParams: () => ({ employee: calendarEmployee.value }),
 	auto: true,
 	cache: [
 		"hrms:late-early-pool",
 		() => calendarEmployee.value,
-		() => monthRange.value.from_date,
 	],
 })
 
 const appCounts = createResource({
 	url: "nepal_hrms.api.cnr_applications.get_cnr_application_counts",
-	makeParams: () => ({
-		employee: calendarEmployee.value,
-		from_date: monthRange.value.from_date,
-		to_date: monthRange.value.to_date,
-	}),
+	makeParams: () => ({ employee: calendarEmployee.value }),
 	auto: true,
 	cache: [
 		"nepal_hrms:cnr-app-counts",
 		() => calendarEmployee.value,
-		() => monthRange.value.from_date,
 	],
 })
 
 const leaveCounts = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_leave_application_counts",
-	makeParams: () => ({
-		employee: calendarEmployee.value,
-		from_date: monthRange.value.from_date,
-		to_date: monthRange.value.to_date,
-	}),
+	makeParams: () => ({ employee: calendarEmployee.value }),
 	auto: true,
 	cache: [
 		"nepal_hrms:leave-app-counts",
 		() => calendarEmployee.value,
-		() => monthRange.value.from_date,
 	],
 })
 
 const attRequestCounts = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_request_counts",
-	makeParams: () => ({
-		employee: calendarEmployee.value,
-		from_date: monthRange.value.from_date,
-		to_date: monthRange.value.to_date,
-	}),
+	makeParams: () => ({ employee: calendarEmployee.value }),
 	auto: true,
 	cache: [
 		"nepal_hrms:att-request-counts",
 		() => calendarEmployee.value,
-		() => monthRange.value.from_date,
 	],
 })
 
@@ -644,13 +617,8 @@ const monthAppRows = computed(() => {
 	return rows
 })
 
-watch(monthRange, () => {
-	poolSummary.reload()
-	appCounts.reload()
-	leaveCounts.reload()
-	attRequestCounts.reload()
-})
-
+// No monthRange watcher any more: the window no longer changes on the client, so
+// only a change of employee can invalidate these.
 watch(calendarEmployee, () => {
 	poolSummary.reload()
 	appCounts.reload()

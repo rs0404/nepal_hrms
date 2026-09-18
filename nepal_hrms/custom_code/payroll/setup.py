@@ -64,7 +64,7 @@ def _variant_components(variant, scheme, ot_multiplier):
 		 "abbr": f"earning_adjustment_{v.lower()}", "description": "Manual one-off addition."},
 		{"name": f"Leave and Late Deduction - {v}", "type": "Deduction",
 		 "formula": LEAVE_LATE_FORMULA, "abbr": f"leave_late_deduction_{v.lower()}",
-		 "description": "Late/early/OOO half-days, LWP, and unapproved absence. Informational only when earned-salary attendance deductions are enabled."},
+		 "description": "Late/early/OOO half-days, LWP, unapproved absence, and ½P / 1P pool penalties. Informational only when earned-salary attendance deductions are enabled."},
 		{"name": f"Deduction Adjustment - {v}", "type": "Deduction", "formula": None,
 		 "abbr": f"deduction_adjustment_{v.lower()}", "exempted_from_income_tax": 0,
 		 "description": "Manual one-off deduction. Not pre-tax."},
@@ -130,7 +130,8 @@ def _shared_components(scheme):
 LEAVE_LATE_FORMULA = (
 	"(late_entry_half_days + early_exit_half_days + out_of_office_half_days) * late_deduction_rate "
 	"+ lwp_days * lwp_deduction_rate "
-	"+ unapproved_absent_days * unapproved_absent_rate"
+	"+ unapproved_absent_days * unapproved_absent_rate "
+	"+ penalty_days * penalty_deduction_rate"
 )
 
 

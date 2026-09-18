@@ -11,16 +11,22 @@ from frappe.utils import add_days, cint, get_datetime, getdate
 from nepal_hrms.custom_code.policy_escape import has_policy_escape
 
 
-CNR_CLEAR_FIELDS = (
+# Split so a caller can drop the C&R verdict while keeping the raw timing. A
+# holiday must not produce a late/early count, but the minutes stay visible on the
+# day popup so the reader can still see when the person actually arrived.
+CNR_FLAG_FIELDS = (
 	"late_entry",
 	"early_exit",
-	"custom_late_mins",
-	"custom_early_mins",
 	"custom_cnr_unexcused_late",
 	"custom_cnr_unexcused_early",
 	"custom_cnr_late_in_pool",
 	"custom_cnr_early_in_pool",
 )
+CNR_MINUTE_FIELDS = (
+	"custom_late_mins",
+	"custom_early_mins",
+)
+CNR_CLEAR_FIELDS = CNR_FLAG_FIELDS + CNR_MINUTE_FIELDS
 
 # "Saturday Sunday 2083/84" → "Saturday Sunday"
 _HOLIDAY_LIST_YEAR_SUFFIX = re.compile(r"\s*\d{2,4}(/\d{2,4})?\s*$")
@@ -128,6 +134,70 @@ def holiday_info(employee, attendance_date):
 		weekly_off=bool(cint(row.weekly_off)),
 		holiday_list=holiday_list,
 	)
+
+
+def clear_holiday_date_cache(employee=None):
+	"""Drop the request-local holiday_dates_between cache."""
+	cache = getattr(frappe.local, "_nepal_holiday_dates", None)
+	if cache is None:
+		return
+	if employee is None:
+		frappe.local._nepal_holiday_dates = {}
+		return
+	prefix = f"{employee}::"
+	for key in [k for k in cache if k.startswith(prefix)]:
+		cache.pop(key, None)
+
+
+def holiday_dates_between(employee, start_date, end_date):
+	"""Set of holiday / weekly-off dates for one employee across a range.
+
+	Deliberately built on get_holiday_list_for_employee_on_date rather than
+	hrms.hr.utils.get_holiday_dates_for_employee: the hrms helper resolves
+	Employee.holiday_list, the *current* fiscal year's list, so for a back-dated
+	period it queries a list whose range does not cover those dates and returns an
+	empty set -- excluding no holidays at all on exactly the historical periods a
+	payroll re-run touches.
+
+	One query per (employee, range), request-cached, so a period-wide sweep does not
+	turn into an N+1.
+	"""
+	start = getdate(start_date)
+	end = getdate(end_date)
+	if start > end:
+		return set()
+
+	cache = getattr(frappe.local, "_nepal_holiday_dates", None)
+	if cache is None:
+		cache = frappe.local._nepal_holiday_dates = {}
+	key = f"{employee}::{start}..{end}"
+	if key in cache:
+		return cache[key]
+
+	# Two lookups, not one: a Custom Day Range period can straddle a fiscal-year
+	# holiday-list boundary even though a BS month never does.
+	lists = {
+		get_holiday_list_for_employee_on_date(employee, start),
+		get_holiday_list_for_employee_on_date(employee, end),
+	}
+	lists.discard(None)
+	lists.discard("")
+
+	dates = set()
+	if lists:
+		rows = frappe.get_all(
+			"Holiday",
+			filters={
+				"parent": ["in", list(lists)],
+				"holiday_date": ["between", [start, end]],
+			},
+			pluck="holiday_date",
+			ignore_permissions=True,
+		)
+		dates = {getdate(d) for d in rows}
+
+	cache[key] = dates
+	return dates
 
 
 def is_holiday_or_weekend(employee, date_obj):
@@ -275,15 +345,21 @@ def is_sandwiched(employee, attendance_date):
 	)
 
 
-def clear_cnr_flags(doc):
-	"""Zero late/early/C&R occurrence flags on the Attendance doc (in memory)."""
-	for field in CNR_CLEAR_FIELDS:
+def clear_cnr_flags(doc, keep_minutes=False, reset_half_day_status=True):
+	"""Zero late/early/C&R occurrence flags on the Attendance doc (in memory).
+
+	keep_minutes leaves custom_late_mins / custom_early_mins alone, for callers that
+	want the day excluded from every count while the raw timing stays readable.
+	reset_half_day_status=False spares a legitimate half-day-leave row.
+	"""
+	fields = CNR_FLAG_FIELDS if keep_minutes else CNR_CLEAR_FIELDS
+	for field in fields:
 		if hasattr(doc, field):
 			setattr(doc, field, 0)
 	if hasattr(doc, "custom_cnr_month_late_pool_count"):
 		# Keep month counts accurate via caller / apply_late_early; zero contribution
 		pass
-	if hasattr(doc, "half_day_status"):
+	if reset_half_day_status and hasattr(doc, "half_day_status"):
 		doc.half_day_status = None
 
 

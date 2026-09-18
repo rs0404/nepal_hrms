@@ -9,10 +9,21 @@ from frappe.model.document import Document
 
 DEFAULT_BASIC_BASE = "Basic Remuneration (SSF/PF Base)"
 GROSS_BASE = "Total Fixed Remuneration (Gross)"
+# The Salary Structure Assignment's own Base field. Deliberately distinct from
+# GROSS_BASE: the slip's Gross Pay carries the Employer's SSF / PF / Gratuity
+# earning on top of contractual salary, and nothing that is added to gross only
+# to be deducted back should widen an attendance deduction.
+ASSIGNMENT_BASE = "Assignment Base (Total Salary)"
 
 
 def _get_attendance_deduction_base(
-    selection, basic_salary, dearness_allowance, grade, basic_remuneration, total_fixed
+    selection,
+    basic_salary,
+    dearness_allowance,
+    grade,
+    basic_remuneration,
+    total_fixed,
+    assignment_base=0.0,
 ):
     """Resolve a human-readable settings choice to a monthly deduction base."""
     amounts = {
@@ -24,8 +35,64 @@ def _get_attendance_deduction_base(
         ),
         DEFAULT_BASIC_BASE: basic_remuneration,
         GROSS_BASE: total_fixed,
+        ASSIGNMENT_BASE: flt(assignment_base) or total_fixed,
     }
     return flt(amounts.get(selection, basic_remuneration))
+
+
+def get_pool_penalty_days(employee, start_date, end_date):
+    """Pool ½P / 1P days in this period, with the dates that produced them.
+
+    ½P and 1P are written onto Attendance itself (Half Day / Absent), so HRMS
+    counts them inside `absent_days`. Payroll needs them separated out to charge
+    them on their own base, so read the marks back off Attendance -- it is the
+    record of record, and policy escapes were already applied when the mark was
+    assigned.
+
+    A ½P is worth whatever Payroll Settings pays for a half day, because that is
+    exactly what HRMS added to `absent_days` for the same Attendance row -- using a
+    flat 0.5 here would leave a residue on a site configured otherwise.
+
+    Returns (days, dates) where dates is [{date, kind, units}, ...].
+    """
+    if not frappe.get_meta("Attendance").has_field("custom_cnr_pool_penalty"):
+        return 0.0, []
+
+    half_day_units = (
+        flt(frappe.db.get_single_value("Payroll Settings", "daily_wages_fraction_for_half_day"))
+        or 0.5
+    )
+
+    rows = frappe.get_all(
+        "Attendance",
+        filters={
+            "employee": employee,
+            "attendance_date": ["between", [start_date, end_date]],
+            "docstatus": 1,
+            "custom_cnr_pool_penalty": ["in", ["half", "full"]],
+        },
+        fields=["attendance_date", "custom_cnr_pool_penalty"],
+        order_by="attendance_date asc",
+    )
+
+    # A holiday never earns a penalty. Date-based, not a status filter on the
+    # query: a worked holiday carries status "Present".
+    from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
+
+    holiday_dates = holiday_dates_between(employee, start_date, end_date)
+
+    days = 0.0
+    dates = []
+    for row in rows:
+        if getdate(row.attendance_date) in holiday_dates:
+            continue
+        kind = (row.custom_cnr_pool_penalty or "").strip()
+        units = 1.0 if kind == "full" else half_day_units
+        days += units
+        dates.append(
+            {"date": str(row.attendance_date), "kind": kind, "units": units}
+        )
+    return flt(days), dates
 
 
 def _has_half_day_leave(employee, attendance_date):
@@ -373,10 +440,26 @@ def compute_nepal_hr_variables(doc, data):
         major_early_count = 0
 
         from nepal_hrms.custom_code.attendance_policy import compute_late_early_minutes
+        from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
+
+        holiday_dates = holiday_dates_between(employee, start_date, end_date)
+        excused_request_dates = set()
+        if cint(getattr(settings, "excuse_late_early_on_attendance_request", 0) or 0):
+            from nepal_hrms.custom_code.attendance_policy import (
+                approved_attendance_request_dates,
+            )
+
+            excused_request_dates = approved_attendance_request_dates(
+                employee, start_date, end_date
+            )
 
         for att in attendances:
             att_date = att.attendance_date
             if has_policy_escape(employee, "escape_late_early", att_date):
+                continue
+            if getdate(att_date) in holiday_dates:
+                continue
+            if getdate(att_date) in excused_request_dates:
                 continue
             late_mins = cint(att.custom_late_mins or 0)
             early_mins = cint(att.custom_early_mins or 0)
@@ -459,7 +542,16 @@ def compute_nepal_hr_variables(doc, data):
     # subtracts both (see hrms salary_slip.py get_working_days_details). Deducting
     # lwp_days here under-counted unapproved absence by exactly the LWP days, so
     # 3 absent + 2 LWP was charged as 1 + 2 = 3 days instead of 5.
-    unapproved_absent_days = flt(doc.absent_days or 0)
+    total_absent_days = flt(doc.absent_days or 0)
+    if total_absent_days < 0:
+        total_absent_days = 0.0
+
+    # ½P / 1P are Attendance rows too, so they are already inside absent_days.
+    # Split them out so each is charged on its own configured base; never let the
+    # split drive the genuine-absence count negative if the two disagree.
+    penalty_days, penalty_dates = get_pool_penalty_days(employee, start_date, end_date)
+    penalty_days = min(flt(penalty_days), total_absent_days)
+    unapproved_absent_days = flt(total_absent_days - penalty_days)
     if unapproved_absent_days < 0:
         unapproved_absent_days = 0.0
 
@@ -510,31 +602,25 @@ def compute_nepal_hr_variables(doc, data):
     half_day_base_name = settings.get("half_day_deduction_base") or DEFAULT_BASIC_BASE
     lwp_base_name = settings.get("lwp_deduction_base") or DEFAULT_BASIC_BASE
     absent_base_name = settings.get("unapproved_absence_deduction_base") or GROSS_BASE
+    # Unset falls back to the half-day base, which is what ½P / 1P were charged
+    # on before they had a base of their own.
+    penalty_base_name = settings.get("penalty_deduction_base") or half_day_base_name
 
-    half_day_monthly_base = _get_attendance_deduction_base(
-        half_day_base_name,
-        basic_salary,
-        dearness_allowance,
-        grade,
-        basic_remuneration,
-        total_fixed,
-    )
-    lwp_monthly_base = _get_attendance_deduction_base(
-        lwp_base_name,
-        basic_salary,
-        dearness_allowance,
-        grade,
-        basic_remuneration,
-        total_fixed,
-    )
-    absent_monthly_base = _get_attendance_deduction_base(
-        absent_base_name,
-        basic_salary,
-        dearness_allowance,
-        grade,
-        basic_remuneration,
-        total_fixed,
-    )
+    def resolve_base(selection):
+        return _get_attendance_deduction_base(
+            selection,
+            basic_salary,
+            dearness_allowance,
+            grade,
+            basic_remuneration,
+            total_fixed,
+            assignment_base=ssa_base,
+        )
+
+    half_day_monthly_base = resolve_base(half_day_base_name)
+    lwp_monthly_base = resolve_base(lwp_base_name)
+    absent_monthly_base = resolve_base(absent_base_name)
+    penalty_monthly_base = resolve_base(penalty_base_name)
 
     # Snapshot the divisor onto the slip the first time it is calculated. A later
     # Nepal Payroll Period Override must not restate pay that already exists, so
@@ -560,9 +646,12 @@ def compute_nepal_hr_variables(doc, data):
     half_day_base_daily = flt(half_day_monthly_base) / working_days if working_days else 0.0
     configured_lwp_daily = flt(lwp_monthly_base) / working_days if working_days else 0.0
     configured_absent_daily = flt(absent_monthly_base) / working_days if working_days else 0.0
+    configured_penalty_daily = flt(penalty_monthly_base) / working_days if working_days else 0.0
 
     paid_leave_days = _get_paid_leave_days(employee, start_date, end_date)
-    period_leave_days = period_leave_days_for_gross_rule(lwp_days, unapproved_absent_days)
+    # The threshold rule asks how much of the period was unpaid, so it keeps
+    # counting ½P / 1P days even though they are deducted on their own base.
+    period_leave_days = period_leave_days_for_gross_rule(lwp_days, total_absent_days)
     threshold_lwp = cint(getattr(settings, "continuous_lwp_threshold_days", 5) or 5)
     period_threshold = cint(getattr(settings, "period_leave_gross_lwp_threshold", 5) or 5)
     use_gross, is_continuous_lwp_gross, is_period_leave_gross = lwp_should_use_gross(
@@ -581,6 +670,11 @@ def compute_nepal_hr_variables(doc, data):
         unapproved_absent_rate = basic_daily
     else:
         unapproved_absent_rate = configured_absent_daily
+    # The absence escape relaxes a gross ½P / 1P rate the same way.
+    if cint(period_escapes.escape_absent_gross) and penalty_base_name == GROSS_BASE:
+        penalty_deduction_rate = basic_daily
+    else:
+        penalty_deduction_rate = configured_penalty_daily
     # Each late/early/OOO penalty count represents half a day.
     late_deduction_rate = half_day_base_daily * 0.5
 
@@ -590,8 +684,12 @@ def compute_nepal_hr_variables(doc, data):
     half_day_deduction = flt(half_day_penalties * late_deduction_rate, 2)
     lwp_deduction_amount = flt(lwp_days * lwp_deduction_rate, 2)
     absent_deduction_amount = flt(unapproved_absent_days * unapproved_absent_rate, 2)
+    penalty_deduction_amount = flt(penalty_days * penalty_deduction_rate, 2)
     leave_late_deduction_total = flt(
-        half_day_deduction + lwp_deduction_amount + absent_deduction_amount,
+        half_day_deduction
+        + lwp_deduction_amount
+        + absent_deduction_amount
+        + penalty_deduction_amount,
         2,
     )
 
@@ -602,8 +700,11 @@ def compute_nepal_hr_variables(doc, data):
     data["early_exit_full_days"] = early_exit_full_days
     data["lwp_days"] = lwp_days
     data["unapproved_absent_days"] = unapproved_absent_days
+    data["penalty_days"] = penalty_days
+    data["total_absent_days"] = total_absent_days
     data["lwp_deduction_rate"] = lwp_deduction_rate
     data["unapproved_absent_rate"] = unapproved_absent_rate
+    data["penalty_deduction_rate"] = penalty_deduction_rate
     data["late_deduction_rate"] = late_deduction_rate
     data["is_continuous_lwp_gross"] = is_continuous_lwp_gross
     data["is_period_leave_gross"] = is_period_leave_gross
@@ -611,6 +712,7 @@ def compute_nepal_hr_variables(doc, data):
     data["half_day_deduction_base"] = half_day_base_name
     data["lwp_deduction_base"] = lwp_base_name
     data["unapproved_absence_deduction_base"] = absent_base_name
+    data["penalty_deduction_base"] = penalty_base_name
     earned_salary_mode = _check_setting(
         settings,
         "calculate_attendance_deductions_through_earned_salary",
@@ -632,14 +734,17 @@ def compute_nepal_hr_variables(doc, data):
         "custom_early_exit_half_days": early_exit_half_days,
         "custom_out_of_office_half_days": out_of_office_half_days,
         "custom_unapproved_absent_days": unapproved_absent_days,
+        "custom_penalty_days": penalty_days,
         "custom_late_entry_full_days": late_entry_full_days,
         "custom_early_exit_full_days": early_exit_full_days,
         "custom_late_deduction_rate": flt(late_deduction_rate, 2),
         "custom_lwp_deduction_rate": flt(lwp_deduction_rate, 2),
         "custom_unapproved_absent_rate": flt(unapproved_absent_rate, 2),
+        "custom_penalty_deduction_rate": flt(penalty_deduction_rate, 2),
         "custom_late_deduction_amount": half_day_deduction,
         "custom_lwp_deduction_amount": lwp_deduction_amount,
         "custom_unapproved_absent_deduction_amount": absent_deduction_amount,
+        "custom_penalty_deduction_amount": penalty_deduction_amount,
         "custom_leave_late_deduction_total": leave_late_deduction_total,
         "custom_is_continuous_lwp_gross": is_continuous_lwp_gross,
         "custom_is_period_leave_gross": is_period_leave_gross,
@@ -658,6 +763,9 @@ def compute_nepal_hr_variables(doc, data):
                 "half_day_deduction_base": half_day_base_name,
                 "lwp_deduction_base": lwp_base_name,
                 "unapproved_absence_deduction_base": absent_base_name,
+                "penalty_deduction_base": penalty_base_name,
+                "penalty_dates": penalty_dates,
+                "total_absent_days": total_absent_days,
                 "period_leave_days": period_leave_days,
                 "is_period_leave_gross": is_period_leave_gross,
             }
@@ -670,8 +778,11 @@ def compute_nepal_hr_variables(doc, data):
         "early_exit_full_days": early_exit_full_days,
         "lwp_days": lwp_days,
         "unapproved_absent_days": unapproved_absent_days,
+        "penalty_days": penalty_days,
+        "total_absent_days": total_absent_days,
         "lwp_deduction_rate": lwp_deduction_rate,
         "unapproved_absent_rate": unapproved_absent_rate,
+        "penalty_deduction_rate": penalty_deduction_rate,
         "late_deduction_rate": late_deduction_rate,
         "is_continuous_lwp_gross": is_continuous_lwp_gross,
         "is_period_leave_gross": is_period_leave_gross,

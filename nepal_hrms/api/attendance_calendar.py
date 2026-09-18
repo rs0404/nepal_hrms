@@ -164,6 +164,29 @@ def _current_bs_month_start_ad(ad=None):
 	return nepali_date.bs_to_ad(bs["year"], bs["month"], 1)
 
 
+def _default_payroll_window(from_date=None, to_date=None, ref_date=None):
+	"""Explicit dates, else the configured payroll period containing the reference day.
+
+	These counts sit next to the attendance summary on the PWA dashboard, so they
+	have to describe the same window; an AD calendar month does not, once the
+	payroll basis is a Custom Day Range.
+	"""
+	from frappe.utils import get_first_day, get_last_day, getdate, today
+
+	if from_date and to_date:
+		return getdate(from_date), getdate(to_date)
+	day = getdate(ref_date or from_date or today())
+	try:
+		from nepal_hrms.custom_code.payroll.period import period_containing
+
+		start, end, _days = period_containing(day)
+		if start and end:
+			return getdate(start), getdate(end)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "Nepal HRMS: payroll period resolution")
+	return getdate(get_first_day(day)), getdate(get_last_day(day))
+
+
 @frappe.whitelist()
 def get_leave_application_counts(employee=None, from_date=None, to_date=None):
 	"""Approved / rejected / pending Leave Application counts overlapping a date range."""
@@ -180,8 +203,7 @@ def get_leave_application_counts(employee=None, from_date=None, to_date=None):
 	if resolve_calendar_employee(employee) != employee:
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
-	start = getdate(from_date) if from_date else get_first_day(getdate(today()))
-	end = getdate(to_date) if to_date else get_last_day(getdate(today()))
+	start, end = _default_payroll_window(from_date, to_date)
 
 	rows = frappe.get_all(
 		"Leave Application",
@@ -239,8 +261,7 @@ def get_attendance_request_counts(employee=None, from_date=None, to_date=None):
 	if not employee:
 		frappe.throw(_("Employee not found"))
 
-	start = getdate(from_date) if from_date else get_first_day(getdate(today()))
-	end = getdate(to_date) if to_date else get_last_day(getdate(today()))
+	start, end = _default_payroll_window(from_date, to_date)
 
 	fields = ["name", "docstatus", "from_date", "to_date"]
 	if frappe.get_meta("Attendance Request").has_field("status"):
@@ -321,6 +342,105 @@ def get_attendance_hours_summary(employee=None, from_date=None, to_date=None):
 		"from_date": str(start),
 		"to_date": str(end),
 	}
+
+
+def _resolve_summary_window(from_date, to_date, bs_year, bs_month, ref_date):
+	"""Resolve the summary window, preferring the configured payroll period.
+
+	Precedence: explicit dates, then an explicit BS month, then a reference date,
+	then today. Never throws -- a broken settings row must not blank the whole
+	attendance tab, so it degrades to the raw BS month and finally to an AD month.
+	"""
+	from frappe.utils import get_first_day, get_last_day
+
+	from nepal_hrms.custom_code.payroll.period import period_containing, resolve_bs_period
+
+	if from_date and to_date:
+		return getdate(from_date), getdate(to_date)
+
+	try:
+		if bs_year and bs_month:
+			# Deliberately NOT period_containing(bs day 1): under Custom Day Range
+			# with start day 29, BS day 1 of month M belongs to the period that
+			# opened on day 29 of M-1, so anchoring on it would show the viewer the
+			# previous period while they look at month M.
+			start, end, _days = resolve_bs_period(cint(bs_year), cint(bs_month))
+		else:
+			start, end, _days = period_containing(getdate(ref_date or today()))
+		if start and end:
+			return getdate(start), getdate(end)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "Nepal HRMS: payroll period resolution")
+
+	day = getdate(ref_date or today())
+	try:
+		start = _current_bs_month_start_ad(day)
+		if start:
+			import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
+
+			nepali_date._ensure_loaded()
+			bs = nepali_date.ad_to_bs(getdate(start))
+			length = nepali_date._bs_months[bs["year"]][bs["month"] - 1]
+			return getdate(start), getdate(nepali_date.bs_to_ad(bs["year"], bs["month"], length))
+	except Exception:
+		pass
+	return getdate(get_first_day(day)), getdate(get_last_day(day))
+
+
+@frappe.whitelist()
+def get_attendance_period_summary(
+	employee=None, from_date=None, to_date=None, bs_year=None, bs_month=None, ref_date=None
+):
+	"""Attendance totals for one employee over one payroll period.
+
+	Same numbers as the Monthly Attendance Sheet BS report, by construction -- both
+	go through custom_code.attendance_summary.summarize_period. The PWA renders
+	these instead of counting days in the browser.
+	"""
+	from frappe import _
+
+	from nepal_hrms.api.pwa_access import can_view_past_attendance, resolve_calendar_employee
+	from nepal_hrms.custom_code.attendance_summary import summarize_period
+
+	employee = resolve_calendar_employee(employee)
+	if not employee:
+		return {"found": False}
+
+	start, end = _resolve_summary_window(from_date, to_date, bs_year, bs_month, ref_date)
+
+	# summarize_period reaches a loader whose role scoping an explicit employee
+	# filter overrides, so the history clamp has to be applied here or this endpoint
+	# becomes a read-around for exactly the past that get_attendance_calendar_details
+	# hides from viewers without the role.
+	session_employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+	if employee != session_employee and not can_view_past_attendance():
+		month_start = getdate(_current_bs_month_start_ad())
+		if start < month_start:
+			start = month_start
+		if end < start:
+			return {"found": False}
+
+	if date_diff(end, start) > 120:
+		frappe.throw(_("Summary window cannot exceed 120 days."))
+
+	result = summarize_period(employee, start, end)
+	result.setdefault("period", {})
+	result["period"]["from_date"] = str(start)
+	result["period"]["to_date"] = str(end)
+	result["period"]["bs_from"] = _bs_label(start)
+	result["period"]["bs_to"] = _bs_label(end)
+	return result
+
+
+def _bs_label(ad_date):
+	try:
+		import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
+
+		nepali_date._ensure_loaded()
+		bs = nepali_date.ad_to_bs(getdate(ad_date))
+		return f"{bs['year']}-{bs['month']:02d}-{bs['day']:02d}"
+	except Exception:
+		return str(ad_date)
 
 
 @frappe.whitelist()

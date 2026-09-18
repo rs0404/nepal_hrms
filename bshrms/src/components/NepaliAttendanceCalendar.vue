@@ -66,24 +66,10 @@
 			</div>
 		</div>
 
-		<!-- Status summary — visible month only -->
-		<div class="grid grid-cols-5 gap-1 mx-1" v-if="hasSummary">
-			<div v-for="status in summaryStatuses" :key="status" class="flex flex-col gap-0.5">
-				<div class="flex flex-row gap-1 items-center">
-					<span
-						class="h-2.5 w-2.5 shrink-0 rounded-md"
-						:style="{ backgroundColor: STATUS_FILL[status]?.backgroundColor }"
-					/>
-					<span class="text-gray-600 text-[11px] font-medium leading-4 whitespace-nowrap">
-						{{ __(summaryLabels[status] || status) }}
-					</span>
-				</div>
-				<span class="text-gray-800 text-sm font-semibold leading-5 mx-auto">
-					{{ summary[status] || 0 }}
-				</span>
-			</div>
-		</div>
-		<div v-else-if="attendanceEvents.loading" class="text-xs text-gray-400 mx-1">
+		<!-- Totals for the payroll period, computed server-side so they match the
+		     Monthly Attendance Sheet BS report exactly. -->
+		<AttendancePeriodSummary :resource="periodSummary" />
+		<div v-if="attendanceEvents.loading" class="text-xs text-gray-400 mx-1">
 			{{ __("Loading attendance…") }}
 		</div>
 		<div
@@ -149,6 +135,8 @@ import { createResource, FeatherIcon } from "frappe-ui"
 import { ensureNepaliCalendar } from "@/utils/nepali_calendar"
 import { groupContiguousDates } from "@/utils/leave_ranges"
 import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import { getBsYearMonth } from "@/utils/nepali_date"
+import AttendancePeriodSummary from "@/components/AttendancePeriodSummary.vue"
 import {
 	appStatusClass,
 	appStatusTitle,
@@ -191,10 +179,32 @@ const STATUS_FILL = {
 }
 
 const PAINTABLE = new Set(Object.keys(STATUS_FILL))
-const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave", "Leave Pending"]
-const summaryLabels = {
-	"On Leave": "Leave",
-	"Leave Pending": "Pending",
+// The visible BS month is passed explicitly rather than as a reference date:
+// under a Custom Day Range payroll basis with start day 29, BS day 1 of month M
+// belongs to the period that opened on day 29 of M-1, so anchoring on it would
+// show the viewer the previous period while they look at month M.
+const visibleBs = ref(null)
+
+const periodSummary = createResource({
+	url: "nepal_hrms.api.attendance_calendar.get_attendance_period_summary",
+	auto: true,
+	makeParams() {
+		const params = {}
+		if (props.employee) params.employee = props.employee
+		if (visibleBs.value) {
+			params.bs_year = visibleBs.value.year
+			params.bs_month = visibleBs.value.month
+		}
+		return params
+	},
+})
+
+let summaryReloadTimer = null
+function reloadPeriodSummary() {
+	// Paging through months fires this several times per swipe, and each call is
+	// ~15 queries on the server.
+	clearTimeout(summaryReloadTimer)
+	summaryReloadTimer = setTimeout(() => periodSummary.reload(), 200)
 }
 
 const attendanceEvents = createResource({
@@ -226,6 +236,7 @@ watch(
 	() => {
 		cancelSelectMode()
 		attendanceEvents.reload()
+		periodSummary.reload()
 	}
 )
 
@@ -293,26 +304,6 @@ function resolvePaintStatus(info) {
 	if (m.pending) return "Leave Pending"
 	return "On Leave"
 }
-
-const summary = computed(() => {
-	if (!attendanceEvents.data) return {}
-	const from = visibleRange.value.from_date
-	const to = visibleRange.value.to_date
-	const counts = {}
-	for (const [date, info] of Object.entries(attendanceEvents.data)) {
-		if (from && date < from) continue
-		if (to && date > to) continue
-		let status = resolvePaintStatus(info)
-		if (!status || status === "Holiday" || status === "Weekly Off" || status === "Leave Rejected")
-			continue
-		if (status === "Work From Home") status = "Present"
-		if (!summaryStatuses.includes(status)) continue
-		counts[status] = (counts[status] || 0) + 1
-	}
-	return counts
-})
-
-const hasSummary = computed(() => Object.keys(summary.value).length > 0)
 
 const isDaySelectable = (ad) => {
 	if (!ad || ad <= todayStr) return false
@@ -489,6 +480,11 @@ const handleMonthChange = (range) => {
 	visibleRange.value = {
 		from_date: range.from_date,
 		to_date: range.to_date,
+	}
+	const bs = getBsYearMonth(range.from_date)
+	if (bs && (bs.year !== visibleBs.value?.year || bs.month !== visibleBs.value?.month)) {
+		visibleBs.value = bs
+		reloadPeriodSummary()
 	}
 	requestAnimationFrame(() => syncLeaveSelection())
 	setTimeout(syncLeaveSelection, 80)

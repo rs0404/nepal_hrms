@@ -35,6 +35,7 @@ const SHEET_BS_TOTAL_SUMMARY_COLUMNS = new Set([
 	"total_days_in_period",
 	"payable_days",
 	"total_absent",
+	"penalty_days",
 	"lwp_days",
 	"paid_leave_days",
 ]);
@@ -47,6 +48,7 @@ const SHEET_BS_SUMMARY_FLOAT_FIELDS = new Set([
 	"annual_home_leave_days", "sick_leave_days", "other_paid_leave_days",
 	"holiday_extra_present", "holiday_extra_hours", "total_no_of_days",
 	"penalty_half_days", "penalty_full_days", "penalty_paid_deduction",
+	"penalty_days",
 ]);
 const SHEET_BS_DAILY_HOVER_DATA = new Map();
 const SHEET_BS_AUDIT_HOVER_DATA = new Map();
@@ -108,6 +110,20 @@ function sheetBsBreakdownHTML(items, emptyLabel) {
 		.join("");
 }
 
+function sheetBsDateListHTML(dates, emptyLabel) {
+	const rows = (Array.isArray(dates) ? dates : []).filter((item) => item && (parseFloat(item.units) || 0) > 0);
+	if (!rows.length) {
+		return `<div class="sheet-bs-audit-empty">${sheetBsEsc(emptyLabel || __("No dates"))}</div>`;
+	}
+	return rows
+		.map((item) => sheetBsAuditRow(
+			`${item.bs || item.ad} ${item.weekday ? `(${item.weekday})` : ""}`.trim(),
+			sheetBsFormatOneDecimal(item.units),
+			[item.note, item.ad].filter(Boolean).join(" · ")
+		))
+		.join("");
+}
+
 function sheetBsAuditCell(display, title, body, options) {
 	options = options || {};
 	const classes = [
@@ -150,7 +166,7 @@ function sheetBsPaidDaysCell(row) {
 	if (cint(row.future_days_excluded)) causes.push(__("{0} future day(s) excluded", [cint(row.future_days_excluded)]));
 	if (cint(row.unmarked_today_excluded)) causes.push(__("Today is pending and excluded until attendance is marked"));
 	if (parseFloat(row.penalty_paid_deduction) > 0) {
-		causes.push(__("{0} day(s) of ½P / 1P are already inside Absent (gross), not an extra paid-day cut", [sheetBsFormatOneDecimal(row.penalty_paid_deduction)]));
+		causes.push(__("{0} day(s) of ½P / 1P cut paid days and are reported in Penalty Days, not in Absent Days", [sheetBsFormatOneDecimal(row.penalty_paid_deduction)]));
 	}
 	if (mismatch && !causes.length) causes.push(__("Check overlapping or unsupported attendance statuses."));
 	body += `<div class="sheet-bs-audit-result sheet-bs-audit-result--${mismatch ? "bad" : "good"}">
@@ -192,20 +208,31 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 	let body = "";
 	let tone = "";
 	if (fieldname === "total_absent") {
-		const halfP = parseFloat(row.penalty_half_days) || 0;
-		const fullP = parseFloat(row.penalty_full_days) || 0;
+		const penaltyDays = parseFloat(row.penalty_days) || 0;
 		title = __("Absent Days");
 		body = `<div class="sheet-bs-audit-section">
 			${sheetBsAuditRow(__("Full-day absences"), sheetBsFormatOneDecimal(row.absent_full || 0))}
 			${sheetBsAuditRow(__("Half-day absence entries"), sheetBsFormatOneDecimal((parseFloat(row.absent_half) || 0) * 2), __("{0} day units", [sheetBsFormatOneDecimal(row.absent_half || 0)]))}
 			${sheetBsAuditRow(__("Sandwich absences"), sheetBsFormatOneDecimal(row.sandwich_absent || 0))}
-			${sheetBsAuditRow("½P", sheetBsFormatOneDecimal(halfP), __("Half-day pool penalty · 0.5 absent at Gross"))}
-			${sheetBsAuditRow("1P", sheetBsFormatOneDecimal(fullP), __("Full-day pool penalty · 1.0 absent at Gross"))}
 		</div>
+		<div class="sheet-bs-audit-subtitle">${__("Dates counted")}</div>
+		${sheetBsDateListHTML(row.absent_dates, __("No absent day"))}
+		<div class="sheet-bs-audit-info">${penaltyDays
+			? __("½P / 1P pool penalties are counted separately in Penalty Days ({0}), not here.", [sheetBsFormatOneDecimal(penaltyDays)])
+			: __("½P / 1P pool penalties are counted separately in Penalty Days, not here.")}</div>`;
+	} else if (fieldname === "penalty_days") {
+		const days = parseFloat(row.penalty_days) || 0;
+		title = __("Penalty Days");
+		body = `<div class="sheet-bs-audit-section">
+			${sheetBsAuditRow("½P", sheetBsFormatOneDecimal(row.penalty_half_days || 0), __("{0} day units", [sheetBsFormatOneDecimal(row.penalty_half || 0)]))}
+			${sheetBsAuditRow("1P", sheetBsFormatOneDecimal(row.penalty_full_days || 0), __("{0} day units", [sheetBsFormatOneDecimal(row.penalty_full || 0)]))}
+		</div>
+		<div class="sheet-bs-audit-subtitle">${__("Dates counted")}</div>
+		${sheetBsDateListHTML(row.penalty_dates, __("No ½P / 1P penalty this period"))}
 		<div class="sheet-bs-audit-subtitle">${__("When ½P / 1P is charged")}</div>
 		${sheetBsPenaltyPolicyHTML(row)}
-		<div class="sheet-bs-audit-info">${__("½P and 1P write Attendance (Half Day / Absent) and are included in this Absent total. They are not a separate salary-slip component.")}</div>`;
-		if (halfP || fullP) tone = "rejected";
+		<div class="sheet-bs-audit-info">${__("½P and 1P write Attendance (Half Day / Absent) and cost the same paid days as an absence, but payroll charges them on the Penalty Deduction Base in Nepal HRMS Settings.")}</div>`;
+		if (days) tone = "rejected";
 	} else if (fieldname === "lwp_days") {
 		title = __("Leave Without Pay");
 		body = `<div class="sheet-bs-audit-section">
@@ -213,7 +240,9 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 			${sheetBsAuditRow(__("Half-day entries"), sheetBsFormatOneDecimal((parseFloat(row.lwp_half) || 0) * 2), __("{0} day units", [sheetBsFormatOneDecimal(row.lwp_half || 0)]))}
 		</div>
 		<div class="sheet-bs-audit-subtitle">${__("By leave type")}</div>
-		${sheetBsBreakdownHTML(row.lwp_breakdown, __("No unpaid leave"))}`;
+		${sheetBsBreakdownHTML(row.lwp_breakdown, __("No unpaid leave"))}
+		<div class="sheet-bs-audit-subtitle">${__("Dates counted")}</div>
+		${sheetBsDateListHTML(row.lwp_dates, __("No unpaid leave day"))}`;
 	} else if (fieldname === "paid_leave_days") {
 		title = __("Paid Leaves");
 		body = `<div class="sheet-bs-audit-section">
@@ -224,7 +253,9 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 			${sheetBsAuditRow(__("Other Paid"), sheetBsFormatOneDecimal(row.other_paid_leave_days || 0))}
 		</div>
 		<div class="sheet-bs-audit-subtitle">${__("By leave type")}</div>
-		${sheetBsBreakdownHTML(row.leave_breakdown, __("No paid leave"))}`;
+		${sheetBsBreakdownHTML(row.leave_breakdown, __("No paid leave"))}
+		<div class="sheet-bs-audit-subtitle">${__("Dates counted")}</div>
+		${sheetBsDateListHTML(row.paid_leave_dates, __("No paid leave day"))}`;
 		const unconfigured = sheetBsBreakdownHTML(row.unconfigured_paid_leave_breakdown, "");
 		if (Object.keys(row.unconfigured_paid_leave_breakdown || {}).length) {
 			body += `<div class="sheet-bs-audit-warning">
@@ -237,7 +268,7 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 			${sheetBsBreakdownHTML(row.other_paid_breakdown, __("No other paid leave"))}`;
 	}
 	return sheetBsAuditCell(value, title, body, {
-		cellClass: ["total_absent", "lwp_days", "paid_leave_days"].includes(fieldname)
+		cellClass: ["total_absent", "penalty_days", "lwp_days", "paid_leave_days"].includes(fieldname)
 			? "sheet-bs-summary-cell--total"
 			: "",
 		tone,
@@ -401,7 +432,7 @@ function sheetBsOccurrenceHTML(row, kind) {
 	return `<div class="sheet-bs-audit-section">
 		${sheetBsAuditRow("½P", half)}
 		${sheetBsAuditRow("1P", full)}
-		${sheetBsAuditRow(__("Counted in Absent (gross)"), paid)}
+		${sheetBsAuditRow(__("Counted in Penalty Days"), paid)}
 	</div>`;
 }
 
@@ -641,9 +672,9 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 		? `${cellData.leave_type} (${cellData.leave_acronym})`
 		: cellData.leave_type;
 	const penaltyLabel = cellData.pool_penalty === "full"
-		? __("1P full-day pool penalty — counted as 1.0 Absent (gross)")
+		? __("1P full-day pool penalty — counted as 1.0 Penalty Day")
 		: cellData.pool_penalty === "half"
-			? __("½P half-day pool penalty — counted as 0.5 Absent (gross)")
+			? __("½P half-day pool penalty — counted as 0.5 Penalty Day")
 			: "";
 	const left = `<div class="sheet-bs-daily-col">
 		<div class="sheet-bs-audit-section">
@@ -1074,7 +1105,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 			return sheetBsPaidDaysCell(rowData);
 		}
 
-		if (["total_absent", "lwp_days", "paid_leave_days", "other_paid_leave_days"].includes(colId) && rowData) {
+		if (["total_absent", "penalty_days", "lwp_days", "paid_leave_days", "other_paid_leave_days"].includes(colId) && rowData) {
 			return sheetBsLeaveSummaryCell(rowData, colId);
 		}
 
@@ -1087,7 +1118,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				`${sheetBsPenaltyPolicyHTML(rowData)}
 				<div class="sheet-bs-audit-subtitle">${__("Applications")}</div>
 				${sheetBsCnrApplicationsHTML(rowData, ["late_entry", "early_exit"])}
-				<div class="sheet-bs-audit-info">${__("½P starts on pool occurrence {0} (and later penalty slots). Attendance becomes Half Day (other half Absent). Payroll counts 0.5 in Absent at the unapproved / Gross rate. No separate salary component.", [firstCharge])}</div>`,
+				<div class="sheet-bs-audit-info">${__("½P starts on pool occurrence {0} (and later penalty slots). Attendance becomes Half Day (other half Absent). Payroll counts 0.5 Penalty Day at the Penalty Deduction Base rate.", [firstCharge])}</div>`,
 				{ tone: n ? "rejected" : "neutral" }
 			);
 		}
@@ -1101,7 +1132,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				<div class="sheet-bs-audit-subtitle">${__("Applications")}</div>
 				${sheetBsCnrApplicationsHTML(rowData, ["late_entry", "early_exit"])}
 				<div class="sheet-bs-audit-info">${escalate
-					? __("1P starts after more than {0} pool days. Attendance becomes Absent. Payroll counts 1.0 in Absent at the unapproved / Gross rate. No separate salary component.", [threshold])
+					? __("1P starts after more than {0} pool days. Attendance becomes Absent. Payroll counts 1.0 Penalty Day at the Penalty Deduction Base rate.", [threshold])
 					: __("Full-day escalation is off in Nepal HRMS Settings.")}</div>`,
 				{ tone: n ? "rejected" : "neutral" }
 			);

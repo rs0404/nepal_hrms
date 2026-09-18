@@ -196,20 +196,9 @@
 
 			<hr class="border-gray-100" />
 
-			<!-- Summary -->
-			<div class="grid grid-cols-5 mx-1">
-				<div v-for="status in summaryStatuses" :key="status" class="flex flex-col gap-0.5">
-					<div class="flex flex-row gap-1 items-center">
-						<span class="rounded-full h-2.5 w-2.5 shrink-0" :class="colorMap[status]" />
-						<span class="text-gray-600 text-[11px] font-medium leading-4">
-							{{ __(summaryLabels[status] || status) }}
-						</span>
-					</div>
-					<span class="text-gray-800 text-sm font-semibold leading-5 mx-auto">
-						{{ summary[status] || 0 }}
-					</span>
-				</div>
-			</div>
+			<!-- Totals for the payroll period, computed server-side. The grid above is
+			     an English month; the label inside says which window these cover. -->
+			<AttendancePeriodSummary :resource="periodSummary" />
 
 			<div class="flex flex-wrap gap-x-3 gap-y-1 mx-1 text-[11px] text-gray-600">
 				<span class="inline-flex items-center gap-1">
@@ -267,6 +256,7 @@ import { computed, inject, ref, watch } from "vue"
 import { createResource, FeatherIcon } from "frappe-ui"
 import { groupContiguousDates } from "@/utils/leave_ranges"
 import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import AttendancePeriodSummary from "@/components/AttendancePeriodSummary.vue"
 import {
 	appStatusClass,
 	appStatusTitle,
@@ -301,11 +291,6 @@ const colorMap = {
 	"Weekly Off": "bg-gray-200 ring-1 ring-inset ring-gray-300",
 }
 
-const summaryStatuses = ["Present", "Half Day", "Absent", "On Leave", "Leave Pending"]
-const summaryLabels = {
-	"On Leave": "Leave",
-	"Leave Pending": "Pending",
-}
 const selectMode = ref(false)
 const selectedDates = ref(new Set())
 const selectedCount = computed(() => selectedDates.value.size)
@@ -450,21 +435,6 @@ const statusColor = (info) => {
 	return status ? colorMap[status] : ""
 }
 
-const summary = computed(() => {
-	const counts = {}
-	if (!calendarEvents.data) return counts
-
-	for (const info of Object.values(calendarEvents.data)) {
-		let status = resolvePaintStatus(info)
-		if (!status) continue
-		if (status === "Work From Home") status = "Present"
-		if (!summaryStatuses.includes(status)) continue
-		counts[status] = (counts[status] || 0) + 1
-	}
-
-	return counts
-})
-
 watch(
 	() => firstOfMonth.value,
 	() => {
@@ -501,8 +471,22 @@ const calendarEvents = createResource({
 	},
 })
 
+// Anchored on the visible month's first day: this calendar has no BS month to
+// name, and its grid is an English month anyway. The summary's own label says
+// which payroll period the numbers describe.
+const periodSummary = createResource({
+	url: "nepal_hrms.api.attendance_calendar.get_attendance_period_summary",
+	auto: true,
+	makeParams() {
+		const params = { ref_date: firstOfMonth.value.format("YYYY-MM-DD") }
+		if (props.employee) params.employee = props.employee
+		return params
+	},
+})
+
 async function reloadCalendar() {
 	await calendarEvents.reload()
+	periodSummary.reload()
 	emit("refresh")
 }
 

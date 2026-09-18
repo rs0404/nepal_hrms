@@ -172,6 +172,17 @@ class CustomAttendanceRequest(AttendanceRequest):
 					),
 					title=_("Attendance Updated"),
 				)
+
+			# db_set bypasses the Attendance validate hook, so the C&R flags on this
+			# row would stay stale and the next period sweep would flip the status we
+			# just wrote straight back to Half Day. Refresh them explicitly.
+			#
+			# update_status=False is load-bearing: the request's status must win over
+			# the penalty engine. post_comment=False because this method already wrote
+			# its own timeline comment above; it also suppresses the internal sweep,
+			# hence the explicit call, whose current_name makes it skip this row while
+			# re-indexing the rest of the period.
+			self._refresh_cnr_flags(doc)
 			return
 
 		# No existing row — create new (original HRMS path)
@@ -185,6 +196,20 @@ class CustomAttendanceRequest(AttendanceRequest):
 		doc.half_day_status = "Absent" if status == "Half Day" else None
 		doc.insert(ignore_permissions=True)
 		doc.submit()
+
+	def _refresh_cnr_flags(self, doc):
+		"""Recompute C&R flags on a row we updated via db_set, keeping our status."""
+		from nepal_hrms.custom_code.attendance_policy import (
+			recompute_attendance_late_early,
+			sync_month_pool_penalties,
+		)
+
+		try:
+			recompute_attendance_late_early(doc.name, update_status=False, post_comment=False)
+			sync_month_pool_penalties(self.employee, getdate(doc.attendance_date), current_name=doc.name)
+		except Exception:
+			# Never fail an Attendance Request submission over a C&R refresh.
+			frappe.log_error(frappe.get_traceback(), "Nepal HRMS: C&R refresh after Attendance Request")
 
 
 @frappe.whitelist()

@@ -105,12 +105,18 @@ def _is_genuine_absent(doc):
 	return True
 
 
-def _protected_status(doc):
-	"""Do not override leave / genuine absent / WFH rows."""
+def _protected_status(doc, is_holiday=None):
+	"""Do not override leave / genuine absent / WFH / holiday rows.
+
+	is_holiday lets a caller that already resolved the date say so, rather than
+	paying for another holiday_info lookup.
+	"""
+	if is_holiday:
+		return True
 	if getattr(doc, "leave_type", None):
 		return True
 	status = (doc.status or "").strip()
-	if status in ("On Leave", "Work From Home"):
+	if status in ("On Leave", "Work From Home", "Holiday", "Weekly Off"):
 		return True
 	return _is_genuine_absent(doc)
 
@@ -212,8 +218,16 @@ def _pool_flags_between(employee, start, end, exclude_name=None, extra=None):
 		fields.append("custom_cnr_late_in_pool")
 	if meta.has_field("custom_cnr_early_in_pool"):
 		fields.append("custom_cnr_early_in_pool")
+	# Penalties are assigned by INDEX over the sorted pool days, so a holiday left
+	# in the pool does not merely add a row -- it shifts which working day gets
+	# charged. Exclude at the source, not at display time.
+	from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
+
+	holidays = holiday_dates_between(employee, start, end)
 	flags = []
 	for row in frappe.get_all("Attendance", filters=filters, fields=fields):
+		if getdate(row.attendance_date) in holidays:
+			continue
 		flags.append(
 			(
 				row.attendance_date,
@@ -221,7 +235,7 @@ def _pool_flags_between(employee, start, end, exclude_name=None, extra=None):
 				cint(getattr(row, "custom_cnr_early_in_pool", 0) or 0),
 			)
 		)
-	if extra:
+	if extra and getdate(extra[0]) not in holidays:
 		flags.append(extra)
 	return flags
 
@@ -250,7 +264,13 @@ def count_month_pool(employee, attendance_date, pool_field, current_in_pool=0, e
 	}
 	if exclude_name:
 		filters["name"] = ["!=", exclude_name]
-	count = frappe.db.count("Attendance", filters)
+	# db.count cannot be post-filtered, and holiday rows must not inflate the pool
+	# (see _pool_flags_between). Row volume is bounded by one payroll period.
+	from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
+
+	holidays = holiday_dates_between(employee, start, end)
+	dates = frappe.get_all("Attendance", filters=filters, pluck="attendance_date")
+	count = sum(1 for d in dates if getdate(d) not in holidays)
 	return cint(count) + (1 if cint(current_in_pool) else 0)
 
 
@@ -279,8 +299,8 @@ def _current_doc_pool_penalty(doc, settings):
 	return assigned.get(getdate(doc.attendance_date)) or ""
 
 
-def _apply_pool_or_major_status(doc, pool_kind, unexcused, was_cnr_half_day):
-	if _protected_status(doc):
+def _apply_pool_or_major_status(doc, pool_kind, unexcused, was_cnr_half_day, is_holiday=None):
+	if _protected_status(doc, is_holiday=is_holiday):
 		if hasattr(doc, "custom_cnr_pool_penalty"):
 			doc.custom_cnr_pool_penalty = ""
 		return
@@ -333,6 +353,11 @@ def sync_month_pool_penalties(employee, attendance_date, current_name=None):
 			_month_pool_flags(employee, attendance_date), settings
 		)
 		start, end = _pool_period_bounds(attendance_date, settings)
+		# Holiday rows stay in the sweep on purpose: this is what clears a stale
+		# ½P / 1P off them, via the protected branch in _apply_pool_or_major_status.
+		from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
+
+		holidays = holiday_dates_between(employee, start, end)
 		meta = frappe.get_meta("Attendance")
 		fields = [
 			"name",
@@ -365,6 +390,7 @@ def sync_month_pool_penalties(employee, attendance_date, current_name=None):
 				kind,
 				cint(att.custom_cnr_unexcused_late) or cint(att.custom_cnr_unexcused_early),
 				False,
+				is_holiday=getdate(att.attendance_date) in holidays,
 			)
 			values = {}
 			if meta.has_field("custom_cnr_pool_penalty"):
@@ -380,6 +406,31 @@ def sync_month_pool_penalties(employee, attendance_date, current_name=None):
 				frappe.db.set_value("Attendance", att.name, values, update_modified=False)
 	finally:
 		frappe.flags.in_pool_penalty_sync = False
+
+
+def _refresh_month_pool_counts(doc, late_in_pool, early_in_pool):
+	"""Rewrite the month-to-date pool counters on the doc (in memory).
+
+	The DB count excludes this row, so its own contribution is passed in.
+	"""
+	att_name = getattr(doc, "name", None)
+	exclude = att_name if att_name and not str(att_name).startswith("new-") else None
+	if hasattr(doc, "custom_cnr_month_late_pool_count"):
+		doc.custom_cnr_month_late_pool_count = count_month_pool(
+			doc.employee,
+			doc.attendance_date,
+			"custom_cnr_late_in_pool",
+			current_in_pool=late_in_pool,
+			exclude_name=exclude,
+		)
+	if hasattr(doc, "custom_cnr_month_early_pool_count"):
+		doc.custom_cnr_month_early_pool_count = count_month_pool(
+			doc.employee,
+			doc.attendance_date,
+			"custom_cnr_early_in_pool",
+			current_in_pool=early_in_pool,
+			exclude_name=exclude,
+		)
 
 
 def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
@@ -430,11 +481,55 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 	doc.late_entry = 1 if late_mins > grace else 0
 	doc.early_exit = 1 if early_mins > grace else 0
 
+	from nepal_hrms.custom_code.attendance_holiday import clear_cnr_flags, holiday_info
 	from nepal_hrms.custom_code.policy_escape import has_policy_escape
+
+	# A holiday or weekly off never produces a late entry, an early exit, an
+	# occurrence-pool slot or a penalty -- even when the employee actually worked.
+	# The test is on the DATE, not the status: apply_holiday_sandwich_status has
+	# already rewritten a worked holiday to "Present", so a status check would miss
+	# exactly the case this guard exists for.
+	holiday = holiday_info(doc.employee, doc.attendance_date)
+	if holiday.is_holiday:
+		previous_penalty = (getattr(doc, "custom_cnr_pool_penalty", None) or "").strip()
+		# keep_minutes: the raw timing stays readable on the day popup.
+		# reset_half_day_status=False: do not disturb a genuine half-day leave row.
+		clear_cnr_flags(doc, keep_minutes=True, reset_half_day_status=False)
+		if hasattr(doc, "custom_cnr_pool_penalty"):
+			doc.custom_cnr_pool_penalty = ""
+		_refresh_month_pool_counts(doc, 0, 0)
+		# custom_cnr_pool_penalty is the only signal the period sweep uses to
+		# recognise a status it wrote itself, so clearing it strands any Half Day /
+		# Absent we put here. Undo that in the same pass or nothing ever will.
+		if apply_unexcused_status and (
+			was_cnr_half_day or previous_penalty in ("half", "full")
+		):
+			from nepal_hrms.custom_code.attendance_holiday import has_checkins
+
+			if has_checkins(doc.employee, doc.attendance_date, getattr(doc, "name", None)):
+				doc.status = "Present"
+			else:
+				doc.status = "Weekly Off" if holiday.weekly_off else "Holiday"
+			if hasattr(doc, "half_day_status"):
+				doc.half_day_status = None
+		return
 
 	escape_late_early = has_policy_escape(
 		doc.employee, "escape_late_early", doc.attendance_date
 	)
+
+	# Opt-in: an approved Attendance Request fully excuses the day. Gated on
+	# penalty_on so the excuse cannot zero core HRMS fields on a site running
+	# without the penalty engine.
+	attendance_request_excused = False
+	if (
+		penalty_on
+		and not escape_late_early
+		and cint(getattr(settings, "excuse_late_early_on_attendance_request", 0) or 0)
+		and get_approved_attendance_request(doc.employee, doc.attendance_date)
+	):
+		attendance_request_excused = True
+		escape_late_early = True
 
 	unexcused_late = 0
 	unexcused_early = 0
@@ -442,6 +537,11 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 	early_in_pool = 0
 
 	if escape_late_early:
+		if attendance_request_excused:
+			# The policy escape deliberately keeps these for visibility; the
+			# Attendance Request excuse is a full excuse, so the flags go too.
+			doc.late_entry = 0
+			doc.early_exit = 0
 		# Keep minutes / late_entry flags for visibility; no pool, unexcused, or Half Day
 		if hasattr(doc, "custom_cnr_unexcused_late"):
 			doc.custom_cnr_unexcused_late = 0
@@ -451,26 +551,7 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 			doc.custom_cnr_late_in_pool = 0
 		if hasattr(doc, "custom_cnr_early_in_pool"):
 			doc.custom_cnr_early_in_pool = 0
-		if hasattr(doc, "custom_cnr_month_late_pool_count"):
-			doc.custom_cnr_month_late_pool_count = count_month_pool(
-				doc.employee,
-				doc.attendance_date,
-				"custom_cnr_late_in_pool",
-				current_in_pool=0,
-				exclude_name=getattr(doc, "name", None)
-				if getattr(doc, "name", None) and not str(doc.name).startswith("new-")
-				else None,
-			)
-		if hasattr(doc, "custom_cnr_month_early_pool_count"):
-			doc.custom_cnr_month_early_pool_count = count_month_pool(
-				doc.employee,
-				doc.attendance_date,
-				"custom_cnr_early_in_pool",
-				current_in_pool=0,
-				exclude_name=getattr(doc, "name", None)
-				if getattr(doc, "name", None) and not str(doc.name).startswith("new-")
-				else None,
-			)
+		_refresh_month_pool_counts(doc, 0, 0)
 		previous_penalty = (getattr(doc, "custom_cnr_pool_penalty", None) or "").strip()
 		if hasattr(doc, "custom_cnr_pool_penalty"):
 			doc.custom_cnr_pool_penalty = ""
@@ -515,23 +596,7 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 		doc.custom_cnr_early_in_pool = early_in_pool
 
 	# Month-to-date pool counts (include this row; exclude self from DB count)
-	att_name = getattr(doc, "name", None)
-	if hasattr(doc, "custom_cnr_month_late_pool_count"):
-		doc.custom_cnr_month_late_pool_count = count_month_pool(
-			doc.employee,
-			doc.attendance_date,
-			"custom_cnr_late_in_pool",
-			current_in_pool=late_in_pool,
-			exclude_name=att_name if att_name and not att_name.startswith("new-") else None,
-		)
-	if hasattr(doc, "custom_cnr_month_early_pool_count"):
-		doc.custom_cnr_month_early_pool_count = count_month_pool(
-			doc.employee,
-			doc.attendance_date,
-			"custom_cnr_early_in_pool",
-			current_in_pool=early_in_pool,
-			exclude_name=att_name if att_name and not att_name.startswith("new-") else None,
-		)
+	_refresh_month_pool_counts(doc, late_in_pool, early_in_pool)
 
 	if not apply_unexcused_status:
 		return
@@ -922,6 +987,99 @@ def get_approved_application(doctype, employee, attendance_date):
 		["name", "type_of_work"],
 		as_dict=True,
 	)
+
+
+def _attendance_request_is_approved(row):
+	"""Submitted requests predating the custom status field carry SQL NULL.
+
+	A ["in", ["Approved", ""]] filter would not match those, so approval is decided
+	in Python. before_submit sets Approved on submit, so docstatus 1 implies it.
+	Mirrors _application_bucket in the Monthly Attendance Sheet BS report.
+	"""
+	return ((row.get("status") if isinstance(row, dict) else getattr(row, "status", None)) or "Approved") == "Approved"
+
+
+def get_approved_attendance_request(employee, attendance_date):
+	"""Approved Attendance Request covering this date, or None.
+
+	Separate from get_approved_application because Attendance Request is ranged
+	(from_date / to_date), not a single attendance_date column.
+	"""
+	if not employee or not attendance_date:
+		return None
+	day = getdate(attendance_date)
+	rows = frappe.get_all(
+		"Attendance Request",
+		filters={
+			"employee": employee,
+			"docstatus": 1,
+			"from_date": ["<=", day],
+			"to_date": [">=", day],
+		},
+		fields=["name", "status", "from_date", "to_date"],
+		ignore_permissions=True,
+	)
+	for row in rows:
+		if _attendance_request_is_approved(row):
+			return row
+	return None
+
+
+def approved_attendance_request_dates(employee, start_date, end_date):
+	"""Set of dates in [start, end] covered by an approved Attendance Request.
+
+	One query per (employee, range), request-cached -- the payroll and report paths
+	iterate whole periods and must not call the single-date lookup per day.
+	"""
+	start = getdate(start_date)
+	end = getdate(end_date)
+	if not employee or start > end:
+		return set()
+
+	cache = getattr(frappe.local, "_nepal_approved_attendance_requests", None)
+	if cache is None:
+		cache = frappe.local._nepal_approved_attendance_requests = {}
+	key = f"{employee}::{start}..{end}"
+	if key in cache:
+		return cache[key]
+
+	rows = frappe.get_all(
+		"Attendance Request",
+		filters={
+			"employee": employee,
+			"docstatus": 1,
+			"from_date": ["<=", end],
+			"to_date": [">=", start],
+		},
+		fields=["name", "status", "from_date", "to_date"],
+		ignore_permissions=True,
+	)
+
+	dates = set()
+	for row in rows:
+		if not _attendance_request_is_approved(row):
+			continue
+		day = max(getdate(row.from_date), start)
+		last = min(getdate(row.to_date), end)
+		while day <= last:
+			dates.add(day)
+			day = add_days(day, 1)
+
+	cache[key] = dates
+	return dates
+
+
+def clear_attendance_request_cache(employee=None):
+	"""Drop the request-local approved_attendance_request_dates cache."""
+	cache = getattr(frappe.local, "_nepal_approved_attendance_requests", None)
+	if cache is None:
+		return
+	if employee is None:
+		frappe.local._nepal_approved_attendance_requests = {}
+		return
+	prefix = f"{employee}::"
+	for key in [k for k in cache if k.startswith(prefix)]:
+		cache.pop(key, None)
 
 
 def classify_delay(mins, grace, max_delay):
