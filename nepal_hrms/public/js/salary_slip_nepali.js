@@ -7,6 +7,7 @@ frappe.ui.form.on("Salary Slip", {
 	},
 
 	refresh(frm) {
+		frm.set_df_property("absent_days", "read_only", 0);
 		configure_fixed_and_earned_columns(frm);
 		configure_total_deduction_help(frm);
 		frappe.require(
@@ -19,6 +20,7 @@ frappe.ui.form.on("Salary Slip", {
 	},
 
 	employee: function (frm) {
+        clear_manual_absent_override(frm);
         if (!frm.doc.employee) return;
 
         frappe.call({
@@ -38,6 +40,7 @@ frappe.ui.form.on("Salary Slip", {
     },
 
     start_date: function (frm) {
+        clear_manual_absent_override(frm);
         if (frm.doc.start_date) {
             frappe.call({
                 method: "nepal_hrms.utils.get_suggested_payroll_dates",
@@ -59,9 +62,46 @@ frappe.ui.form.on("Salary Slip", {
     },
 
     end_date: function (frm) {
+        clear_manual_absent_override(frm);
         validate_payroll_days(frm);
-    }
+    },
+
+	absent_days(frm) {
+		recalculate_salary_from_working_days(frm, { use_manual_absent: true });
+	},
 });
+
+function clear_manual_absent_override(frm) {
+	if (frm.fields_dict.custom_absent_days_manual) {
+		frm.set_value("custom_absent_days_manual", 0);
+	}
+}
+
+function mark_manual_absent_override(frm) {
+	if (frm.fields_dict.custom_absent_days_manual) {
+		frm.set_value("custom_absent_days_manual", 1);
+	}
+}
+
+function recalculate_salary_from_working_days(frm, options) {
+	options = options || {};
+	if (!frm.doc.employee || !frm.doc.start_date || !frm.doc.end_date) {
+		return;
+	}
+	if (options.use_manual_absent) {
+		mark_manual_absent_override(frm);
+	}
+	return frappe.call({
+		method: "process_salary_based_on_working_days",
+		doc: frm.doc,
+		args: {
+			use_manual_absent: options.use_manual_absent ? 1 : 0,
+		},
+		callback() {
+			frm.refresh();
+		},
+	});
+}
 
 function configure_fixed_and_earned_columns(frm) {
 	const grids = [

@@ -383,22 +383,106 @@ class TestAttendanceSheetExport(TestCase):
 				"label_prefix": "01 Thu (01 Jan 2026)",
 			}
 		]
+		summary_cols = 3 + len(exporter.SUMMARY_EXPORT_FIELDS)
+		daily_day_cols = 4
+
+		headers, _rows = exporter.build_export_table(
+			{"show_details": 0}, export_mode="daily"
+		)
+		self.assertEqual(len(headers), summary_cols + daily_day_cols)
+		self.assertTrue(any("Check In" in str(header) for header in headers))
+		self.assertNotIn("Absent Full", headers)
+		self.assertFalse(any("Logs" in str(header) for header in headers))
 
 		headers, _rows = exporter.build_export_table(
 			{"show_details": 0}, export_mode="full"
 		)
-		self.assertEqual(len(headers), 3 + len(exporter.SUMMARY_EXPORT_FIELDS))
-		self.assertNotIn("Absent Full", headers)
+		self.assertTrue(any("Logs" in str(header) for header in headers))
+		self.assertIn("Absent Full", headers)
+		self.assertIn("Paid Leave: Home Leave", headers)
 
 		headers, _rows = exporter.build_export_table(
 			{"show_details": 1}, export_mode="full"
 		)
-		self.assertIn("Absent Full", headers)
-		self.assertIn("Paid Leave: Home Leave", headers)
 		self.assertIn("Paid Days: Canonical Daily Flags", headers)
 		self.assertTrue(any("Status" in str(header) for header in headers))
 		self.assertTrue(any("Penalty" in str(header) for header in headers))
 		self.assertTrue(any("Late Grace" in str(header) for header in headers))
+
+	def test_normalize_custom_period_string_zero(self):
+		filters = exporter._normalize_sheet_bs_filters({"use_custom_period": "0"})
+		self.assertEqual(filters.use_custom_period, 0)
+
+	def test_day_fields_from_report_columns(self):
+		columns = [
+			{"fieldname": "employee_name"},
+			{"fieldname": "day_2026_09_17"},
+			{"fieldname": "day_2026_09_17_in"},
+		]
+		fields = exporter._day_fields_from_report_columns(columns)
+		self.assertEqual(len(fields), 1)
+		self.assertEqual(fields[0]["fieldname"], "day_2026_09_17")
+
+	def test_grid_status_codes(self):
+		self.assertEqual(exporter.grid_status_code({"status": "P"}), "P")
+		self.assertEqual(
+			exporter.grid_status_code(
+				{"status": "Lv", "leave_type": "Leave Without Pay", "leave_acronym": "LWP"}
+			),
+			"LWP",
+		)
+		self.assertEqual(
+			exporter.grid_status_code(
+				{
+					"status": "HD/P",
+					"leave_type": "Annual Leave",
+					"leave_acronym": "AL",
+				}
+			),
+			"HDAL",
+		)
+		self.assertEqual(
+			exporter.grid_status_code(
+				{
+					"status": "HD/P",
+					"leave_type": "Annual/Home Leave",
+					"leave_acronym": "AHL",
+				}
+			),
+			"HDHL",
+		)
+		self.assertEqual(exporter.grid_status_code({"status": "WO"}), "")
+		self.assertEqual(
+			exporter.grid_status_code({"status": "Hol", "worked_on_holiday": 1}),
+			"P",
+		)
+
+	@patch.object(exporter, "_resolve_period")
+	@patch.object(exporter, "_day_fieldnames")
+	@patch.object(report, "execute")
+	def test_classic_grid_includes_summary_columns(
+		self, execute, day_fieldnames, resolve_period
+	):
+		from io import BytesIO
+		from openpyxl import load_workbook
+
+		row = self.sample_row()
+		row["day_2026_01_01"] = '{"status": "P"}'
+		report_columns = [{"fieldname": "day_2026_01_01", "fieldtype": "Data"}]
+		execute.return_value = (report_columns, [row], "")
+		resolve_period.return_value = (date(2026, 1, 1), date(2026, 1, 1))
+		day_fieldnames.return_value = [
+			{"fieldname": "day_2026_01_01", "ad": date(2026, 1, 1), "label_prefix": "x"}
+		]
+
+		content = exporter.build_classic_grid_xlsx_bytes({"bs_month": "4", "bs_year": "2083"})
+		sheet = load_workbook(BytesIO(content)).active
+		header_values = [sheet.cell(2, col).value for col in range(1, sheet.max_column + 1)]
+		self.assertIn("Total Period Days", header_values)
+		self.assertIn("Total Paid Days", header_values)
+		self.assertIn("Late Entry", header_values)
+		self.assertEqual(sheet.cell(4, 1).value, "Employee One")
+		self.assertEqual(sheet.cell(4, 2).value, "P")
 
 	def test_xlsx_total_columns_are_bold(self):
 		from openpyxl import load_workbook

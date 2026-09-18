@@ -81,7 +81,7 @@ def execute(filters=None):
         bs_month = int(filters.get("bs_month") or 1)
         if bs_year not in nepali_date._bs_months:
             frappe.throw(_("Selected BS Year {0} is out of bounds.").format(bs_year))
-        if filters.get("use_custom_period"):
+        if cint(filters.get("use_custom_period")):
             s_day = int(filters.get("custom_start_day") or 1)
             s_type = filters.get("start_month_type")
             e_day = int(filters.get("custom_end_day") or 30)

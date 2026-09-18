@@ -43,6 +43,16 @@ def create_custom_fields():
 			# Period Override cannot restate pay that has already been computed.
 			{"fieldname": "custom_daily_divisor_used", "label": "Daily Rate Divisor Used", "fieldtype": "Float", "insert_after": "total_working_days", "read_only": 1, "description": "Days this slip was divided by for per-day deductions. Frozen at first calculation."},
 			{"fieldname": "custom_daily_divisor_basis", "label": "Daily Rate Basis Used", "fieldtype": "Data", "insert_after": "custom_daily_divisor_used", "read_only": 1},
+			{
+				"fieldname": "custom_absent_days_manual",
+				"label": "Manual Absent Days Override",
+				"fieldtype": "Check",
+				"insert_after": "absent_days",
+				"hidden": 1,
+				"default": "0",
+				"allow_on_submit": 1,
+				"description": "When set, Absent Days on this slip are kept on save instead of being replaced from attendance.",
+			},
 			{"fieldname": "custom_overtime_hours", "label": "Overtime Hours", "fieldtype": "Int", "insert_after": "leave_without_pay", "description": "Hours paid as overtime this period. Formula: hours × (basic remuneration / 30 / 8) × the multiplier in Nepal HRMS Settings."},
 			{"fieldname": "custom_attendance_breakdown_section", "label": "", "fieldtype": "Section Break", "insert_after": "payment_days_calculation_help"},
 			{"fieldname": "custom_attendance_counts_heading", "label": "Attendance Deduction Breakdown", "fieldtype": "Heading", "insert_after": "custom_attendance_breakdown_section"},
@@ -331,6 +341,7 @@ def create_custom_fields():
 				)
 
 	_place_salary_slip_lwp_and_overtime_under_absent_days()
+	_ensure_salary_slip_absent_days_editable()
 	return created_fields
 
 
@@ -389,4 +400,28 @@ def _place_salary_slip_lwp_and_overtime_under_absent_days():
 			}
 		).insert(ignore_permissions=True)
 
+	frappe.clear_cache(doctype="Salary Slip")
+
+
+def _ensure_salary_slip_absent_days_editable():
+	"""Allow payroll users to override absent days like Leave Without Pay."""
+	if frappe.db.exists(
+		"Property Setter",
+		{
+			"doc_type": "Salary Slip",
+			"fieldname": "absent_days",
+			"property": "read_only",
+		},
+	):
+		return
+	frappe.make_property_setter(
+		{
+			"doctype": "Salary Slip",
+			"fieldname": "absent_days",
+			"property": "read_only",
+			"value": "0",
+			"property_type": "Check",
+		},
+		is_system_generated=1,
+	)
 	frappe.clear_cache(doctype="Salary Slip")

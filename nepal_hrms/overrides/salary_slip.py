@@ -682,13 +682,62 @@ def compute_nepal_hr_variables(doc, data):
         ),
     }
 
+
+def apply_manual_absent_days(doc, manual_absent, calculated_absent):
+    """Keep user-edited absent days and adjust payment days by the delta."""
+    manual_absent = max(flt(manual_absent), 0.0)
+    calculated_absent = flt(calculated_absent)
+    delta = manual_absent - calculated_absent
+    if abs(delta) > 1e-9:
+        doc.payment_days = max(flt(doc.payment_days) - delta, 0.0)
+        frappe.msgprint(
+            _("Absent Days set manually. Attendance had {0} absent day(s).").format(
+                calculated_absent
+            ),
+            indicator="orange",
+            alert=True,
+        )
+    doc.absent_days = manual_absent
+    return manual_absent
+
+
+def _manual_absent_override_enabled(doc):
+    if cint(getattr(doc.flags, "use_manual_absent_days", 0)):
+        return True
+    if doc.meta.has_field("custom_absent_days_manual"):
+        return cint(doc.get("custom_absent_days_manual"))
+    return False
+
+
 class CustomSalarySlip(SalarySlip):
+    def validate(self):
+        if _manual_absent_override_enabled(self):
+            self.flags.use_manual_absent_days = 1
+        super().validate()
+
     def get_working_days_details(self, lwp=None, for_preview=0):
+        use_manual_absent = _manual_absent_override_enabled(self)
+        manual_absent = flt(self.absent_days) if use_manual_absent else None
+
         super().get_working_days_details(lwp=lwp, for_preview=for_preview)
+
+        if manual_absent is not None and not for_preview:
+            calculated_absent = flt(self.absent_days)
+            apply_manual_absent_days(self, manual_absent, calculated_absent)
+
         # Formulas may have already run against stale absent_days; force a rebuild.
         for attr in ("_nepal_hr_variables_loaded", "_nepal_hr_vars"):
             if hasattr(self, attr):
                 delattr(self, attr)
+
+    @frappe.whitelist()
+    def process_salary_based_on_working_days(self, use_manual_absent=0):
+        if cint(use_manual_absent):
+            self.flags.use_manual_absent_days = 1
+            if self.meta.has_field("custom_absent_days_manual"):
+                self.custom_absent_days_manual = 1
+        self.get_working_days_details(lwp=self.leave_without_pay)
+        self.calculate_net_pay()
 
     def calculate_lwp_ppl_and_absent_days_based_on_attendance(
         self, holidays, daily_wages_fraction_for_half_day, consider_marked_attendance_on_holidays

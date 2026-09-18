@@ -831,6 +831,12 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 									"Full data — daily columns plus logs, late/early mins, leave & apps"
 								),
 							},
+							{
+								value: "grid",
+								label: __(
+									"Classic grid — month sheet (P / LWP / HD codes, BS dates)"
+								),
+							},
 						],
 						default: "daily",
 						reqd: 1,
@@ -847,6 +853,9 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				primary_action_label: __("Download"),
 				primary_action(values) {
 					const filters = report.get_filter_values(true);
+					filters.use_custom_period = cint(
+						frappe.query_report.get_filter_value("use_custom_period")
+					);
 					open_url_post(frappe.request.url, {
 						cmd: "nepal_hrms.nepal_hrms.report.monthly_attendance_sheet_bs.download_attendance_sheet_bs.download_monthly_attendance_sheet_bs",
 						filters: JSON.stringify(filters),
@@ -856,7 +865,14 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					d.hide();
 				},
 			});
+			const syncGridFileFormat = () => {
+				const grid = d.get_value("export_mode") === "grid";
+				d.set_df_property("file_format", "options", grid ? "Excel" : "Excel\nCSV");
+				if (grid) d.set_value("file_format", "Excel");
+			};
+			d.fields_dict.export_mode.$input.on("change", syncGridFileFormat);
 			d.show();
+			syncGridFileFormat();
 		});
 	},
 	filters: [
