@@ -4,7 +4,7 @@
 frappe.provide("nepal_hrms.form_help");
 
 (() => {
-	const CSS = "/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b";
+	const CSS = "/assets/nepal_hrms/css/nepal_hrms_settings.css";
 	const SKIP = new Set([
 		"Tab Break",
 		"Section Break",

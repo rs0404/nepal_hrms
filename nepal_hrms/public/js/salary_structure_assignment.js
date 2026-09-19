@@ -4,7 +4,7 @@
 frappe.ui.form.on("Salary Structure Assignment", {
 	onload(frm) {
 		frappe.require([
-			"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
+			"/assets/nepal_hrms/css/nepal_hrms_settings.css",
 			"/assets/nepal_hrms/js/form_help.js",
 		]);
 		suggest_leave_encashment_formula(frm);
@@ -13,7 +13,7 @@ frappe.ui.form.on("Salary Structure Assignment", {
 	refresh(frm) {
 		frappe.require(
 			[
-				"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
+				"/assets/nepal_hrms/css/nepal_hrms_settings.css",
 				"/assets/nepal_hrms/js/form_help.js",
 			],
 			() => {

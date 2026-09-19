@@ -1,7 +1,7 @@
 frappe.ui.form.on("Salary Slip", {
 	onload(frm) {
 		frappe.require([
-			"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
+			"/assets/nepal_hrms/css/nepal_hrms_settings.css",
 			"/assets/nepal_hrms/js/form_help.js",
 		]);
 	},
@@ -13,7 +13,7 @@ frappe.ui.form.on("Salary Slip", {
 		apply_dynamic_rate_help(frm);
 		frappe.require(
 			[
-				"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
+				"/assets/nepal_hrms/css/nepal_hrms_settings.css",
 				"/assets/nepal_hrms/js/form_help.js",
 			],
 			() => attach_salary_slip_help(frm)
