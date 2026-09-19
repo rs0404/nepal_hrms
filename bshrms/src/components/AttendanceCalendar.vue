@@ -439,37 +439,6 @@ const statusColor = (info) => {
 	return status ? colorMap[status] : ""
 }
 
-// The grid is an English month; the totals under it are a payroll period. Shade
-// the days the totals leave out instead of letting the two quietly disagree.
-const periodWindow = computed(() => {
-	const p = periodSummary.data?.period
-	if (!p?.from_date || !p?.to_date) return null
-	return p
-})
-
-// The dashboard's late/early and application panels describe a period too, and
-// there is no reason for them to describe a different one from this calendar.
-watch(periodWindow, (w) => w && emit("period-change", { ...w }), { immediate: true })
-
-const isOutsidePeriod = (index) => {
-	const w = periodWindow.value
-	if (!w) return false
-	const date = firstOfMonth.value.date(index).format("YYYY-MM-DD")
-	return date < w.from_date || date > w.to_date
-}
-
-// An English month never lines up with a BS payroll period, so unlike the Nepali
-// calendar this is essentially always true -- it is still a computed so the
-// legend stays quiet until the summary has actually loaded.
-const hasOutsidePeriodDays = computed(() => {
-	const w = periodWindow.value
-	if (!w) return false
-	return (
-		firstOfMonth.value.format("YYYY-MM-DD") < w.from_date ||
-		firstOfMonth.value.endOf("M").format("YYYY-MM-DD") > w.to_date
-	)
-})
-
 watch(
 	() => firstOfMonth.value,
 	() => {
@@ -517,6 +486,40 @@ const periodSummary = createResource({
 		if (props.employee) params.employee = props.employee
 		return params
 	},
+})
+
+// The grid is an English month; the totals under it are a payroll period. Shade
+// the days the totals leave out instead of letting the two quietly disagree.
+const periodWindow = computed(() => {
+	const p = periodSummary.data?.period
+	if (!p?.from_date || !p?.to_date) return null
+	return p
+})
+
+// The dashboard's late/early and application panels describe a period too, and
+// there is no reason for them to describe a different one from this calendar.
+// `immediate` makes this run during setup, so periodWindow -- and therefore
+// periodSummary -- must already be declared above: reading a `const` before its
+// initializer throws, and a throw in setup renders the calendar not at all.
+watch(periodWindow, (w) => w && emit("period-change", { ...w }), { immediate: true })
+
+const isOutsidePeriod = (index) => {
+	const w = periodWindow.value
+	if (!w) return false
+	const date = firstOfMonth.value.date(index).format("YYYY-MM-DD")
+	return date < w.from_date || date > w.to_date
+}
+
+// An English month never lines up with a BS payroll period, so unlike the Nepali
+// calendar this is essentially always true -- it is still a computed so the
+// legend stays quiet until the summary has actually loaded.
+const hasOutsidePeriodDays = computed(() => {
+	const w = periodWindow.value
+	if (!w) return false
+	return (
+		firstOfMonth.value.format("YYYY-MM-DD") < w.from_date ||
+		firstOfMonth.value.endOf("M").format("YYYY-MM-DD") > w.to_date
+	)
 })
 
 async function reloadCalendar() {
