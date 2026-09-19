@@ -92,6 +92,7 @@
 					@select-day="onCalendarDaySelect"
 					@create-leave="onCreateLeave"
 					@refresh="refreshAttendanceView"
+					@period-change="onCalendarPeriodChange"
 				/>
 				<NepaliAttendanceCalendar
 					v-else
@@ -101,6 +102,7 @@
 					@select-day="onCalendarDaySelect"
 					@create-leave="onCreateLeave"
 					@refresh="refreshAttendanceView"
+					@period-change="onCalendarPeriodChange"
 				/>
 
 				<ion-modal
@@ -153,7 +155,7 @@
 					class="bg-white border border-gray-100 rounded-lg shadow-sm p-3 flex flex-col gap-2"
 				>
 					<div class="text-sm font-semibold text-gray-800">
-						{{ __("Late / Early this month") }}
+						{{ periodLabel ? __("Late / Early · {0}", [periodLabel]) : __("Late / Early") }}
 					</div>
 					<div class="grid grid-cols-2 gap-2 text-[11px]">
 						<div
@@ -238,7 +240,7 @@
 					<div
 						class="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem] items-end gap-1 text-[9px] font-semibold text-gray-400 mb-1 leading-tight"
 					>
-						<span>{{ __("This month") }}</span>
+						<span>{{ periodLabel || __("This period") }}</span>
 						<span class="text-center text-green-600">{{ __("Approved") }}</span>
 						<span class="text-center text-red-600">{{ __("Rejected") }}</span>
 						<span class="text-center text-amber-600">{{ __("Pending") }}</span>
@@ -453,7 +455,8 @@ import AttendanceCalendar from "@/components/AttendanceCalendar.vue"
 import NepaliAttendanceCalendar from "@/components/NepaliAttendanceCalendar.vue"
 import AttendanceDaySheet from "@/components/AttendanceDaySheet.vue"
 import LiveAttendanceBoard from "@/components/LiveAttendanceBoard.vue"
-import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
+import { formatNepaliDate, formatDaysFromToday, formatNepaliMonthYear } from "@/utils/nepali_date"
+import { ensureNepaliDateLib } from "@/utils/nepali_calendar"
 import { encodeLeaveRanges } from "@/utils/leave_ranges"
 import { consumeAttendanceRefresh } from "@/utils/attendance_refresh"
 import { pwaAccess } from "@/data/pwa_access"
@@ -539,45 +542,83 @@ const pendingLeaveRange = ref(null)
 // The window is resolved server-side, from the configured payroll period, so all
 // of these agree with the attendance summary and with the desk report. Doing the
 // date maths here in JS is what let the dashboard drift out of step.
+//
+// Which period, though, is the calendar's business: these panels used to be
+// pinned to whatever period contains today, so paging the calendar back left
+// them describing a different month than the grid above them — reading 0
+// applications for a period full of them.
+const visiblePeriod = ref(null)
+
+/** Employee plus the window, so paging cannot serve another period's cached rows. */
+function periodCacheKey() {
+	const p = visiblePeriod.value
+	return `${calendarEmployee.value || ""}:${p ? `${p.from_date}..${p.to_date}` : "current"}`
+}
+
+function periodParams() {
+	const params = { employee: calendarEmployee.value }
+	if (visiblePeriod.value) {
+		params.from_date = visiblePeriod.value.from_date
+		params.to_date = visiblePeriod.value.to_date
+	}
+	return params
+}
 
 const poolSummary = createResource({
 	url: "nepal_hrms.api.cnr_applications.get_late_early_pool_summary",
-	makeParams: () => ({ employee: calendarEmployee.value }),
+	makeParams: periodParams,
 	auto: true,
-	cache: [
-		"hrms:late-early-pool",
-		() => calendarEmployee.value,
-	],
+	cache: ["hrms:late-early-pool", periodCacheKey],
 })
 
 const appCounts = createResource({
 	url: "nepal_hrms.api.cnr_applications.get_cnr_application_counts",
-	makeParams: () => ({ employee: calendarEmployee.value }),
+	makeParams: periodParams,
 	auto: true,
-	cache: [
-		"nepal_hrms:cnr-app-counts",
-		() => calendarEmployee.value,
-	],
+	cache: ["nepal_hrms:cnr-app-counts", periodCacheKey],
 })
 
 const leaveCounts = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_leave_application_counts",
-	makeParams: () => ({ employee: calendarEmployee.value }),
+	makeParams: periodParams,
 	auto: true,
-	cache: [
-		"nepal_hrms:leave-app-counts",
-		() => calendarEmployee.value,
-	],
+	cache: ["nepal_hrms:leave-app-counts", periodCacheKey],
 })
 
 const attRequestCounts = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_request_counts",
-	makeParams: () => ({ employee: calendarEmployee.value }),
+	makeParams: periodParams,
 	auto: true,
-	cache: [
-		"nepal_hrms:att-request-counts",
-		() => calendarEmployee.value,
-	],
+	cache: ["nepal_hrms:att-request-counts", periodCacheKey],
+})
+
+function reloadPeriodPanels() {
+	poolSummary.reload()
+	appCounts.reload()
+	leaveCounts.reload()
+	attRequestCounts.reload()
+}
+
+function onCalendarPeriodChange(period) {
+	if (!period?.from_date || !period?.to_date) return
+	const current = visiblePeriod.value
+	if (current?.from_date === period.from_date && current?.to_date === period.to_date) return
+	visiblePeriod.value = period
+	// On first paint the calendar reports the same period these already fetched
+	// by default; refetching all four for nothing is four round trips per load.
+	const fetched = poolSummary.data
+	if (fetched?.from_date === period.from_date && fetched?.to_date === period.to_date) return
+	reloadPeriodPanels()
+}
+
+const libLoaded = ref(0)
+
+/** BS month naming the visible period, e.g. "Bhadra 2083". */
+const periodLabel = computed(() => {
+	void libLoaded.value
+	const p = visiblePeriod.value
+	if (!p?.to_date) return ""
+	return formatNepaliMonthYear(p.to_date) || ""
 })
 
 const monthAppRows = computed(() => {
@@ -617,22 +658,16 @@ const monthAppRows = computed(() => {
 	return rows
 })
 
-// No monthRange watcher any more: the window no longer changes on the client, so
-// only a change of employee can invalidate these.
 watch(calendarEmployee, () => {
-	poolSummary.reload()
-	appCounts.reload()
-	leaveCounts.reload()
-	attRequestCounts.reload()
+	// A different employee may sit in a different period; let the calendar say so.
+	visiblePeriod.value = null
+	reloadPeriodPanels()
 })
 
 function refreshAttendanceView() {
 	adCalendar.value?.reload?.()
 	bsCalendar.value?.reload?.()
-	poolSummary.reload()
-	appCounts.reload()
-	leaveCounts.reload()
-	attRequestCounts.reload()
+	reloadPeriodPanels()
 	myAttendanceRequests?.reload?.()
 	recentAttendance?.reload?.()
 }
@@ -797,6 +832,9 @@ const upcomingShifts = computed(() => {
 })
 
 onMounted(() => {
+	// periodLabel reads the BS month name off window.NepaliDateLib, which only the
+	// BS calendar loads — the panels are labelled in AD mode too.
+	ensureNepaliDateLib().then(() => libLoaded.value++)
 	if (consumeAttendanceRefresh()) refreshAttendanceView()
 	useListUpdate(socket, "Attendance", () => {
 		recentAttendance.reload()

@@ -51,10 +51,21 @@ def custom_period_start_day(settings=None):
 
 
 def resolve_bs_period(bs_year, bs_month, settings=None):
-	"""(from_date, to_date, days) for a BS month under the configured basis.
+	"""(from_date, to_date, days) for the payroll period NAMED by a BS month.
 
 	Nepali Month     -> day 1 .. last day of the month
-	Custom Day Range -> start_day of this month .. (start_day - 1) of the next
+	Custom Day Range -> start_day of the PREVIOUS month .. (start_day - 1) of this one
+
+	A period is named by the month it *ends* in, which is how a 29-28 cycle is
+	spoken about in payroll: "Bhadra's salary" is Shrawan 29 - Bhadra 28, paid at
+	the end of Bhadra. The Monthly Attendance Sheet BS custom-period filter has
+	always defaulted to that reading (start day 29 / Previous Month), so anchoring
+	here on the opening month instead put the report and the PWA a whole period
+	apart -- the report's Bhadra was the PWA's Shrawan.
+
+	Only the label -> window mapping lives here. period_containing() maps a *date*
+	to a window and is unaffected by the naming, which is why attendance policy,
+	scheduled payroll and existing salary slips see no change.
 	"""
 	settings = settings if settings is not None else get_settings()
 	bs_year, bs_month = cint(bs_year), cint(bs_month)
@@ -69,18 +80,26 @@ def resolve_bs_period(bs_year, bs_month, settings=None):
 		return None, None, 0
 
 	basis = settings.get("payroll_period_basis") or "Nepali Month"
-	if basis != "Custom Day Range":
+	start_day = custom_period_start_day(settings) if basis == "Custom Day Range" else 1
+	# Custom Day Range with start day 1 *is* the Nepali month; the branch below
+	# would otherwise name a month by the one before it.
+	if basis != "Custom Day Range" or start_day <= 1:
 		start = nd.bs_to_ad(bs_year, bs_month, 1)
 		end = nd.bs_to_ad(bs_year, bs_month, length)
 		return getdate(start), getdate(end), length
 
-	start_day = custom_period_start_day(settings)
-	start = getdate(nd.bs_to_ad(bs_year, bs_month, start_day))
-	nxt_year, nxt_month = (bs_year + 1, 1) if bs_month == 12 else (bs_year, bs_month + 1)
-	nxt_start = nd.bs_to_ad(nxt_year, nxt_month, start_day)
-	if not nxt_start:
-		return start, None, 0
-	end = add_days(getdate(nxt_start), -1)
+	prv_year, prv_month = (bs_year - 1, 12) if bs_month == 1 else (bs_year, bs_month - 1)
+	try:
+		# Baisakh opens in the previous year's Chaitra, which at BS 2000 is off the
+		# end of the table -- bs_to_ad throws there rather than returning nothing.
+		prv_start = nd.bs_to_ad(prv_year, prv_month, start_day)
+		this_start = nd.bs_to_ad(bs_year, bs_month, start_day)
+	except Exception:
+		return None, None, 0
+	if not prv_start or not this_start:
+		return None, None, 0
+	start = getdate(prv_start)
+	end = add_days(getdate(this_start), -1)
 	return start, end, (end - start).days + 1
 
 
@@ -89,6 +108,11 @@ def period_containing(date, settings=None):
 
 	For Custom Day Range with start day 29, a date on BS day 15 of month M falls in
 	the period that opened on day 29 of month M-1, not month M's upcoming range.
+
+	The window returned for a given date does not depend on how periods are named;
+	the step below only picks the label to hand resolve_bs_period, which names a
+	period by the month it ends in. A date from day 29 onward has already crossed
+	into the period that ends next month.
 	"""
 	settings = settings if settings is not None else get_settings()
 	date = getdate(date)
@@ -104,8 +128,8 @@ def period_containing(date, settings=None):
 		except Exception:
 			bs_day = 0
 		start_day = custom_period_start_day(settings)
-		if bs_day and bs_day < start_day:
-			bs_year, bs_month = (bs_year - 1, 12) if bs_month == 1 else (bs_year, bs_month - 1)
+		if start_day > 1 and bs_day and bs_day >= start_day:
+			bs_year, bs_month = (bs_year + 1, 1) if bs_month == 12 else (bs_year, bs_month + 1)
 
 	return resolve_bs_period(bs_year, bs_month, settings)
 

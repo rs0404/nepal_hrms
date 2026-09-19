@@ -961,6 +961,10 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 			label: __("Use Custom Calculation Period"),
 			fieldtype: "Check",
 			default: 0,
+			// Leaving this off now follows the payroll period in Nepal HRMS Settings,
+			// which is what makes the report and BSHRMS agree. It is only needed for
+			// a one-off window that is not the configured cycle.
+			description: __("Override the payroll period configured in Nepal HRMS Settings"),
 			on_change: function () {
 				let val = frappe.query_report.get_filter_value("filter_based_on");
 				let custom = frappe.query_report.get_filter_value("use_custom_period");

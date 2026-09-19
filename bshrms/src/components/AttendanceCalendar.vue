@@ -49,6 +49,7 @@
 					v-for="index in firstOfMonth.endOf('M').get('D')"
 					:key="'day-' + index"
 					class="relative flex flex-col items-center pt-2"
+					:class="isOutsidePeriod(index) ? 'outside-period' : ''"
 					@click="onDayClick(index)"
 				>
 					<div
@@ -228,6 +229,9 @@
 				<span class="inline-flex items-center gap-1">
 					<i class="marker-dot sandwich" />{{ __("Sandwich") }}
 				</span>
+				<span v-if="hasOutsidePeriodDays" class="inline-flex items-center gap-1">
+					<i class="outside-period-swatch" />{{ __("Outside the payroll period") }}
+				</span>
 				<span class="inline-flex items-center gap-1">
 					<span class="leave-mark-badge half">1/2</span>{{ __("Half day leave") }}
 				</span>
@@ -264,7 +268,7 @@ import {
 	normalizeAppStatus,
 } from "@/utils/app_status"
 
-const emit = defineEmits(["select-day", "create-leave", "refresh"])
+const emit = defineEmits(["select-day", "create-leave", "refresh", "period-change"])
 
 const props = defineProps({
 	employee: { type: String, default: null },
@@ -435,6 +439,37 @@ const statusColor = (info) => {
 	return status ? colorMap[status] : ""
 }
 
+// The grid is an English month; the totals under it are a payroll period. Shade
+// the days the totals leave out instead of letting the two quietly disagree.
+const periodWindow = computed(() => {
+	const p = periodSummary.data?.period
+	if (!p?.from_date || !p?.to_date) return null
+	return p
+})
+
+// The dashboard's late/early and application panels describe a period too, and
+// there is no reason for them to describe a different one from this calendar.
+watch(periodWindow, (w) => w && emit("period-change", { ...w }), { immediate: true })
+
+const isOutsidePeriod = (index) => {
+	const w = periodWindow.value
+	if (!w) return false
+	const date = firstOfMonth.value.date(index).format("YYYY-MM-DD")
+	return date < w.from_date || date > w.to_date
+}
+
+// An English month never lines up with a BS payroll period, so unlike the Nepali
+// calendar this is essentially always true -- it is still a computed so the
+// legend stays quiet until the summary has actually loaded.
+const hasOutsidePeriodDays = computed(() => {
+	const w = periodWindow.value
+	if (!w) return false
+	return (
+		firstOfMonth.value.format("YYYY-MM-DD") < w.from_date ||
+		firstOfMonth.value.endOf("M").format("YYYY-MM-DD") > w.to_date
+	)
+})
+
 watch(
 	() => firstOfMonth.value,
 	() => {
@@ -502,6 +537,32 @@ watch(
 </script>
 
 <style scoped>
+/* Outside the payroll period the totals describe. Still readable and still
+   tappable -- the day's own record is unchanged, it just is not counted here. */
+.outside-period {
+	opacity: 0.4;
+	background-image: repeating-linear-gradient(
+		135deg,
+		rgba(100, 116, 139, 0.11) 0 4px,
+		transparent 4px 8px
+	);
+}
+
+.outside-period-swatch {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 3px;
+	flex-shrink: 0;
+	opacity: 0.4;
+	background-color: #f1f5f9;
+	background-image: repeating-linear-gradient(
+		135deg,
+		rgba(100, 116, 139, 0.45) 0 2px,
+		transparent 2px 4px
+	);
+}
+
 .marker-dot {
 	display: inline-block;
 	width: 5px;

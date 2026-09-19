@@ -170,41 +170,16 @@ def _day_fieldnames(start_ad, end_ad):
 
 
 def _resolve_period(filters):
-	"""Reuse report date resolution without re-running the full column builder."""
+	"""The window the report itself resolved, so the export cannot drift from it.
+
+	This used to be a second copy of the date maths and would have had to learn
+	the payroll-period setting independently.
+	"""
 	from nepal_hrms.nepal_hrms.report.monthly_attendance_sheet_bs.monthly_attendance_sheet_bs import (
-		get_bs_date_with_offset,
+		resolve_report_period,
 	)
 
-	nepali_date._ensure_loaded()
-	filters = _normalize_sheet_bs_filters(filters)
-
-	if filters.get("filter_based_on") == "BS Date Range":
-		from_bs = filters.get("from_bs_date")
-		to_bs = filters.get("to_bs_date")
-		if not from_bs or not to_bs:
-			frappe.throw(_("Please provide both From and To BS Dates"))
-		f_y, f_m, f_d = map(int, from_bs.split("-"))
-		t_y, t_m, t_d = map(int, to_bs.split("-"))
-		start_ad = nepali_date.bs_to_ad(f_y, f_m, f_d)
-		end_ad = nepali_date.bs_to_ad(t_y, t_m, t_d)
-	else:
-		bs_year = int(filters.get("bs_year") or 2081)
-		bs_month = int(filters.get("bs_month") or 1)
-		if cint(filters.get("use_custom_period")):
-			s_day = int(filters.get("custom_start_day") or 1)
-			s_type = filters.get("start_month_type")
-			e_day = int(filters.get("custom_end_day") or 30)
-			e_type = filters.get("end_month_type")
-			s_offset = -1 if s_type == "Previous Month" else 0
-			e_offset = 1 if e_type == "Next Month" else 0
-			start_ad = get_bs_date_with_offset(bs_year, bs_month, s_day, s_offset)
-			end_ad = get_bs_date_with_offset(bs_year, bs_month, e_day, e_offset)
-		else:
-			days_in_month = nepali_date._bs_months[bs_year][bs_month - 1]
-			start_ad = nepali_date.bs_to_ad(bs_year, bs_month, 1)
-			end_ad = nepali_date.bs_to_ad(bs_year, bs_month, days_in_month)
-
-	return getdate(start_ad), getdate(end_ad)
+	return resolve_report_period(_normalize_sheet_bs_filters(filters))
 
 
 def _time_display(value) -> str:

@@ -69,6 +69,79 @@ APPLICATION_SPECS = {
 }
 
 
+def resolve_report_period(filters):
+    """(start_ad, end_ad) for the report's filters.
+
+    Picking a BS month follows the payroll period configured in Nepal HRMS
+    Settings, so the report, the BSHRMS calendar and the salary slip all describe
+    the same days without anyone re-entering the cycle by hand. Under the default
+    "Nepali Month" basis that is still day 1 to the last day of the month.
+
+    "Use Custom Calculation Period" stays as a manual override for ad-hoc windows
+    and wins over the setting; "BS Date Range" is untouched.
+    """
+    nepali_date._ensure_loaded()
+
+    if filters.get("filter_based_on") == "BS Date Range":
+        from_bs = filters.get("from_bs_date")
+        to_bs = filters.get("to_bs_date")
+        if not from_bs or not to_bs:
+            frappe.throw(_("Please provide both From and To BS Dates"))
+        try:
+            f_y, f_m, f_d = map(int, from_bs.split("-"))
+            t_y, t_m, t_d = map(int, to_bs.split("-"))
+            return getdate(nepali_date.bs_to_ad(f_y, f_m, f_d)), getdate(
+                nepali_date.bs_to_ad(t_y, t_m, t_d)
+            )
+        except Exception:
+            frappe.throw(_("Invalid BS Date format. Use YYYY-MM-DD"))
+
+    bs_year = int(filters.get("bs_year") or 2081)
+    bs_month = int(filters.get("bs_month") or 1)
+    if bs_year not in nepali_date._bs_months:
+        frappe.throw(_("Selected BS Year {0} is out of bounds.").format(bs_year))
+
+    if cint(filters.get("use_custom_period")):
+        s_day = int(filters.get("custom_start_day") or 1)
+        s_type = filters.get("start_month_type")
+        e_day = int(filters.get("custom_end_day") or 30)
+        e_type = filters.get("end_month_type")
+        s_offset = -1 if s_type == "Previous Month" else 0
+        e_offset = 1 if e_type == "Next Month" else 0
+        return (
+            getdate(get_bs_date_with_offset(bs_year, bs_month, s_day, s_offset)),
+            getdate(get_bs_date_with_offset(bs_year, bs_month, e_day, e_offset)),
+        )
+
+    from nepal_hrms.custom_code.payroll.period import resolve_bs_period
+
+    start, end, _days = resolve_bs_period(bs_year, bs_month)
+    if start and end:
+        return getdate(start), getdate(end)
+
+    # A broken settings row must not make the report unusable; fall back to the
+    # plain BS month, which is what the report did before it read the setting.
+    days_in_month = nepali_date._bs_months[bs_year][bs_month - 1]
+    return (
+        getdate(nepali_date.bs_to_ad(bs_year, bs_month, 1)),
+        getdate(nepali_date.bs_to_ad(bs_year, bs_month, days_in_month)),
+    )
+
+
+def _period_message(start_ad, end_ad):
+    """One line naming the window the totals cover, in BS and AD."""
+    try:
+        f_bs = nepali_date.ad_to_bs(getdate(start_ad))
+        t_bs = nepali_date.ad_to_bs(getdate(end_ad))
+        f_label = "{0}-{1:02d}-{2:02d}".format(f_bs["year"], f_bs["month"], f_bs["day"])
+        t_label = "{0}-{1:02d}-{2:02d}".format(t_bs["year"], t_bs["month"], t_bs["day"])
+    except Exception:
+        return ""
+    return _("Period: {0} to {1} BS ({2} to {3})").format(
+        f_label, t_label, getdate(start_ad), getdate(end_ad)
+    )
+
+
 def execute(filters=None):
     if not filters:
         filters = {}
@@ -79,39 +152,7 @@ def execute(filters=None):
             filters = {}
 
     filters = frappe._dict(filters)
-    nepali_date._ensure_loaded()
-
-    # Date Handling
-    if filters.get("filter_based_on") == "BS Date Range":
-        from_bs = filters.get("from_bs_date")
-        to_bs = filters.get("to_bs_date")
-        if not from_bs or not to_bs:
-            frappe.throw(_("Please provide both From and To BS Dates"))
-        try:
-            f_y, f_m, f_d = map(int, from_bs.split("-"))
-            t_y, t_m, t_d = map(int, to_bs.split("-"))
-            start_ad = nepali_date.bs_to_ad(f_y, f_m, f_d)
-            end_ad = nepali_date.bs_to_ad(t_y, t_m, t_d)
-        except Exception:
-            frappe.throw(_("Invalid BS Date format. Use YYYY-MM-DD"))
-    else:
-        bs_year = int(filters.get("bs_year") or 2081)
-        bs_month = int(filters.get("bs_month") or 1)
-        if bs_year not in nepali_date._bs_months:
-            frappe.throw(_("Selected BS Year {0} is out of bounds.").format(bs_year))
-        if cint(filters.get("use_custom_period")):
-            s_day = int(filters.get("custom_start_day") or 1)
-            s_type = filters.get("start_month_type")
-            e_day = int(filters.get("custom_end_day") or 30)
-            e_type = filters.get("end_month_type")
-            s_offset = -1 if s_type == "Previous Month" else 0
-            e_offset = 1 if e_type == "Next Month" else 0
-            start_ad = get_bs_date_with_offset(bs_year, bs_month, s_day, s_offset)
-            end_ad = get_bs_date_with_offset(bs_year, bs_month, e_day, e_offset)
-        else:
-            days_in_month = nepali_date._bs_months[bs_year][bs_month - 1]
-            start_ad = nepali_date.bs_to_ad(bs_year, bs_month, 1)
-            end_ad = nepali_date.bs_to_ad(bs_year, bs_month, days_in_month)
+    start_ad, end_ad = resolve_report_period(filters)
 
     if (end_ad - start_ad).days > 32:
         frappe.throw(_("Date range cannot exceed 32 days for this report layout."))
@@ -123,7 +164,9 @@ def execute(filters=None):
     attendance_data, leave_types = get_attendance_and_leaves(filters, start_ad, end_ad)
     columns = get_columns(filters, start_ad, end_ad, leave_types)
 
-    message = ""
+    # Picking "Bhadra" can now mean Shrawan 29 - Bhadra 28, so say which days the
+    # totals actually cover rather than letting the month name imply it.
+    message = _period_message(start_ad, end_ad)
 
     data = get_data(filters, start_ad, end_ad, attendance_data, leave_types)
     return columns, data, message
