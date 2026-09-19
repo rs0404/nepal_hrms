@@ -360,10 +360,11 @@ def _resolve_summary_window(from_date, to_date, bs_year, bs_month, ref_date):
 
 	try:
 		if bs_year and bs_month:
-			# Deliberately NOT period_containing(bs day 1): under Custom Day Range
-			# with start day 29, BS day 1 of month M belongs to the period that
-			# opened on day 29 of M-1, so anchoring on it would show the viewer the
-			# previous period while they look at month M.
+			# resolve_bs_period names a period by the month it ends in, so the BS
+			# month on screen and the period under it now overlap for all but the
+			# last few days -- and, more to the point, agree with the report's
+			# month filter. period_containing(bs day 1) would give the same window
+			# under a 29-28 cycle; this stays explicit about naming the period.
 			start, end, _days = resolve_bs_period(cint(bs_year), cint(bs_month))
 		else:
 			start, end, _days = period_containing(getdate(ref_date or today()))
@@ -418,18 +419,40 @@ def get_attendance_period_summary(
 		if start < month_start:
 			start = month_start
 		if end < start:
-			return {"found": False}
+			return {"found": False, "period": _period_payload(start, end)}
 
 	if date_diff(end, start) > 120:
 		frappe.throw(_("Summary window cannot exceed 120 days."))
 
 	result = summarize_period(employee, start, end)
 	result.setdefault("period", {})
-	result["period"]["from_date"] = str(start)
-	result["period"]["to_date"] = str(end)
-	result["period"]["bs_from"] = _bs_label(start)
-	result["period"]["bs_to"] = _bs_label(end)
+	result["period"].update(_period_payload(start, end))
 	return result
+
+
+def _period_payload(start, end):
+	"""The window, labelled -- the PWA draws its calendar grid from exactly this.
+
+	bs_year / bs_month name the period rather than describing `start`: a period is
+	named by the month it ends in, so the PWA can page to the neighbouring period
+	by stepping this month without re-deriving the payroll cycle in JavaScript.
+	"""
+	payload = {
+		"from_date": str(start),
+		"to_date": str(end),
+		"bs_from": _bs_label(start),
+		"bs_to": _bs_label(end),
+	}
+	try:
+		import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
+
+		nepali_date._ensure_loaded()
+		bs_end = nepali_date.ad_to_bs(getdate(end))
+		payload["bs_year"] = cint(bs_end["year"])
+		payload["bs_month"] = cint(bs_end["month"])
+	except Exception:
+		pass
+	return payload
 
 
 def _bs_label(ad_date):

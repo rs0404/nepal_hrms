@@ -1,24 +1,140 @@
+<!--
+  Attendance calendar drawn over the PAYROLL PERIOD, not the BS month.
+
+  Under a Custom Day Range basis the period that payroll calls "Bhadra" runs
+  Shrawan 29 - Bhadra 28. A BS month grid cannot show that: it draws Bhadra 1-31,
+  which both hides the three Shrawan days the totals count and shows three Bhadra
+  days they do not. Shading only ever fixed the second half of that.
+
+  So the grid is built here from the window the server resolved, rather than by
+  nepal_compliance's NepaliCalendarLib, which renders whole BS months only. Every
+  day on screen is a day the totals below count, and paging moves by period.
+
+  The day numbers stay BS-first with the AD day underneath, so it still reads as
+  a Nepali calendar.
+-->
 <template>
 	<div class="flex flex-col w-full gap-3">
 		<div class="bg-white rounded-lg p-2 shadow-sm border border-gray-100">
-			<div class="flex items-center justify-end px-2 pt-1 pb-0.5">
+			<div class="flex items-center justify-between gap-1 px-1 pt-1">
 				<button
 					type="button"
-					class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-gray-600 hover:bg-gray-100"
-					:title="__('Refresh')"
-					:aria-label="__('Refresh')"
-					:disabled="attendanceEvents.loading"
-					@click="reloadCalendar"
+					class="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-30"
+					:aria-label="__('Previous period')"
+					:disabled="!periodWindow"
+					@click="stepPeriod(-1)"
 				>
-					<FeatherIcon
-						name="refresh-cw"
-						class="h-3.5 w-3.5"
-						:class="attendanceEvents.loading ? 'animate-spin' : ''"
-					/>
-					{{ __("Refresh") }}
+					<FeatherIcon name="chevron-left" class="h-4 w-4" />
+				</button>
+
+				<div class="flex flex-col items-center leading-tight min-w-0">
+					<span class="text-sm font-bold text-gray-800 truncate">{{ periodTitle }}</span>
+					<span class="text-[11px] text-gray-500 truncate">{{ periodSubtitle }}</span>
+				</div>
+
+				<div class="flex items-center gap-0.5 shrink-0">
+					<button
+						type="button"
+						class="p-1.5 rounded-md text-gray-500 hover:bg-gray-100"
+						:title="__('Refresh')"
+						:aria-label="__('Refresh')"
+						:disabled="attendanceEvents.loading"
+						@click="reloadCalendar"
+					>
+						<FeatherIcon
+							name="refresh-cw"
+							class="h-3.5 w-3.5"
+							:class="attendanceEvents.loading ? 'animate-spin' : ''"
+						/>
+					</button>
+					<button
+						type="button"
+						class="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-30"
+						:aria-label="__('Next period')"
+						:disabled="!periodWindow"
+						@click="stepPeriod(1)"
+					>
+						<FeatherIcon name="chevron-right" class="h-4 w-4" />
+					</button>
+				</div>
+			</div>
+
+			<div v-if="!periodDays.length" class="py-8 text-center text-xs text-gray-400">
+				{{ __("Loading calendar…") }}
+			</div>
+
+			<div v-else class="grid grid-cols-7 gap-0.5 mt-2">
+				<div
+					v-for="(label, i) in WEEKDAYS"
+					:key="'wd-' + i"
+					class="text-center text-[11px] font-medium pb-1"
+					:class="i === 6 ? 'text-rose-500' : 'text-gray-500'"
+				>
+					{{ label }}
+				</div>
+
+				<div v-for="n in leadingBlanks" :key="'pad-' + n" />
+
+				<button
+					v-for="day in periodDays"
+					:key="day.ad"
+					type="button"
+					class="day-cell"
+					:class="{
+						'is-today': day.ad === todayStr,
+						'is-selected': selectedDates.has(day.ad),
+						'is-saturday': day.weekday === 6,
+						'month-edge': day.monthEdge,
+					}"
+					:style="day.fill"
+					@click="onDayClick(day)"
+				>
+					<span v-if="day.marks.length" class="leave-marks" aria-hidden="true">
+						<span
+							v-for="mark in day.marks"
+							:key="mark"
+							class="leave-mark-badge"
+							:class="leaveMarkClass(mark)"
+						>
+							{{ mark }}
+						</span>
+					</span>
+
+					<span class="bs-day">{{ day.bsLabel }}</span>
+					<span class="ad-day">{{ day.adDay }}</span>
+
+					<span v-if="day.appOnlyMarks.length" class="app-only-marks" aria-hidden="true">
+						<i
+							v-for="m in day.appOnlyMarks"
+							:key="m.kind"
+							class="app-mark"
+							:class="appStatusClass(m.status)"
+							:title="appStatusTitle(m.kind, m.status)"
+						/>
+					</span>
+
+					<span v-if="day.dots.length" class="day-markers" aria-hidden="true">
+						<span v-for="dot in day.dots" :key="dot.kind" class="marker-stack">
+							<i class="marker-dot" :class="dot.cls" :title="dot.title" />
+							<i
+								v-if="dot.app"
+								class="app-mark"
+								:class="appStatusClass(dot.app)"
+							/>
+						</span>
+					</span>
 				</button>
 			</div>
-			<div ref="calendarContainer"></div>
+
+			<div class="flex justify-center pt-1.5">
+				<button
+					type="button"
+					class="text-[11px] font-semibold text-blue-600 px-2 py-1 rounded-md hover:bg-blue-50"
+					@click="goToToday"
+				>
+					{{ __("आज") }}
+				</button>
+			</div>
 
 			<div
 				class="flex items-center justify-between gap-2 px-2 py-1.5 border-t"
@@ -66,16 +182,13 @@
 			</div>
 		</div>
 
-		<!-- Totals for the payroll period, computed server-side so they match the
-		     Monthly Attendance Sheet BS report exactly. -->
+		<!-- Totals for exactly the days drawn above, computed server-side so they
+		     match the Monthly Attendance Sheet BS report. -->
 		<AttendancePeriodSummary :resource="periodSummary" />
 		<div v-if="attendanceEvents.loading" class="text-xs text-gray-400 mx-1">
 			{{ __("Loading attendance…") }}
 		</div>
-		<div
-			v-else-if="attendanceEvents.error"
-			class="text-xs text-red-500 mx-1"
-		>
+		<div v-else-if="attendanceEvents.error" class="text-xs text-red-500 mx-1">
 			{{ __("Could not load attendance markers") }}
 		</div>
 
@@ -130,12 +243,11 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, inject, watch, computed, nextTick, toRaw } from "vue"
+import { onMounted, ref, inject, watch, computed } from "vue"
 import { createResource, FeatherIcon } from "frappe-ui"
-import { ensureNepaliCalendar } from "@/utils/nepali_calendar"
+import { ensureNepaliDateLib } from "@/utils/nepali_calendar"
 import { groupContiguousDates } from "@/utils/leave_ranges"
 import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
-import { getBsYearMonth } from "@/utils/nepali_date"
 import AttendancePeriodSummary from "@/components/AttendancePeriodSummary.vue"
 import {
 	appStatusClass,
@@ -144,7 +256,7 @@ import {
 	normalizeAppStatus,
 } from "@/utils/app_status"
 
-const emit = defineEmits(["select-day", "create-leave", "refresh"])
+const emit = defineEmits(["select-day", "create-leave", "refresh", "period-change"])
 
 const props = defineProps({
 	employee: { type: String, default: null },
@@ -153,18 +265,13 @@ const props = defineProps({
 const __ = inject("$translate")
 const dayjs = inject("$dayjs")
 const sessionEmployee = inject("$employee")
-const isSelf = computed(
-	() => !props.employee || props.employee === sessionEmployee.data?.name
-)
-const calendarContainer = ref(null)
+const isSelf = computed(() => !props.employee || props.employee === sessionEmployee.data?.name)
 const todayStr = dayjs().format("YYYY-MM-DD")
-const visibleRange = ref({
-	from_date: dayjs().subtract(20, "day").format("YYYY-MM-DD"),
-	to_date: dayjs().add(15, "day").format("YYYY-MM-DD"),
-})
 const selectMode = ref(false)
 const selectedDates = ref(new Set())
 const selectedCount = computed(() => selectedDates.value.size)
+// Bumped once the date library is on the page, purely to re-run the day builder.
+const libReady = ref(0)
 
 const STATUS_FILL = {
 	Present: { backgroundColor: "#dcfce7", boxShadow: "inset 0 0 0 1.5px #4ade80" },
@@ -177,12 +284,11 @@ const STATUS_FILL = {
 	Holiday: { backgroundColor: "#f3e8ff", boxShadow: "inset 0 0 0 1.5px #d8b4fe" },
 	"Weekly Off": { backgroundColor: "#f3e8ff", boxShadow: "inset 0 0 0 1.5px #d8b4fe" },
 }
-
 const PAINTABLE = new Set(Object.keys(STATUS_FILL))
-// The visible BS month is passed explicitly rather than as a reference date:
-// under a Custom Day Range payroll basis with start day 29, BS day 1 of month M
-// belongs to the period that opened on day 29 of M-1, so anchoring on it would
-// show the viewer the previous period while they look at month M.
+
+// Which payroll period to show, as the BS month that NAMES it (the month it ends
+// in). null means "whatever period contains today" — the server decides, so the
+// payroll cycle is never reimplemented here.
 const visibleBs = ref(null)
 
 const periodSummary = createResource({
@@ -199,13 +305,15 @@ const periodSummary = createResource({
 	},
 })
 
-let summaryReloadTimer = null
-function reloadPeriodSummary() {
-	// Paging through months fires this several times per swipe, and each call is
-	// ~15 queries on the server.
-	clearTimeout(summaryReloadTimer)
-	summaryReloadTimer = setTimeout(() => periodSummary.reload(), 200)
-}
+const periodWindow = computed(() => {
+	const p = periodSummary.data?.period
+	if (!p?.from_date || !p?.to_date) return null
+	return p
+})
+
+// The dashboard's late/early and application panels describe a period too, and
+// there is no reason for them to describe a different one from this calendar.
+watch(periodWindow, (w) => w && emit("period-change", { ...w }), { immediate: true })
 
 const attendanceEvents = createResource({
 	url: "nepal_hrms.api.attendance_calendar.get_attendance_calendar_details",
@@ -218,14 +326,11 @@ const attendanceEvents = createResource({
 		if (props.employee) params.employee = props.employee
 		return params
 	},
-	onSuccess() {
-		syncLeaveSelection()
-	},
 })
 
 async function reloadCalendar() {
 	await attendanceEvents.reload()
-	await renderCalendar()
+	periodSummary.reload()
 	emit("refresh")
 }
 
@@ -239,6 +344,133 @@ watch(
 		periodSummary.reload()
 	}
 )
+
+onMounted(async () => {
+	await ensureNepaliDateLib()
+	libReady.value++
+})
+
+/* ---------------------------------------------------------------- BS helpers */
+
+// Date strings are parsed as UTC midnight and read back with UTC getters
+// throughout: NepaliDate.fromAD converts against a UTC reference, so mixing in
+// local getters shifts a day either side of midnight depending on the timezone.
+function utcDate(ad) {
+	return new Date(`${ad}T00:00:00Z`)
+}
+
+function adString(date) {
+	return date.toISOString().slice(0, 10)
+}
+
+function neNum(n) {
+	const lib = window.NepaliDateLib
+	return lib?.formatNumber ? lib.formatNumber(n, "ne") : String(n)
+}
+
+const WEEKDAYS = computed(() => {
+	void libReady.value
+	return (
+		window.NepaliDateLib?.WEEKDAY_SHORT_NE || ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+	)
+})
+
+function bsMonthName(monthIndex) {
+	const lib = window.NepaliDateLib
+	return lib?.MONTH_NAMES_NE_BS?.[monthIndex] || lib?.MONTH_NAMES_EN_BS?.[monthIndex] || ""
+}
+
+/* ------------------------------------------------------------------ the grid */
+
+/** One entry per day of the payroll period, in order, ready to render. */
+const periodDays = computed(() => {
+	void libReady.value
+	const w = periodWindow.value
+	const NepaliDate = window.NepaliDateLib?.NepaliDate
+	if (!w || !NepaliDate) return []
+
+	const days = []
+	const end = utcDate(w.to_date)
+	let cursor = utcDate(w.from_date)
+	let prevMonthIndex = null
+	// A period spans two BS months; guard against a malformed window rather than
+	// spinning forever building cells.
+	while (cursor <= end && days.length < 40) {
+		const ad = adString(cursor)
+		const nd = NepaliDate.fromAD(cursor)
+		const info = attendanceEvents.data?.[ad]
+		const m = dayMarkers(info)
+		const status = resolvePaintStatus(info)
+		days.push({
+			ad,
+			adDay: cursor.getUTCDate(),
+			weekday: cursor.getUTCDay(),
+			bsLabel: neNum(nd.day),
+			bsMonthIndex: nd.monthIndex,
+			// The first day of the period's second BS month gets a divider, so the
+			// Shrawan/Bhadra handover is visible rather than implied.
+			monthEdge: prevMonthIndex !== null && nd.monthIndex !== prevMonthIndex,
+			fill: PAINTABLE.has(status) ? STATUS_FILL[status] : null,
+			status,
+			marks: leaveDayMarks(info),
+			dots: markerDots(m),
+			appOnlyMarks: appOnlyMarks(m),
+			late: m.lateDelay,
+			early: m.earlyDelay,
+		})
+		prevMonthIndex = nd.monthIndex
+		cursor = new Date(cursor.getTime() + 86400000)
+	}
+	return days
+})
+
+const leadingBlanks = computed(() => (periodDays.value.length ? periodDays.value[0].weekday : 0))
+
+const periodTitle = computed(() => {
+	void libReady.value
+	const w = periodWindow.value
+	if (!w) return ""
+	// Named by the month the period ends in, which is the server's own convention.
+	if (w.bs_year && w.bs_month) return `${bsMonthName(w.bs_month - 1)} ${neNum(w.bs_year)}`
+	return `${w.bs_from} – ${w.bs_to}`
+})
+
+const periodSubtitle = computed(() => {
+	void libReady.value
+	const days = periodDays.value
+	if (!days.length) return ""
+	const first = days[0]
+	const last = days[days.length - 1]
+	const span = `${bsMonthName(first.bsMonthIndex)} ${first.bsLabel} – ${bsMonthName(
+		last.bsMonthIndex
+	)} ${last.bsLabel}`
+	const adSpan = `${dayjs(first.ad).format("D MMM")} – ${dayjs(last.ad).format("D MMM YYYY")}`
+	return `${span} · ${adSpan}`
+})
+
+/** Step to the neighbouring payroll period by stepping the month that names it. */
+function stepPeriod(delta) {
+	const w = periodWindow.value
+	if (!w?.bs_year || !w?.bs_month) return
+	let year = w.bs_year
+	let month = w.bs_month + delta
+	if (month < 1) {
+		month = 12
+		year -= 1
+	} else if (month > 12) {
+		month = 1
+		year += 1
+	}
+	visibleBs.value = { year, month }
+	periodSummary.reload()
+}
+
+function goToToday() {
+	visibleBs.value = null
+	periodSummary.reload()
+}
+
+/* ------------------------------------------------------------- day rendering */
 
 const dayStatus = (info) => {
 	if (!info) return null
@@ -295,6 +527,53 @@ const dayMarkers = (info) => {
 	}
 }
 
+/** Dots under the day number, in the order the legend lists them. */
+function markerDots(m) {
+	const dots = []
+	if (m.sandwich) dots.push({ kind: "sandwich", cls: "sandwich", title: __("Sandwich"), app: "" })
+	if (m.lateDelay) {
+		dots.push({
+			kind: "late",
+			cls: `late ${m.late_grace ? "grace" : "after"}`,
+			title: appStatusTitle(
+				m.late_grace ? __("Late (within grace)") : __("Late (after grace)"),
+				m.late_app
+			),
+			app: m.late_app,
+		})
+	}
+	if (m.earlyDelay) {
+		dots.push({
+			kind: "early",
+			cls: `early ${m.early_grace ? "grace" : "after"}`,
+			title: appStatusTitle(
+				m.early_grace ? __("Early (within grace)") : __("Early (after grace)"),
+				m.early_app
+			),
+			app: m.early_app,
+		})
+	}
+	if (m.oooDelay) {
+		dots.push({
+			kind: "ooo",
+			cls: "ooo",
+			title: appStatusTitle(__("Out of Office"), m.ooo_app),
+			app: m.ooo_app,
+		})
+	}
+	return dots
+}
+
+/** An application with no delay behind it still has to show, or an approved
+ *  request on an otherwise clean day would look like nothing happened. */
+function appOnlyMarks(m) {
+	const marks = []
+	if (m.late_app && !m.lateDelay) marks.push({ kind: __("Late"), status: m.late_app })
+	if (m.early_app && !m.earlyDelay) marks.push({ kind: __("Early exit"), status: m.early_app })
+	if (m.ooo_app && !m.oooDelay) marks.push({ kind: __("Out of Office"), status: m.ooo_app })
+	return marks
+}
+
 function resolvePaintStatus(info) {
 	const status = dayStatus(info)
 	if (PAINTABLE.has(status)) return status
@@ -305,10 +584,25 @@ function resolvePaintStatus(info) {
 	return "On Leave"
 }
 
+/* ------------------------------------------------------------ leave selection */
+
 const isDaySelectable = (ad) => {
 	if (!ad || ad <= todayStr) return false
 	const status = dayStatus(attendanceEvents.data?.[ad])
 	return !["Holiday", "Weekly Off", "On Leave", "Leave Pending"].includes(status)
+}
+
+function onDayClick(day) {
+	if (selectMode.value) {
+		if (isDaySelectable(day.ad)) toggleDaySelection(day.ad)
+		return
+	}
+	emit("select-day", {
+		date: day.ad,
+		late: day.late,
+		early: day.early,
+		status: day.status,
+	})
 }
 
 function startSelectMode() {
@@ -318,7 +612,6 @@ function startSelectMode() {
 function cancelSelectMode() {
 	selectMode.value = false
 	selectedDates.value = new Set()
-	syncLeaveSelection()
 }
 
 function toggleDaySelection(ad) {
@@ -326,7 +619,6 @@ function toggleDaySelection(ad) {
 	if (next.has(ad)) next.delete(ad)
 	else next.add(ad)
 	selectedDates.value = next
-	syncLeaveSelection()
 }
 
 function applyLeaveSelection() {
@@ -340,238 +632,100 @@ function applyLeaveSelection() {
 	})
 	cancelSelectMode()
 }
-
-function ensureNepaliMarker(button, kind, shouldShow, title) {
-	let wrap = button.querySelector(".day-markers")
-	let el = wrap?.querySelector(`.${kind}`)
-	if (!shouldShow) {
-		el?.remove()
-		if (wrap && !wrap.querySelector(".marker")) {
-			wrap.remove()
-			button.classList.remove("has-markers")
-		}
-		return null
-	}
-	if (el) return el
-	if (!wrap) {
-		wrap = document.createElement("span")
-		wrap.className = "day-markers"
-		wrap.setAttribute("aria-hidden", "true")
-		button.appendChild(wrap)
-		button.classList.add("has-markers")
-	}
-	el = document.createElement("i")
-	el.className = `marker ${kind}`
-	el.title = title
-	wrap.appendChild(el)
-	return el
-}
-
-function applyNepaliAppMark(el, status, title) {
-	el.classList.toggle("app-approved", status === "Approved")
-	el.classList.toggle("app-rejected", status === "Rejected")
-	el.classList.toggle("app-draft", status === "Draft")
-	if (title) el.setAttribute("title", title)
-}
-
-function syncNepaliAppOnlyMark(button, className, show, status, kind) {
-	let el = button.querySelector(`.${className}`)
-	if (!show || !status) {
-		el?.remove()
-		return
-	}
-	if (!el) {
-		el = document.createElement("i")
-		el.className = `${className} app-mark ${appStatusClass(status)}`
-		el.setAttribute("aria-hidden", "true")
-		button.appendChild(el)
-	} else {
-		el.className = `${className} app-mark ${appStatusClass(status)}`
-	}
-	el.setAttribute("title", appStatusTitle(kind, status))
-}
-
-function syncLeaveSelection() {
-	const root = calendarContainer.value
-	if (!root) return
-	root.querySelectorAll(".days-grid .day[data-ad]").forEach((button) => {
-		const date = button.getAttribute("data-ad")
-		const info = attendanceEvents.data?.[date]
-		button.classList.toggle("leave-selected", selectedDates.value.has(date))
-		const delay = dayMarkers(info)
-		const lateDot = ensureNepaliMarker(button, "late", delay.lateDelay, "Late")
-		if (lateDot) {
-			lateDot.classList.toggle("grace", delay.late_grace)
-			lateDot.classList.toggle("after", delay.late_after)
-			applyNepaliAppMark(
-				lateDot,
-				delay.late_app,
-				appStatusTitle(
-					delay.late_grace
-						? "Late (within grace)"
-						: delay.late_after
-							? "Late (after grace)"
-							: "Late",
-					delay.late_app
-				)
-			)
-		}
-		syncNepaliAppOnlyMark(button, "late-app", delay.late_app && !delay.lateDelay, delay.late_app, "Late")
-		const earlyDot = ensureNepaliMarker(button, "early", delay.earlyDelay, "Early exit")
-		if (earlyDot) {
-			earlyDot.classList.toggle("grace", delay.early_grace)
-			earlyDot.classList.toggle("after", delay.early_after)
-			applyNepaliAppMark(
-				earlyDot,
-				delay.early_app,
-				appStatusTitle(
-					delay.early_grace
-						? "Early (within grace)"
-						: delay.early_after
-							? "Early (after grace)"
-							: "Early exit",
-					delay.early_app
-				)
-			)
-		}
-		const oooDot = ensureNepaliMarker(button, "ooo", delay.oooDelay, "Out of office")
-		if (oooDot) {
-			applyNepaliAppMark(oooDot, delay.ooo_app, appStatusTitle("Out of office", delay.ooo_app))
-		}
-		syncNepaliAppOnlyMark(
-			button,
-			"early-app",
-			delay.early_app && !delay.earlyDelay,
-			delay.early_app,
-			"Early exit"
-		)
-		syncNepaliAppOnlyMark(
-			button,
-			"ooo-app",
-			delay.ooo_app && !delay.oooDelay,
-			delay.ooo_app,
-			"Out of office"
-		)
-		const marks = leaveDayMarks(info)
-		let wrap = button.querySelector(".leave-marks")
-		if (!marks.length) {
-			wrap?.remove()
-			return
-		}
-		if (!wrap) {
-			wrap = document.createElement("span")
-			wrap.className = "leave-marks"
-			wrap.setAttribute("aria-hidden", "true")
-			button.appendChild(wrap)
-		}
-		wrap.replaceChildren(
-			...marks.map((mark) => {
-				const el = document.createElement("span")
-				el.className = `leave-mark-badge ${leaveMarkClass(mark)}`
-				el.textContent = mark
-				return el
-			})
-		)
-	})
-}
-
-const handleMonthChange = (range) => {
-	if (!range?.from_date || !range?.to_date) return
-	visibleRange.value = {
-		from_date: range.from_date,
-		to_date: range.to_date,
-	}
-	const bs = getBsYearMonth(range.from_date)
-	if (bs && (bs.year !== visibleBs.value?.year || bs.month !== visibleBs.value?.month)) {
-		visibleBs.value = bs
-		reloadPeriodSummary()
-	}
-	requestAnimationFrame(() => syncLeaveSelection())
-	setTimeout(syncLeaveSelection, 80)
-}
-
-const renderCalendar = async () => {
-	await ensureNepaliCalendar()
-	await nextTick()
-	if (!calendarContainer.value || !window.NepaliCalendarLib) return
-
-	const events = attendanceEvents.data ? { ...toRaw(attendanceEvents.data) } : {}
-	window.NepaliCalendarLib.render(calendarContainer.value, {
-		events,
-		onSelect: (nepaliDate) => {
-			if (!nepaliDate) return
-			const ad = nepaliDate.format({ format: "YYYY-MM-DD", calendar: "AD" })
-			if (selectMode.value) {
-				if (isDaySelectable(ad)) toggleDaySelection(ad)
-				return
-			}
-			const info = attendanceEvents.data?.[ad]
-			const m = dayMarkers(info)
-			const status = resolvePaintStatus(info)
-			emit("select-day", {
-				date: ad,
-				late: m.lateDelay,
-				early: m.earlyDelay,
-				status,
-			})
-		},
-		onMonthChange: handleMonthChange,
-	})
-	requestAnimationFrame(() => syncLeaveSelection())
-	setTimeout(syncLeaveSelection, 80)
-}
-
-onMounted(() => {
-	renderCalendar()
-})
-
-onBeforeUnmount(() => {
-	if (calendarContainer.value && window.NepaliCalendarLib) {
-		window.NepaliCalendarLib.unmount(calendarContainer.value)
-	}
-})
-
-watch(selectMode, () => {
-	nextTick(() => syncLeaveSelection())
-})
-
-watch(
-	() => attendanceEvents.data,
-	() => {
-		renderCalendar()
-	}
-)
 </script>
 
 <style scoped>
-:deep(.calendar-wrapper) {
-	@apply w-full border-none shadow-none max-w-none;
+.day-cell {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	min-height: 44px;
+	padding: 6px 2px 10px;
+	border-radius: 6px;
+	background-color: #fff;
+	cursor: pointer;
 }
 
-:deep(.days-grid) {
-	gap: 2px;
+.day-cell .bs-day {
+	font-size: 0.8rem;
+	font-weight: 600;
+	line-height: 1.1;
+	color: #1f2937;
 }
 
-:deep(.days-grid .day) {
-	overflow: visible;
-	padding: 5px 2px 10px;
+.day-cell.is-saturday .bs-day {
+	color: #e11d48;
 }
 
-:deep(.days-grid .day .ad) {
-	left: auto;
-	right: 7px;
-	bottom: 5px;
-	transform: none;
+.day-cell .ad-day {
+	position: absolute;
+	right: 5px;
+	bottom: 3px;
 	font-size: 0.58rem;
+	line-height: 1;
 	opacity: 0.65;
+	color: #374151;
 }
 
-.status-swatch {
-	display: inline-block;
-	width: 10px;
-	height: 10px;
-	border-radius: 3px;
-	flex-shrink: 0;
+.day-cell.is-today {
+	outline: 1.5px solid #2563eb;
+	outline-offset: -1.5px;
+}
+
+.day-cell.is-selected {
+	outline: 2px solid #1d4ed8;
+	outline-offset: -2px;
+}
+
+/* The period crosses from one BS month into the next; mark the handover so the
+   Shrawan days at the start do not read as part of Bhadra. */
+.day-cell.month-edge::before {
+	content: "";
+	position: absolute;
+	inset: 2px auto 2px -2px;
+	width: 2px;
+	border-radius: 1px;
+	background: #cbd5e1;
+}
+
+.day-cell .leave-marks {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	z-index: 3;
+	display: flex;
+	gap: 1px;
+	pointer-events: none;
+}
+
+.day-cell .app-only-marks {
+	position: absolute;
+	top: 3px;
+	right: 4px;
+	z-index: 2;
+	display: flex;
+	gap: 1px;
+	pointer-events: none;
+}
+
+.day-cell .day-markers {
+	position: absolute;
+	left: 50%;
+	bottom: 2px;
+	transform: translateX(-50%);
+	display: flex;
+	gap: 2px;
+	align-items: flex-start;
+	pointer-events: none;
+}
+
+.marker-stack {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1px;
 }
 
 .marker-dot {
@@ -583,29 +737,23 @@ watch(
 }
 
 .marker-dot.late.after,
-.marker-dot.late:not(.grace),
-:deep(.days-grid .day .marker.late.after),
-:deep(.days-grid .day .marker.late:not(.grace)) {
+.marker-dot.late:not(.grace) {
 	background-color: #ea580c;
 }
 
 .marker-dot.early.after,
-.marker-dot.early:not(.grace),
-:deep(.days-grid .day .marker.early.after),
-:deep(.days-grid .day .marker.early:not(.grace)) {
+.marker-dot.early:not(.grace) {
 	background-color: #7c3aed;
 }
 
-.marker-dot.late.grace,
-:deep(.days-grid .day .marker.late.grace) {
-	background-color: #fff !important;
-	box-shadow: inset 0 0 0 1.5px #fb923c !important;
+.marker-dot.late.grace {
+	background-color: #fff;
+	box-shadow: inset 0 0 0 1.5px #fb923c;
 }
 
-.marker-dot.early.grace,
-:deep(.days-grid .day .marker.early.grace) {
-	background-color: #fff !important;
-	box-shadow: inset 0 0 0 1.5px #a78bfa !important;
+.marker-dot.early.grace {
+	background-color: #fff;
+	box-shadow: inset 0 0 0 1.5px #a78bfa;
 }
 
 .marker-dot.ooo {
@@ -624,20 +772,7 @@ watch(
 	font-style: normal;
 }
 
-:deep(.days-grid .day .marker.late),
-:deep(.days-grid .day .marker.early),
-:deep(.days-grid .day .marker.ooo) {
-	position: relative;
-}
-
-:deep(.days-grid .day .marker.app-approved),
-:deep(.days-grid .day .marker.app-rejected),
-:deep(.days-grid .day .marker.app-draft) {
-	margin-bottom: 7px;
-}
-
-.app-mark.approved,
-:deep(.days-grid .day .marker.app-approved)::after {
+.app-mark.approved {
 	color: #16a34a;
 }
 
@@ -645,8 +780,7 @@ watch(
 	content: "✓";
 }
 
-.app-mark.rejected,
-:deep(.days-grid .day .marker.app-rejected)::after {
+.app-mark.rejected {
 	color: #dc2626;
 }
 
@@ -654,8 +788,7 @@ watch(
 	content: "✕";
 }
 
-.app-mark.draft,
-:deep(.days-grid .day .marker.app-draft)::after {
+.app-mark.draft {
 	color: #d97706;
 }
 
@@ -663,52 +796,7 @@ watch(
 	content: "○";
 }
 
-:deep(.days-grid .day .marker.app-approved)::after,
-:deep(.days-grid .day .marker.app-rejected)::after,
-:deep(.days-grid .day .marker.app-draft)::after {
-	position: absolute;
-	top: calc(100% + 1px);
-	left: 50%;
-	transform: translateX(-50%);
-	font-size: 8px;
-	font-weight: 800;
-	font-style: normal;
-	line-height: 1;
-}
-
-:deep(.days-grid .day .marker.app-approved)::after {
-	content: "✓";
-}
-
-:deep(.days-grid .day .marker.app-rejected)::after {
-	content: "✕";
-}
-
-:deep(.days-grid .day .marker.app-draft)::after {
-	content: "○";
-}
-
-:deep(.days-grid .day .late-app),
-:deep(.days-grid .day .early-app),
-:deep(.days-grid .day .ooo-app) {
-	position: absolute;
-	top: 4px;
-	right: 5px;
-	z-index: 2;
-	pointer-events: none;
-}
-
-:deep(.days-grid .day .leave-marks) {
-	position: absolute;
-	top: 2px;
-	left: 2px;
-	z-index: 3;
-	display: flex;
-	gap: 1px;
-	pointer-events: none;
-}
-
-:deep(.leave-mark-badge) {
+.leave-mark-badge {
 	display: inline-block;
 	font-size: 8px;
 	font-weight: 700;
@@ -719,30 +807,32 @@ watch(
 	white-space: nowrap;
 }
 
-:deep(.leave-mark-badge.half) {
+.leave-mark-badge.half {
 	color: #1d4ed8;
 	background: #dbeafe;
 }
 
-:deep(.leave-mark-badge.sick) {
+.leave-mark-badge.sick {
 	color: #9a3412;
 	background: #ffedd5;
 }
 
-:deep(.leave-mark-badge.home) {
+.leave-mark-badge.home {
 	color: #065f46;
 	background: #d1fae5;
 }
 
-:deep(.leave-mark-badge.penalty-half) {
+.leave-mark-badge.penalty-half {
 	background: #f59e0b;
 	color: #451a03;
 }
-:deep(.leave-mark-badge.penalty-full) {
+
+.leave-mark-badge.penalty-full {
 	background: #dc2626;
 	color: #fff7ed;
 }
-:deep(.leave-mark-badge.lwp) {
+
+.leave-mark-badge.lwp {
 	color: #334155;
 	background: #e2e8f0;
 }
