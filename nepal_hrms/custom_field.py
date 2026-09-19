@@ -64,7 +64,7 @@ def create_custom_fields():
 			{"fieldname": "custom_early_exit_full_days", "label": "Early Exit Full Days", "fieldtype": "Float", "insert_after": "custom_early_exit_half_days", "read_only": 1, "allow_on_submit": 1, "description": "Unused. Pool 1P is reported in Penalty Days, not as a separate early-exit full-day count."},
 			{"fieldname": "custom_out_of_office_half_days", "label": "Out of Office Half Days", "fieldtype": "Float", "insert_after": "custom_early_exit_full_days", "read_only": 1, "allow_on_submit": 1, "description": "Half-day penalties for personal out-of-office time above the allowed limit."},
 			{"fieldname": "custom_unapproved_absent_days", "label": "Unapproved Absent Days", "fieldtype": "Float", "insert_after": "custom_out_of_office_half_days", "read_only": 1, "allow_on_submit": 1, "description": "Genuine unapproved absences. Pool ½P / 1P days are reported separately in Penalty Days and are not counted here."},
-			{"fieldname": "custom_penalty_days", "label": "Penalty Days", "fieldtype": "Float", "insert_after": "custom_unapproved_absent_days", "read_only": 1, "allow_on_submit": 1, "description": "Late / early occurrence-pool penalties written on Attendance: ½P counts 0.5 and 1P counts 1.0. Deducted on the Penalty Deduction Base in Nepal HRMS Settings."},
+			{"fieldname": "custom_penalty_days", "label": "Penalty Days", "fieldtype": "Float", "insert_after": "custom_unapproved_absent_days", "read_only": 1, "allow_on_submit": 1, "description": "Part of Absent Days above, not additional to it. Late / early occurrence-pool penalties written on Attendance: ½P counts 0.5 and 1P counts 1.0. The rest of Absent Days is reported as Unapproved Absent Days and charged on a different base. Deducted on the Penalty Deduction Base in Nepal HRMS Settings."},
 			{"fieldname": "custom_attendance_counts_col", "label": "", "fieldtype": "Column Break", "insert_after": "custom_penalty_days"},
 			{"fieldname": "custom_deduction_rates_section", "label": "Deduction Rates", "fieldtype": "Heading", "insert_after": "custom_attendance_counts_col"},
 			{"fieldname": "custom_late_deduction_rate", "label": "Late/Early/OOO Half-Day Rate", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_deduction_rates_section", "read_only": 1, "allow_on_submit": 1, "description": "Half of the configured Half-Day Deduction Base daily rate."},
@@ -345,7 +345,7 @@ def create_custom_fields():
 				)
 
 	_place_salary_slip_ssf_base_above_fixed_gross()
-	_place_salary_slip_lwp_and_overtime_under_absent_days()
+	_place_salary_slip_absent_day_details_under_absent_days()
 	_ensure_salary_slip_absent_days_editable()
 	return created_fields
 
@@ -401,8 +401,13 @@ def _place_salary_slip_ssf_base_above_fixed_gross():
 	frappe.clear_cache(doctype="Salary Slip")
 
 
-def _place_salary_slip_lwp_and_overtime_under_absent_days():
-	"""Put Leave Without Pay and Overtime Hours in the right column under Absent Days."""
+def _place_salary_slip_absent_day_details_under_absent_days():
+	"""Put Penalty Days, Leave Without Pay and Overtime Hours under Absent Days.
+
+	Penalty Days is a *split* of Absent Days rather than a figure added to it,
+	so it reads best directly beneath the total it came out of. Its description
+	says so, because adjacency otherwise suggests the two add up.
+	"""
 	ps_name = frappe.db.get_value(
 		"Property Setter",
 		{
@@ -417,11 +422,13 @@ def _place_salary_slip_lwp_and_overtime_under_absent_days():
 	else:
 		order = [df.fieldname for df in frappe.get_meta("Salary Slip").fields]
 
-	new_order = _move_fields_after(
-		order,
-		("leave_without_pay", "custom_overtime_hours"),
-		"absent_days",
-	)
+	# A custom field added after this Property Setter was written is absent from
+	# it, and _move_fields_after() only reorders what the list already holds --
+	# so seed it before moving, or the move silently does nothing.
+	moving = ("custom_penalty_days", "leave_without_pay", "custom_overtime_hours")
+	order = order + [fn for fn in moving if fn not in order]
+
+	new_order = _move_fields_after(order, moving, "absent_days")
 	if new_order == order:
 		return
 
