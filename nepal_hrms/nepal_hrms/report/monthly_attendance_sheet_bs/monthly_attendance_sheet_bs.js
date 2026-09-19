@@ -31,6 +31,21 @@ function sheetBsMarkReportPage() {
 	document.body.classList.add("sheet-bs-report-page");
 }
 
+// Same outcome palette as the BSHRMS calendar (bshrms/src/utils/attendance_colors.js).
+// Hue encodes the day's outcome and nothing else; every kind of leave shares one
+// blue and says which kind in its own letters. Validated all-pairs: CVD ΔE 12.7,
+// normal-vision ΔE 24.0. Keep the two files in step — HR reads them side by side.
+const SHEET_BS_OUTCOME = {
+	present: { fill: "#c7e9d4", ring: "#008300" },
+	leave: { fill: "#cbdafa", ring: "#2a78d6" },
+	absent: { fill: "#fad3e7", ring: "#d4537e" },
+	holiday: { fill: "#fde8c4", ring: "#eda100" },
+};
+const SHEET_BS_INK = "#1c1917";
+const SHEET_BS_REST_TEXT = "#a32d2d";
+const SHEET_BS_APPROVED = "#166534";
+const SHEET_BS_REJECTED = "#a32d2d";
+
 const SHEET_BS_TOTAL_SUMMARY_COLUMNS = new Set([
 	"total_days_in_period",
 	"payable_days",
@@ -705,33 +720,47 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 }
 
 function sheetBsTimeBarLegendHtml(leaveLegendRows) {
+	const cellSwatch = (key, extraRing) =>
+		`<span class="legend-swatch" style="background:${SHEET_BS_OUTCOME[key].fill};box-shadow:inset 0 0 0 1.5px ${extraRing || SHEET_BS_OUTCOME[key].ring};"></span>`;
+	const outcomes = `
+		<div class="attendance-bar-legend-section">
+			<div class="attendance-bar-legend-title">${__("Day")}</div>
+			<div class="attendance-bar-legend-grid">
+				<span class="legend-item">${cellSwatch("present")}${__("Present / WFH")}</span>
+				<span class="legend-item">${cellSwatch("leave")}${__("Leave — all kinds (acronym in the pill)")}</span>
+				<span class="legend-item">${cellSwatch("absent")}${__("Absent")}</span>
+				<span class="legend-item">${cellSwatch("holiday")}${__("Holiday / weekly off")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background-image:linear-gradient(135deg, ${SHEET_BS_OUTCOME.present.fill} 0 50%, ${SHEET_BS_OUTCOME.leave.fill} 50% 100%);box-shadow:inset 0 0 0 1.5px ${SHEET_BS_OUTCOME.present.ring};"></span>${__("Half day — worked half, then the other")}</span>
+				<span class="legend-item">${cellSwatch("present", SHEET_BS_OUTCOME.holiday.ring)}${__("Worked on WO/Hol (in Holiday count, not in Present)")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:${SHEET_BS_INK};"></span>${__("½P / 1P penalty")}</span>
+			</div>
+		</div>`;
 	const timeBar = `
 		<div class="attendance-bar-legend-section">
 			<div class="attendance-bar-legend-title">${__("Time bar")}</div>
 			<div class="attendance-bar-legend-grid">
-				<span class="legend-item"><span class="legend-swatch" style="background:#22c55e;"></span>${__("Office")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span>${__("OOO Work")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span>${__("WFH")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#a855f7;"></span>${__("Half day — hours worked")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:${SHEET_BS_OUTCOME.present.ring};"></span>${__("Office")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#1baf7a;"></span>${__("OOO Work")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#4a3aa7;"></span>${__("WFH")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:${SHEET_BS_OUTCOME.present.ring};"></span>${__("Half day — hours worked")}</span>
 				<span class="legend-item"><span class="legend-swatch legend-swatch--pill-leave"></span>${__("Other half — leave (acronym pill)")}</span>
 				<span class="legend-item"><span class="legend-swatch legend-swatch--pill-absent"></span>${__("Other half — absent (Ab)")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#1e40af;"></span>${__("Extra")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#2563eb;border:1px solid #1d4ed8;"></span>${__("Worked on WO/Hol (in Holiday count, not in Present)")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#ef4444;"></span>${__("Gap")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:#94a3b8;"></span>${__("Holiday / WO")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#2a78d6;"></span>${__("Extra")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:${SHEET_BS_OUTCOME.absent.ring};"></span>${__("Gap")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:#8a8781;"></span>${__("Holiday / WO")}</span>
 			</div>
 		</div>`;
 	const badges = `
 		<div class="attendance-bar-legend-section">
 			<div class="attendance-bar-legend-title">${__("Late / Early badges")}</div>
 			<div class="attendance-bar-legend-grid">
-				<span class="legend-item"><span style="background:#fbbf24;color:#78350f;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Lg</span> ${__("Late within grace")}</span>
-				<span class="legend-item"><span style="background:#ef4444;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L!</span> ${__("Late — no application")}</span>
-				<span class="legend-item"><span style="background:#16a34a;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L✓</span> ${__("Late — approved")}</span>
-				<span class="legend-item"><span style="background:#fbbf24;color:#78350f;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Eg</span> ${__("Early within grace")}</span>
-				<span class="legend-item"><span style="background:#ef4444;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E!</span> ${__("Early — no application")}</span>
-				<span class="legend-item"><span style="background:#16a34a;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E✓</span> ${__("Early — approved")}</span>
-				<span class="legend-item"><span style="background:#3b82f6;color:#fff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">O</span> ${__("OOO application")}</span>
+				<span class="legend-item"><span style="background:#eceae6;color:${SHEET_BS_INK};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Lg</span> ${__("Late within grace")}</span>
+				<span class="legend-item"><span style="background:#ffffff;color:${SHEET_BS_REJECTED};box-shadow:inset 0 0 0 1px ${SHEET_BS_REJECTED};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L!</span> ${__("Late — no application")}</span>
+				<span class="legend-item"><span style="background:#ffffff;color:${SHEET_BS_APPROVED};box-shadow:inset 0 0 0 1px ${SHEET_BS_APPROVED};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">L✓</span> ${__("Late — approved")}</span>
+				<span class="legend-item"><span style="background:#eceae6;color:${SHEET_BS_INK};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Eg</span> ${__("Early within grace")}</span>
+				<span class="legend-item"><span style="background:#ffffff;color:${SHEET_BS_REJECTED};box-shadow:inset 0 0 0 1px ${SHEET_BS_REJECTED};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E!</span> ${__("Early — no application")}</span>
+				<span class="legend-item"><span style="background:#ffffff;color:${SHEET_BS_APPROVED};box-shadow:inset 0 0 0 1px ${SHEET_BS_APPROVED};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E✓</span> ${__("Early — approved")}</span>
+				<span class="legend-item"><span style="background:#1baf7a;color:#ffffff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">O</span> ${__("OOO application")}</span>
 			</div>
 		</div>`;
 	const leaveRows = (leaveLegendRows || [])
@@ -748,7 +777,9 @@ function sheetBsTimeBarLegendHtml(leaveLegendRows) {
 			<div class="attendance-bar-legend-title">${__("Leave types (pill acronyms)")}</div>
 			<div class="attendance-bar-legend-list leave-acronym-list">${leaveRows || `<div class="text-muted">${__("No leave types")}</div>`}</div>
 		</div>`;
-	return `<div class="attendance-bar-legend attendance-bar-legend-panel">${timeBar}${badges}${leaves}</div>`;
+	// Day outcomes lead: that is the palette shared with BSHRMS, and the rest of
+	// the legend explains what sits on top of it.
+	return `<div class="attendance-bar-legend attendance-bar-legend-panel">${outcomes}${timeBar}${badges}${leaves}</div>`;
 }
 
 function sheetBsOpenLegendDialog() {
@@ -1051,7 +1082,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					? cnrDocLink(
 						"out-of-office-application",
 						appLinks.ooo_app,
-						`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`
+						`<span style="background:#1baf7a;color:#ffffff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`
 					)
 					: "";
 				let pillHTML = getHalfDayPillsHTML(
@@ -1366,14 +1397,17 @@ function renderTimeBar(barData, status) {
 	let totalBarMins = barEnd - barStart;
 
 	let segmentHTML = "";
+	// The bar is its own chart (time within one day) with its own legend, so it
+	// takes its own slots — but the three concepts it shares with the pills line
+	// up: work is present-green, a gap is absent-pink, a rest day is neutral.
 	let colorMap = {
-		normal: "#22c55e",
-		ooo: "#3b82f6",
-		wfh: "#0d9488",
-		halfday: "#a855f7",
-		gap: "#ef4444",
-		extra: "#1e40af",
-		holiday: "#94a3b8",
+		normal: SHEET_BS_OUTCOME.present.ring,
+		ooo: "#1baf7a",
+		wfh: "#4a3aa7",
+		halfday: SHEET_BS_OUTCOME.present.ring,
+		gap: SHEET_BS_OUTCOME.absent.ring,
+		extra: "#2a78d6",
+		holiday: "#8a8781",
 	};
 
 	if (barData.segments && barData.segments.length) {
@@ -1445,10 +1479,12 @@ function lateKindLabel(kind) {
 
 function cnrKindBadge(prefix, kind, appName, doctypeSlug) {
 	if (!kind) return "";
+	// Same reading as the PWA: approved is a green tick, rejected/unexcused a red
+	// cross, and within-grace is ink because it is not a verdict either way.
 	const styles = {
-		grace: "background:#fbbf24;color:#78350f;",
-		unexcused: "background:#ef4444;color:#fff;",
-		excused: "background:#16a34a;color:#fff;",
+		grace: `background:#eceae6;color:${SHEET_BS_INK};`,
+		unexcused: `background:#ffffff;color:${SHEET_BS_REJECTED};box-shadow:inset 0 0 0 1px ${SHEET_BS_REJECTED};`,
+		excused: `background:#ffffff;color:${SHEET_BS_APPROVED};box-shadow:inset 0 0 0 1px ${SHEET_BS_APPROVED};`,
 	};
 	const labels = {
 		grace: `${prefix}g`,
@@ -1471,8 +1507,9 @@ function isHalfDayCell(status, halfDayFlag, targetAmount) {
 function getOtherHalfPillHTML(label, kind, attendance_doc) {
 	if (!label) return "";
 	const isLeave = kind === "leave";
-	const bg = isLeave ? "#dae5ff" : "#fecdd3";
-	const color = isLeave ? "#1e293b" : "#450a0a";
+	// The other half of a half day, so it takes that outcome's own fill.
+	const bg = isLeave ? SHEET_BS_OUTCOME.leave.fill : SHEET_BS_OUTCOME.absent.fill;
+	const color = SHEET_BS_INK;
 	let linkStart = attendance_doc ? `<a href="/app/attendance/${attendance_doc}" target="_blank" style="text-decoration:none;color:inherit;">` : "";
 	let linkEnd = attendance_doc ? `</a>` : "";
 	return `${linkStart}<div class="cnr-pill-other cnr-pill-other--${kind || "absent"}" style="display:flex;align-items:center;justify-content:center;background:${bg};color:${color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;border:1px solid rgba(0,0,0,0.08);min-width:28px;line-height:1;margin:0;${attendance_doc ? "cursor:pointer;" : ""}">
@@ -1496,15 +1533,20 @@ function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_
 		return `<div style='height:8px;width:8px;border-radius:50%;background:#cbd5e1;'></div>`;
 	}
 
-	let bgColor = "#f3f4f6", color = "#1f2937", text = wh ? wh : status;
+	let bgColor = "#f3f4f6", color = SHEET_BS_INK, text = wh ? wh : status;
+	let ringColor = "rgba(0,0,0,0.1)";
+	let bgImage = "";
+	// A penalty is a charge, not an outcome — solid ink chip, same as the PWA.
 	if (poolPenalty === "full") {
 		text = "1P";
-		bgColor = "#dc2626";
-		color = "#fff7ed";
+		bgColor = SHEET_BS_INK;
+		color = "#ffffff";
+		ringColor = SHEET_BS_INK;
 	} else if (poolPenalty === "half") {
 		text = "½P";
-		bgColor = "#f59e0b";
-		color = "#451a03";
+		bgColor = SHEET_BS_INK;
+		color = "#ffffff";
+		ringColor = SHEET_BS_INK;
 	}
 	if (status === "Lv" && !poolPenalty) {
 		text = (leaveAcronym || "Lv").toString().slice(0, 3);
@@ -1515,27 +1557,43 @@ function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_
 
 	if (!poolPenalty) {
 		if (targetHours === 0 && workedHours > 0) {
-			bgColor = "#1e40af";
-			color = "#ffffff";
+			// Worked on a rest day: present work, holiday ring.
+			bgColor = SHEET_BS_OUTCOME.present.fill;
+			ringColor = SHEET_BS_OUTCOME.holiday.ring;
 		} else if (isHalfDay) {
-			bgColor = "#a855f7";
-			color = "#faf5ff";
+			// Split corner to corner like the calendar. The report has no
+			// check-in here to infer the clock half from, so the worked half
+			// always leads; the PWA is the surface that knows which is which.
+			const other = status === "Ab" ? "absent" : "leave";
+			bgColor = SHEET_BS_OUTCOME.present.fill;
+			bgImage = `linear-gradient(135deg, ${SHEET_BS_OUTCOME.present.fill} 0 50%, ${SHEET_BS_OUTCOME[other].fill} 50% 100%)`;
+			ringColor = SHEET_BS_OUTCOME.present.ring;
 		} else if (status === "P" || status === "WFH") {
-			if (workedHours > 0 && workedHours < targetHours) { bgColor = "#ffd43b"; color = "#453403"; }
-			else { bgColor = "#6fe5a9"; color = "#042f1c"; }
+			// A short day is still Present; the hours in the pill and the gap
+			// segment in the bar below already say it fell short.
+			bgColor = SHEET_BS_OUTCOME.present.fill;
+			ringColor = SHEET_BS_OUTCOME.present.ring;
 		} else if (status === "Ab") {
-			bgColor = "#ff6b7e"; color = "#450a0a"; text = "Ab";
+			bgColor = SHEET_BS_OUTCOME.absent.fill;
+			ringColor = SHEET_BS_OUTCOME.absent.ring;
+			text = "Ab";
 		} else if (status === "Lv") {
-			bgColor = "#dae5ff"; color = "#1e293b";
-		} else if (status === "WO" || status === "Hol") { bgColor = "#e5e7eb"; color = "#4b5563"; text = status; }
+			bgColor = SHEET_BS_OUTCOME.leave.fill;
+			ringColor = SHEET_BS_OUTCOME.leave.ring;
+		} else if (status === "WO" || status === "Hol") {
+			bgColor = SHEET_BS_OUTCOME.holiday.fill;
+			ringColor = SHEET_BS_OUTCOME.holiday.ring;
+			color = SHEET_BS_REST_TEXT;
+			text = status;
+		}
 	}
 
 	let linkStart = attendance_doc ? `<a href="/app/attendance/${attendance_doc}" target="_blank" style="text-decoration: none; color: inherit; display: inline-block;">` : "";
 	let linkEnd = attendance_doc ? `</a>` : "";
 
 	// Status pill only — L/E badges are rendered under the time bar (L left, E right)
-	return `${linkStart}<div style='display:flex;align-items:center;justify-content:center;background-color:${bgColor}; color:${color}; font-size:11px; font-weight:700;
-		padding:3px 10px; border-radius:12px; text-align:center; border: 1px solid rgba(0,0,0,0.1); min-width:40px; line-height:1; margin:0; ${attendance_doc ? 'cursor:pointer;' : ''}'>
+	return `${linkStart}<div style='display:flex;align-items:center;justify-content:center;background-color:${bgColor}; ${bgImage ? `background-image:${bgImage};` : ""} color:${color}; font-size:11px; font-weight:700;
+		padding:3px 10px; border-radius:12px; text-align:center; box-shadow: inset 0 0 0 1.5px ${ringColor}; min-width:40px; line-height:1; margin:0; ${attendance_doc ? 'cursor:pointer;' : ''}'>
 		<span style="line-height:1;">${text}</span>
 	</div>${linkEnd}`;
 }
@@ -1551,7 +1609,7 @@ function renderLegacyCell(status, wh, checks, targetAmount, leaveType, halfDay, 
 		? cnrDocLink(
 			"out-of-office-application",
 			appLinks.ooo_app,
-			`<span style="background:#3b82f6;color:#fff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`
+			`<span style="background:#1baf7a;color:#ffffff;font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;margin:0;">O</span>`
 		)
 		: "";
 	let legacyAcronym = data[fieldname + "_leave_acronym"] || "";
