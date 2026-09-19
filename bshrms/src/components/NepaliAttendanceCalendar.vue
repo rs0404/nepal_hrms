@@ -235,6 +235,9 @@
 					<span class="att-code">HL</span>{{ __("Home") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
+					<span class="att-code">LWP</span>{{ __("Without pay") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
 					<span class="att-code att-code-penalty">½P</span>{{ __("Half-day penalty") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
@@ -270,7 +273,6 @@ const emit = defineEmits(["select-day", "create-leave", "refresh", "period-chang
 const OUTCOME_LEGEND = [
 	{ key: "present", label: "Present" },
 	{ key: "leave", label: "Leave" },
-	{ key: "lwp", label: "LWP" },
 	{ key: "absent", label: "Absent" },
 	{ key: "holiday", label: "Holiday / weekly off" },
 ].map((o) => ({
