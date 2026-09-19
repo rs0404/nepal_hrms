@@ -1414,6 +1414,9 @@ function renderTimeBar(barData, status) {
 		ooo: "#1baf7a",
 		wfh: "#4a3aa7",
 		halfday: SHEET_BS_OUTCOME.present.ring,
+		// The non-worked half of a HD/A: charged as absence, so it takes the
+		// absent colour rather than sharing the covered half's.
+		halfday_absent: SHEET_BS_OUTCOME.absent.ring,
 		gap: SHEET_BS_OUTCOME.absent.ring,
 		extra: "#2a78d6",
 		holiday: "#8a8781",

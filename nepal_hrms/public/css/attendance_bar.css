@@ -1060,3 +1060,7 @@
     background: #fee2e2;
     color: #991b1b;
 }
+/* Non-worked half of a half day that is charged as absence, not covered. */
+.bar-segment-halfday_absent {
+    background: #d4537e;
+}
