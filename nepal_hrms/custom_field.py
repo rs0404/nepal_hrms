@@ -21,7 +21,8 @@ def create_custom_fields():
 		"Salary Slip": [
 			{"fieldname": "nepali_start_date", "label": "Nepali Start Date", "fieldtype": "Data", "insert_after": "start_date", "allow_on_submit": 1},
 			{"fieldname": "nepali_end_date", "label": "Nepali End Date", "fieldtype": "Data", "insert_after": "end_date", "allow_on_submit": 1},
-			{"fieldname": "custom_fixed_gross_pay", "label": "Fixed Gross", "fieldtype": "Currency", "options": "currency", "insert_after": "totals", "read_only": 1, "allow_on_submit": 1, "description": "Gross salary before attendance deductions. Standard Gross Pay is the earned gross after attendance deductions."},
+			{"fieldname": "custom_ssf_base", "label": "SSF / PF Base", "fieldtype": "Currency", "options": "currency", "insert_after": "totals", "read_only": 1, "allow_on_submit": 1, "description": "Monthly contribution base for SSF, PF, gratuity, festival pay and overtime, taken from the Salary Structure Assignment. Basic Salary plus Grade by default; Dearness Allowance and Grade are toggles in Nepal HRMS Settings. Contractual, not prorated by payment days."},
+			{"fieldname": "custom_fixed_gross_pay", "label": "Fixed Gross", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_ssf_base", "read_only": 1, "allow_on_submit": 1, "description": "Gross salary before attendance deductions. Standard Gross Pay is the earned gross after attendance deductions."},
 			{"fieldname": "taxable_salary", "label": "Taxable Salary", "fieldtype": "Currency", "insert_after": "total_deduction", "hidden": 1, "allow_on_submit": 1},
 			{"fieldname": "custom_annual_tax_projection_section", "label": "Annual Tax and Retirement Projection", "fieldtype": "Section Break", "insert_after": "base_total_deduction", "description": "Current-period TDS = (Projected Annual TDS - TDS Already Paid) / Remaining Payroll Periods. Retirement deductions are limited by Nepal's statutory cap."},
 			{"fieldname": "custom_projected_annual_tds", "label": "Projected Annual TDS", "fieldtype": "Currency", "options": "currency", "insert_after": "custom_annual_tax_projection_section", "read_only": 1, "allow_on_submit": 1, "description": "Estimated income tax for the full fiscal year after projected earnings and allowed deductions."},
@@ -343,6 +344,7 @@ def create_custom_fields():
 					update_modified=False,
 				)
 
+	_place_salary_slip_ssf_base_above_fixed_gross()
 	_place_salary_slip_lwp_and_overtime_under_absent_days()
 	_ensure_salary_slip_absent_days_editable()
 	return created_fields
@@ -360,6 +362,43 @@ def _move_fields_after(order, fields_to_move, after):
 	for offset, fn in enumerate(moving):
 		order.insert(idx + offset, fn)
 	return order
+
+
+def _place_salary_slip_ssf_base_above_fixed_gross():
+	"""Put SSF / PF Base immediately above Fixed Gross in the Totals section.
+
+	An existing field_order Property Setter already pins custom_fixed_gross_pay,
+	so a new custom field's insert_after alone would not lift it above.
+	"""
+	ps_name = frappe.db.get_value(
+		"Property Setter",
+		{
+			"doc_type": "Salary Slip",
+			"property": "field_order",
+			"doctype_or_field": "DocType",
+		},
+		"name",
+	)
+	if not ps_name:
+		# No pinned order yet: insert_after on the two fields is enough.
+		return
+
+	order = json.loads(frappe.db.get_value("Property Setter", ps_name, "value") or "[]")
+	if "custom_ssf_base" not in order:
+		order = order + ["custom_ssf_base"]
+
+	new_order = _move_fields_after(
+		order,
+		("custom_ssf_base", "custom_fixed_gross_pay"),
+		"totals",
+	)
+	if new_order == order:
+		return
+
+	frappe.db.set_value(
+		"Property Setter", ps_name, "value", json.dumps(new_order), update_modified=False
+	)
+	frappe.clear_cache(doctype="Salary Slip")
 
 
 def _place_salary_slip_lwp_and_overtime_under_absent_days():

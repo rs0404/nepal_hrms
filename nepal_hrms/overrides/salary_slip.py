@@ -40,6 +40,56 @@ def _get_attendance_deduction_base(
     return flt(amounts.get(selection, basic_remuneration))
 
 
+def _deduction_base_lines(selection, ctx):
+    """The component lines behind a resolved deduction base.
+
+    Mirrors `_get_attendance_deduction_base` so the ? popover on each rate can
+    name the salary components that were added up, not just the total. Returns
+    [(label, amount), ...]; the caller reconciles the sum against the resolved
+    base before showing it.
+    """
+    basic = ("Basic Salary", ctx.get("basic_salary"))
+    grade = ("Grade", ctx.get("grade"))
+    da = ("Dearness Allowance", ctx.get("dearness_allowance"))
+
+    lines = {
+        "Basic Salary Only": [basic],
+        "Basic Salary + Grade": [basic, grade],
+        "Basic Salary + Dearness Allowance": [basic, da],
+        "Basic Salary + Grade + Dearness Allowance": [basic, grade, da],
+        DEFAULT_BASIC_BASE: ctx.get("ssf_lines") or [],
+        GROSS_BASE: ctx.get("gross_lines") or [],
+        ASSIGNMENT_BASE: ctx.get("gross_lines") or [],
+    }
+    return lines.get(selection, ctx.get("ssf_lines") or [])
+
+
+def _explain_rate(selection, lines, base_amount, divisor, divisor_basis, rate, multiplier=1.0, notes=None):
+    """Payload the client turns into the dynamic ? popover for one daily rate.
+
+    A breakdown that does not add up to the resolved base is collapsed to a
+    single line: a popover that shows arithmetic failing is worse than one that
+    shows only the total.
+    """
+    # A zero component is noise in the popover, and dropping it cannot change
+    # the total the breakdown is reconciled against.
+    lines = [(label, flt(amount)) for label, amount in (lines or []) if label and flt(amount)]
+    total = flt(sum(amount for _label, amount in lines), 2)
+    if not lines or abs(total - flt(base_amount, 2)) > 0.01:
+        lines = [(selection, flt(base_amount))]
+
+    return {
+        "base_name": selection,
+        "components": [{"label": label, "amount": flt(amount, 2)} for label, amount in lines],
+        "base_amount": flt(base_amount, 2),
+        "divisor": flt(divisor),
+        "divisor_basis": divisor_basis,
+        "multiplier": flt(multiplier),
+        "rate": flt(rate, 2),
+        "notes": [n for n in (notes or []) if n],
+    }
+
+
 def get_pool_penalty_days(employee, start_date, end_date):
     """Pool ½P / 1P days in this period, with the dates that produced them.
 
@@ -606,6 +656,41 @@ def compute_nepal_hr_variables(doc, data):
     # on before they had a base of their own.
     penalty_base_name = settings.get("penalty_deduction_base") or half_day_base_name
 
+    # Component lines behind the two composite bases, so each rate's ? popover
+    # can name what was added up. The SSF line-up follows the same two toggles
+    # compute_basic_remuneration() reads.
+    ssf_lines = [("Basic Salary", basic_salary)]
+    include_grade = settings.get("include_grade_in_ssf_base")
+    if cint(1 if include_grade is None else include_grade):
+        ssf_lines.append(("Grade", grade))
+    if cint(settings.get("include_da_in_ssf_base") or 0):
+        ssf_lines.append(("Dearness Allowance", dearness_allowance))
+
+    gross_lines = [
+        ("Basic Salary", basic_salary),
+        ("Dearness Allowance", dearness_allowance),
+        ("Grade", grade),
+    ]
+    try:
+        from nepal_hrms.custom_code.payroll.salary_breakdown import get_allowance_rows
+
+        assignment = getattr(doc, "_salary_structure_assignment", None) or {}
+        for row in get_allowance_rows(assignment.get("name") or data.get("name")):
+            if row.salary_component:
+                gross_lines.append((row.salary_component, flt(row.amount)))
+    except Exception:
+        # The popover is explanatory only -- never let it break payroll.
+        frappe.log_error(frappe.get_traceback(), "Nepal deduction base breakdown failed")
+        gross_lines = []
+
+    base_ctx = {
+        "basic_salary": basic_salary,
+        "dearness_allowance": dearness_allowance,
+        "grade": grade,
+        "ssf_lines": ssf_lines,
+        "gross_lines": gross_lines,
+    }
+
     def resolve_base(selection):
         return _get_attendance_deduction_base(
             selection,
@@ -678,6 +763,92 @@ def compute_nepal_hr_variables(doc, data):
     # Each late/early/OOO penalty count represents half a day.
     late_deduction_rate = half_day_base_daily * 0.5
 
+    # Per-rate explanations for the ? popovers. Each one names the base it was
+    # charged on, the components inside that base, and the divisor -- computed
+    # here rather than in the client so the popover can never drift from the
+    # arithmetic that actually produced the rate.
+    def explain(selection, base_amount, rate, multiplier=1.0, notes=None):
+        return _explain_rate(
+            selection,
+            _deduction_base_lines(selection, base_ctx),
+            base_amount,
+            working_days,
+            divisor_basis,
+            rate,
+            multiplier=multiplier,
+            notes=notes,
+        )
+
+    lwp_notes = []
+    if use_gross and is_continuous_lwp_gross:
+        lwp_notes.append(
+            _("A single LWP application reached the continuous threshold of {0} days, so LWP is charged on Gross instead of the configured base.").format(threshold_lwp)
+        )
+    if use_gross and is_period_leave_gross:
+        lwp_notes.append(
+            _("LWP + absent days in this period ({0}) exceeded the Period Leave Threshold of {1}, so LWP is charged on Gross instead of the configured base.").format(flt(period_leave_days), period_threshold)
+        )
+
+    absent_notes = []
+    absent_selection = absent_base_name
+    if cint(period_escapes.escape_absent_gross) and absent_base_name == GROSS_BASE:
+        absent_selection = DEFAULT_BASIC_BASE
+        absent_notes.append(
+            _("A policy escape relaxed the configured Gross base for this period, so unapproved absence is charged on Basic Remuneration.")
+        )
+
+    penalty_selection = penalty_base_name
+    penalty_notes = []
+    if cint(period_escapes.escape_absent_gross) and penalty_base_name == GROSS_BASE:
+        penalty_selection = DEFAULT_BASIC_BASE
+        penalty_notes.append(
+            _("A policy escape relaxed the configured Gross base for this period, so ½P / 1P penalties are charged on Basic Remuneration.")
+        )
+    if not settings.get("penalty_deduction_base"):
+        penalty_notes.append(
+            _("Penalty Deduction Base is not set, so the Half-Day Deduction Base is used.")
+        )
+
+    rate_explanations = {
+        "custom_late_deduction_rate": explain(
+            half_day_base_name,
+            half_day_monthly_base,
+            late_deduction_rate,
+            multiplier=0.5,
+            notes=[_("Each late entry, early exit or out-of-office penalty counts as half a day, so the daily rate is halved.")],
+        ),
+        "custom_lwp_deduction_rate": explain(
+            GROSS_BASE if use_gross else lwp_base_name,
+            total_fixed if use_gross else lwp_monthly_base,
+            lwp_deduction_rate,
+            notes=lwp_notes,
+        ),
+        "custom_unapproved_absent_rate": explain(
+            absent_selection,
+            basic_remuneration if absent_selection != absent_base_name else absent_monthly_base,
+            unapproved_absent_rate,
+            notes=absent_notes,
+        ),
+        "custom_penalty_deduction_rate": explain(
+            penalty_selection,
+            basic_remuneration if penalty_selection != penalty_base_name else penalty_monthly_base,
+            penalty_deduction_rate,
+            notes=penalty_notes,
+        ),
+    }
+
+    ssf_base_explanation = _explain_rate(
+        DEFAULT_BASIC_BASE,
+        ssf_lines,
+        basic_remuneration,
+        0,
+        divisor_basis,
+        basic_remuneration,
+        notes=[
+            _("Contribution base for SSF, PF, gratuity, festival pay and overtime. Dearness Allowance and Other Allowances are included only when Nepal HRMS Settings says so."),
+        ],
+    )
+
     half_day_penalties = flt(
         late_entry_half_days + early_exit_half_days + out_of_office_half_days
     )
@@ -729,6 +900,7 @@ def compute_nepal_hr_variables(doc, data):
     )
     data["leave_late_deduction_total"] = leave_late_deduction_total
     visible_values = {
+        "custom_ssf_base": flt(basic_remuneration, 2),
         "custom_paid_leave_days": paid_leave_days,
         "custom_late_entry_half_days": late_entry_half_days,
         "custom_early_exit_half_days": early_exit_half_days,
@@ -768,6 +940,8 @@ def compute_nepal_hr_variables(doc, data):
                 "total_absent_days": total_absent_days,
                 "period_leave_days": period_leave_days,
                 "is_period_leave_gross": is_period_leave_gross,
+                "rate_explanations": rate_explanations,
+                "ssf_base_explanation": ssf_base_explanation,
             }
         )
     doc._nepal_hr_vars = {

@@ -101,3 +101,41 @@
 .nh-help-body b {
 	font-weight: 600;
 }
+
+/* Dynamic deduction-rate breakdown inside a ? popover */
+.nh-help-body .nh-rate-base {
+	margin-bottom: 0.35rem;
+}
+
+.nh-help-body table.nh-rate-help {
+	width: 100%;
+	margin: 0 0 0.45rem;
+	border-collapse: collapse;
+}
+
+.nh-help-body table.nh-rate-help td {
+	padding: 0.1rem 0;
+	vertical-align: top;
+}
+
+.nh-help-body table.nh-rate-help td.nh-rate-num {
+	text-align: right;
+	white-space: nowrap;
+	padding-left: 0.75rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.nh-help-body table.nh-rate-help tr.nh-rate-total td {
+	border-top: 1px solid var(--border-color);
+	padding-top: 0.2rem;
+	font-weight: 600;
+}
+
+.nh-help-body .nh-rate-formula {
+	font-variant-numeric: tabular-nums;
+}
+
+.nh-help-body .nh-rate-note {
+	margin-top: 0.4rem;
+	color: var(--text-muted);
+}

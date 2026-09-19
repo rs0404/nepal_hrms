@@ -14,7 +14,7 @@ const EARNINGS_HELP_CUSTOM = __(
 frappe.ui.form.on("Salary Structure", {
 	onload(frm) {
 		frappe.require([
-			"/assets/nepal_hrms/css/nepal_hrms_settings.css",
+			"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
 			"/assets/nepal_hrms/js/form_help.js",
 		]);
 	},
@@ -22,7 +22,7 @@ frappe.ui.form.on("Salary Structure", {
 	refresh(frm) {
 		frappe.require(
 			[
-				"/assets/nepal_hrms/css/nepal_hrms_settings.css",
+				"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
 				"/assets/nepal_hrms/js/form_help.js",
 			],
 			() => attach_earnings_help(frm)
