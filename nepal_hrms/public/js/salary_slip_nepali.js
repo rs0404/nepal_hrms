@@ -1,7 +1,7 @@
 frappe.ui.form.on("Salary Slip", {
 	onload(frm) {
 		frappe.require([
-			"/assets/nepal_hrms/css/nepal_hrms_settings.css",
+			"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
 			"/assets/nepal_hrms/js/form_help.js",
 		]);
 	},
@@ -10,9 +10,10 @@ frappe.ui.form.on("Salary Slip", {
 		frm.set_df_property("absent_days", "read_only", 0);
 		configure_fixed_and_earned_columns(frm);
 		configure_total_deduction_help(frm);
+		apply_dynamic_rate_help(frm);
 		frappe.require(
 			[
-				"/assets/nepal_hrms/css/nepal_hrms_settings.css",
+				"/assets/nepal_hrms/css/nepal_hrms_settings.css?v=20260919b",
 				"/assets/nepal_hrms/js/form_help.js",
 			],
 			() => attach_salary_slip_help(frm)
@@ -222,6 +223,7 @@ function validate_payroll_days(frm) {
 }
 
 const SALARY_SLIP_HELP_FIELDS = [
+	"custom_ssf_base",
 	"custom_daily_divisor_used",
 	"custom_overtime_hours",
 	"custom_paid_leave_days",
@@ -255,6 +257,109 @@ const SALARY_SLIP_HELP_FIELDS = [
 	"custom_allowed_retirement_deduction",
 	"custom_annual_taxable_deductions",
 ];
+
+
+// The server writes one explanation per daily rate into
+// custom_attendance_breakdown_data: the base it was charged on, the salary
+// components inside that base, and the divisor. Render each into the field's
+// description so the shared ? popover shows the arithmetic for *this* slip
+// instead of the generic sentence. The static description stays as the
+// fallback for a slip that has not been calculated yet.
+function apply_dynamic_rate_help(frm) {
+	const raw = frm.doc.custom_attendance_breakdown_data;
+	if (!raw) return;
+
+	let payload;
+	try {
+		payload = JSON.parse(raw);
+	} catch (e) {
+		return;
+	}
+
+	const explanations = Object.assign({}, payload.rate_explanations || {});
+	if (payload.ssf_base_explanation) {
+		explanations.custom_ssf_base = payload.ssf_base_explanation;
+	}
+
+	for (const [fieldname, explanation] of Object.entries(explanations)) {
+		const field = frm.fields_dict[fieldname];
+		if (!field || !explanation) continue;
+
+		const html = render_rate_explanation(frm, field.df.label, explanation);
+		if (!html) continue;
+
+		field.df.description = html;
+		frm.refresh_field(fieldname);
+
+		// form_help binds a popover once and closes over its content, so drop
+		// any button from an earlier calculation and let attach rebuild it.
+		const $existing = field.$wrapper?.find(".nh-field-help");
+		if ($existing?.length) {
+			try {
+				$existing.popover("dispose");
+			} catch (e) {
+				// Bootstrap 4 vs 5 naming; removing the node is enough.
+			}
+			$existing.remove();
+		}
+	}
+}
+
+function render_rate_explanation(frm, label, explanation) {
+	const currency = frm.doc.currency;
+	const money = (value) => format_currency(flt(value), currency);
+	const esc = (value) => frappe.utils.escape_html(String(value == null ? "" : value));
+
+	const components = explanation.components || [];
+	if (!components.length) return "";
+
+	const rows = components
+		.map(
+			(row) =>
+				`<tr><td>${esc(row.label)}</td><td class="nh-rate-num">${money(
+					row.amount
+				)}</td></tr>`
+		)
+		.join("");
+
+	const base_amount = flt(explanation.base_amount);
+	const divisor = flt(explanation.divisor);
+	const multiplier = flt(explanation.multiplier) || 1;
+
+	// A single-component base already reads as its own total.
+	const total_row =
+		components.length > 1
+			? `<tr class="nh-rate-total"><td>${__("Monthly base")}</td>` +
+				`<td class="nh-rate-num">${money(base_amount)}</td></tr>`
+			: "";
+
+	const parts = [
+		`<div class="nh-rate-base">${__("Base")}: <b>${esc(explanation.base_name)}</b></div>`,
+		`<table class="nh-rate-help">${rows}${total_row}</table>`,
+	];
+
+	if (divisor > 0) {
+		const multiplier_part = multiplier === 1 ? "" : ` × ${multiplier}`;
+		parts.push(
+			`<div class="nh-rate-formula">${esc(label)} = ${money(base_amount)} ÷ ${divisor}` +
+				`${multiplier_part} = <b>${money(explanation.rate)}</b></div>`
+		);
+		if (explanation.divisor_basis) {
+			parts.push(
+				`<div class="nh-rate-note">${__("Divisor: {0} days ({1})", [
+					divisor,
+					esc(explanation.divisor_basis),
+				])}</div>`
+			);
+		}
+	}
+
+	for (const note of explanation.notes || []) {
+		parts.push(`<div class="nh-rate-note">${esc(note)}</div>`);
+	}
+
+	return parts.join("");
+}
 
 function attach_salary_slip_help(frm) {
 	if (!nepal_hrms?.form_help?.attach) return;
