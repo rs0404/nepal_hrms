@@ -87,11 +87,18 @@ export function dayOutcome(info) {
  * half + absent half) and status "On Leave" with half_day set (worked half +
  * leave half). Keying only on the status string missed the second, which is the
  * common one — every half day in the live data is a half-day leave.
+ *
+ * half_day_status is Attendance's own word for what the other half was, and it
+ * overrules the leave: a day can carry an approved half-day leave *and* still
+ * have its other half marked Absent, which payroll charges as half a day. Left
+ * to the leave flag alone the cell came out present + leave, showing nothing of
+ * the half that was actually deducted.
  */
 export function halfDayParts(info) {
 	if (!info || typeof info === "string") return null
 	const isHalf = !!info.half_day || info.status === "Half Day"
 	if (!isHalf) return null
+	if (info.half_day_status === "Absent") return ["present", "absent"]
 	const onLeave = !!info.leave || !!info.leave_type || LEAVE_STATUSES.has(info.status)
 	return ["present", onLeave ? "leave" : "absent"]
 }
@@ -152,10 +159,17 @@ export function dayCodes(info) {
 
 	const codes = []
 	// Same test as the split: "Half Day" status carries no half_day flag of its own.
-	if (halfDayParts(info)) codes.push("½")
+	const parts = halfDayParts(info)
+	if (parts) codes.push("½")
 	const outcome = dayOutcome(info)
 	if (outcome === "leave") codes.push(leaveKindCode(info) || OUTCOME.leave.code)
 	else if (outcome === "absent") codes.push(OUTCOME.absent.code)
+	// Half-day leave whose other half is still Absent: the leave letter alone
+	// would leave the pink half with no secondary encoding, which is what the
+	// palette's CVD margin rests on.
+	if (parts && parts[1] === "absent" && outcome !== "absent") {
+		codes.push(OUTCOME.absent.code)
+	}
 	return codes
 }
 
