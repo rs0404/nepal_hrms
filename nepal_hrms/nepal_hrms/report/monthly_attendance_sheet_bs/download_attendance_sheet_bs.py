@@ -117,6 +117,27 @@ def _normalize_sheet_bs_filters(filters):
 	return filters
 
 
+def _day_field_entry(ad, fieldname):
+	"""One day column, described identically whichever builder found it.
+
+	The two builders used to return different shapes -- one with label_prefix and
+	bs_label, the other with bs_month and bs_day -- and build_export_table reads
+	label_prefix off whichever it gets. Since the report-columns builder is the
+	one that normally wins, every "daily" and "full" download raised KeyError.
+	One constructor so the shapes cannot drift apart again.
+	"""
+	ad = getdate(ad)
+	bs = nepali_date.ad_to_bs(ad)
+	return {
+		"ad": ad,
+		"fieldname": fieldname,
+		"bs_month": bs["month"],
+		"bs_day": bs["day"],
+		"label_prefix": f"{bs['day']:02d} {ad.strftime('%a')} ({ad.strftime('%d %b %Y')})",
+		"bs_label": f"{bs['year']}-{bs['month']:02d}-{bs['day']:02d}",
+	}
+
+
 def _day_fields_from_report_columns(columns):
 	"""Use the same day columns as the on-screen report so export keys always match row data."""
 	nepali_date._ensure_loaded()
@@ -135,36 +156,17 @@ def _day_fields_from_report_columns(columns):
 			ad = getdate(f"{y:04d}-{m:02d}-{d:02d}")
 		except (TypeError, ValueError):
 			continue
-		bs = nepali_date.ad_to_bs(ad)
-		fields.append(
-			{
-				"ad": ad,
-				"fieldname": fieldname,
-				"bs_month": bs["month"],
-				"bs_day": bs["day"],
-			}
-		)
+		fields.append(_day_field_entry(ad, fieldname))
 	return fields
 
 
 def _day_fieldnames(start_ad, end_ad):
+	nepali_date._ensure_loaded()
 	curr = getdate(start_ad)
 	end = getdate(end_ad)
 	fields = []
 	while curr <= end:
-		bs = nepali_date.ad_to_bs(curr)
-		day = bs["day"]
-		weekday = curr.strftime("%a")
-		fieldname = f"day_{curr.strftime('%Y_%m_%d')}"
-		label_prefix = f"{day:02d} {weekday} ({curr.strftime('%d %b %Y')})"
-		fields.append(
-			{
-				"ad": curr,
-				"fieldname": fieldname,
-				"label_prefix": label_prefix,
-				"bs_label": f"{bs['year']}-{bs['month']:02d}-{bs['day']:02d}",
-			}
-		)
+		fields.append(_day_field_entry(curr, f"day_{curr.strftime('%Y_%m_%d')}"))
 		curr = add_days(curr, 1)
 	return fields
 
