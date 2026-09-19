@@ -203,6 +203,18 @@
 								{{ __(app.status) }}
 							</span>
 						</div>
+						<!-- Why it was raised, and — when it was turned down — why that too;
+						     a reason without the rejection note reads as if it was accepted. -->
+						<div v-if="app.reason" class="mt-1 text-xs text-blue-900/80 whitespace-pre-line">
+							{{ app.reason }}
+						</div>
+						<div
+							v-if="app.rejection_reason && app.status === 'Rejected'"
+							class="mt-1 text-xs text-red-700 whitespace-pre-line"
+						>
+							<span class="font-semibold">{{ __("Rejected") }}:</span>
+							{{ app.rejection_reason }}
+						</div>
 					</button>
 				</div>
 			</template>

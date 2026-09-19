@@ -1174,6 +1174,41 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 	}
 
 
+# Each application says "why" in its own field, and Attendance Request splits it
+# across two: a Select (Work From Home / On Duty) plus free text.
+_REASON_FIELDS = {
+	"Leave Application": ("description",),
+	"Attendance Request": ("reason", "explanation"),
+	"Late Entry Application": ("reason",),
+	"Early Exit Application": ("reason",),
+	"Out of Office Application": ("reason",),
+}
+
+
+def _reason_fieldnames(doctype):
+	"""Reason fields this site actually has, plus the rejection note where present."""
+	try:
+		meta = frappe.get_meta(doctype)
+	except Exception:
+		return []
+	fields = [f for f in _REASON_FIELDS.get(doctype, ()) if meta.has_field(f)]
+	if meta.has_field("custom_rejection_reason"):
+		fields.append("custom_rejection_reason")
+	return fields
+
+
+def _reason_text(row):
+	"""One line of "why", collapsing Attendance Request's Select + explanation."""
+	if not row:
+		return ""
+	parts = []
+	for field in ("reason", "explanation", "description"):
+		value = str(row.get(field) or "").strip()
+		if value and value not in parts:
+			parts.append(value)
+	return " · ".join(parts)
+
+
 @frappe.whitelist()
 def get_attendance_related_applications(employee=None, attendance_date=None, attendance=None):
 	"""
@@ -1218,7 +1253,7 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 	day = getdate(attendance_date)
 	links = []
 
-	def _add(doctype, name, label=None, status=None):
+	def _add(doctype, name, label=None, status=None, row=None):
 		if not name:
 			return
 		links.append(
@@ -1227,21 +1262,35 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 				"name": name,
 				"label": label or name,
 				"status": status,
+				"reason": _reason_text(row),
+				"rejection_reason": (row or {}).get("custom_rejection_reason") or "",
 				"route_name": doctype.replace(" ", "") + "DetailView",
 			}
 		)
 
 	if att_request:
-		st = frappe.db.get_value("Attendance Request", att_request, "docstatus")
+		row = frappe.db.get_value(
+			"Attendance Request",
+			att_request,
+			["docstatus"] + _reason_fieldnames("Attendance Request"),
+			as_dict=True,
+		) or frappe._dict()
+		st = row.get("docstatus")
 		_add(
 			"Attendance Request",
 			att_request,
 			att_request,
 			"Submitted" if cint(st) == 1 else "Draft" if cint(st) == 0 else None,
+			row,
 		)
 	if leave_app:
-		st = frappe.db.get_value("Leave Application", leave_app, "status")
-		_add("Leave Application", leave_app, leave_app, st)
+		row = frappe.db.get_value(
+			"Leave Application",
+			leave_app,
+			["status"] + _reason_fieldnames("Leave Application"),
+			as_dict=True,
+		) or frappe._dict()
+		_add("Leave Application", leave_app, leave_app, row.get("status"), row)
 
 	# Covering leave apps by date (even if Attendance.leave_application empty)
 	for app in frappe.get_all(
@@ -1252,11 +1301,11 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 			"from_date": ["<=", day],
 			"to_date": [">=", day],
 		},
-		fields=["name", "status"],
+		fields=["name", "status"] + _reason_fieldnames("Leave Application"),
 	):
 		if leave_app and app.name == leave_app:
 			continue
-		_add("Leave Application", app.name, app.name, app.status)
+		_add("Leave Application", app.name, app.name, app.status, app)
 
 	# Attendance Request overlapping this date (from_date/to_date)
 	for app in frappe.get_all(
@@ -1267,7 +1316,7 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 			"from_date": ["<=", day],
 			"to_date": [">=", day],
 		},
-		fields=["name", "docstatus"],
+		fields=["name", "docstatus"] + _reason_fieldnames("Attendance Request"),
 	):
 		if att_request and app.name == att_request:
 			continue
@@ -1276,6 +1325,7 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 			app.name,
 			app.name,
 			"Submitted" if cint(app.docstatus) == 1 else "Draft",
+			app,
 		)
 
 	for doctype in (
@@ -1288,6 +1338,7 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 			"docstatus": ["<", 2],
 			"attendance_date": day,
 		}
+		app_fields = ["name", "status"] + _reason_fieldnames(doctype)
 		if attendance:
 			rows = frappe.get_all(
 				doctype,
@@ -1296,16 +1347,14 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 					"docstatus": ["<", 2],
 					"attendance": attendance,
 				},
-				fields=["name", "status"],
+				fields=app_fields,
 			)
 			if not rows:
-				rows = frappe.get_all(
-					doctype, filters=filters, fields=["name", "status"]
-				)
+				rows = frappe.get_all(doctype, filters=filters, fields=app_fields)
 		else:
-			rows = frappe.get_all(doctype, filters=filters, fields=["name", "status"])
+			rows = frappe.get_all(doctype, filters=filters, fields=app_fields)
 		for app in rows:
-			_add(doctype, app.name, app.name, app.status)
+			_add(doctype, app.name, app.name, app.status, app)
 
 	# Dedupe by doctype+name
 	seen = set()
