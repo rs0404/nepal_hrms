@@ -1,6 +1,9 @@
 /* ============================================================================
    Attendance Time Bar - Visual Attendance Sheet Report
-   nepal_compliance app
+
+   Colours here mirror monthly_attendance_sheet_bs.js (SHEET_BS_OUTCOME) and
+   bshrms/src/utils/attendance_colors.js. Hue means the day's outcome and
+   nothing else; change all three together or the report and the PWA drift.
    ============================================================================ */
 
 /* --- Cell Container --- */
@@ -38,12 +41,12 @@
 }
 
 .attendance-cell--half-day .attendance-bar:not(.attendance-bar-placeholder) {
-    box-shadow: 0 0 0 1px #a855f7;
+    box-shadow: 0 0 0 1px #2a78d6;
 }
 
 .bar-tooltip-half-day {
     font-weight: 700;
-    color: #e9d5ff;
+    color: #cbdafa;
     margin-bottom: 6px;
     padding-bottom: 4px;
     border-bottom: 1px solid #475569;
@@ -70,16 +73,16 @@
 }
 
 .legend-swatch--pill-leave {
-    background: #dae5ff !important;
-    border: 1px solid #94a3b8;
+    background: #cbdafa !important;
+    border: 1px solid #2a78d6;
     border-radius: 999px;
     width: 18px;
     height: 10px;
 }
 
 .legend-swatch--pill-absent {
-    background: #fecdd3 !important;
-    border: 1px solid #f87171;
+    background: #fad3e7 !important;
+    border: 1px solid #d4537e;
     border-radius: 999px;
     width: 18px;
     height: 10px;
@@ -242,31 +245,31 @@
 
 /* Segment Colors */
 .bar-segment-normal {
-    background: #22c55e;
+    background: #008300;
 }
 
 .bar-segment-ooo {
-    background: #3b82f6;
+    background: #1baf7a;
 }
 
 .bar-segment-wfh {
-    background: #0d9488;
+    background: #4a3aa7;
 }
 
 .bar-segment-halfday {
-    background: #a855f7;
+    background: #008300;
 }
 
 .bar-segment-gap {
-    background: #ef4444;
+    background: #d4537e;
 }
 
 .bar-segment-extra {
-    background: #1e40af;
+    background: #2a78d6;
 }
 
 .bar-segment-holiday {
-    background: #94a3b8;
+    background: #8a8781;
 }
 
 .bar-segment-empty {

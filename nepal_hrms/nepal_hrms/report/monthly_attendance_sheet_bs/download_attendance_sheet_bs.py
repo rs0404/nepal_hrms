@@ -350,7 +350,8 @@ def build_classic_grid_xlsx_bytes(filters) -> bytes:
 	ws.title = "Attendance Sheet BS"
 
 	header_fill = PatternFill("solid", fgColor="B4C7E7")
-	weekend_fill = PatternFill("solid", fgColor="F8CBAD")
+	# Holiday amber, same as the report pill and the BSHRMS calendar.
+	weekend_fill = PatternFill("solid", fgColor="FDE8C4")
 	thin = Side(style="thin", color="000000")
 	border = Border(left=thin, right=thin, top=thin, bottom=thin)
 	header_font = Font(bold=True)

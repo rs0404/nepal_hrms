@@ -40,6 +40,8 @@ body {
 	--att-ooo: #1baf7a;
 	--att-ink: #1c1917;
 	--att-rest-text: #a32d2d;
+	--att-approved: #166534;
+	--att-rejected: #a32d2d;
 }
 
 /* Letters that say what the fill means. Translucent so the outcome tint reads
@@ -88,8 +90,10 @@ body {
 	color: var(--att-ooo);
 }
 
-/* Application state is a glyph in ink, never a hue — it is a different question
-   from what the day was. */
+/* Application state. The glyph carries it first — ✓ ✕ ○ are distinct shapes, so
+   this still reads with the colour stripped — and the green/red reinforce. Both
+   steps are dark enough to clear 4.5:1 on every outcome fill they can land on
+   (worst 5.1:1 green, 5.0:1 red); the brighter obvious greens and reds do not. */
 .att-appmark {
 	display: inline-block;
 	font-size: 8px;
@@ -97,6 +101,14 @@ body {
 	line-height: 1;
 	font-style: normal;
 	color: var(--att-ink);
+}
+
+.att-appmark.approved {
+	color: var(--att-approved);
+}
+
+.att-appmark.rejected {
+	color: var(--att-rejected);
 }
 .att-appmark.approved::before {
 	content: "✓";
@@ -107,9 +119,7 @@ body {
 .att-appmark.draft::before {
 	content: "○";
 }
-.att-appmark.rejected {
-	opacity: 0.75;
-}
+/* Pending stays ink: it is the absence of a decision, not a verdict. */
 .att-appmark.draft {
-	opacity: 0.55;
+	opacity: 0.6;
 }
