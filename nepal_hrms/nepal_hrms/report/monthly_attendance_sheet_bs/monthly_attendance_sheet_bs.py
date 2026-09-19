@@ -1150,22 +1150,53 @@ def _sandwich_day(employee, day, is_holiday, settings):
         return False, None
 
 
-def _delay_badge_kind(mins, grace, has_app, unexcused_flag=0):
+def _delay_badge_kind(
+    mins, grace, has_app, unexcused_flag=0, max_delay=None, has_half_day_leave=False
+):
     """
     Return badge kind for late/early minutes:
-    None | 'grace' | 'unexcused' | 'excused'
+    None | 'grace' | 'unexcused' | 'excused' | 'excused_leave'
+
+    Mirrors delay_excused_for_attendance_status(): a *major* delay (beyond max
+    delay) on a day covered by half-day leave is excused, because that is what
+    payroll does with it. Without this the badge read "no application" on a day
+    the employee had approved leave for, and nothing was ever charged for it.
+
+    A minor delay is deliberately not excused by leave -- it still feeds the
+    occurrence pool.
     """
     mins = cint(mins)
     grace = cint(grace) or 15
+    max_delay = cint(max_delay) or 60
     if mins <= 0:
         return None
     if mins <= grace:
         return "grace"
     if has_app:
         return "excused"
+    if mins > max_delay and has_half_day_leave:
+        return "excused_leave"
     if unexcused_flag or mins > grace:
         return "unexcused"
     return None
+
+
+def _day_has_half_day_leave(day_leave_apps, day):
+    """Approved half-day leave whose half-day date is this day.
+
+    Same test as attendance_policy._has_half_day_leave, but read off the rows
+    the report already loaded rather than queried again per cell.
+    """
+    day = getdate(day)
+    for app in day_leave_apps or []:
+        if app.get("status") != "approved":
+            continue
+        if not cint(app.get("half_day")):
+            continue
+        half_day_date = app.get("half_day_date")
+        if half_day_date and getdate(half_day_date) == day:
+            return True
+    return False
 
 
 def calculate_attendance_hours(employee, date, status, checkins, shift_map, shift_type_details):
@@ -1625,8 +1656,15 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
 
             unexcused_late = cint(getattr(att, "custom_cnr_unexcused_late", 0) or 0) if att else 0
             unexcused_early = cint(getattr(att, "custom_cnr_unexcused_early", 0) or 0) if att else 0
-            late_kind = _delay_badge_kind(late_mins, grace_mins, bool(day_lea), unexcused_late)
-            early_kind = _delay_badge_kind(early_mins, grace_mins, bool(day_eea), unexcused_early)
+            day_half_day_leave = _day_has_half_day_leave(day_leave_apps, curr)
+            late_kind = _delay_badge_kind(
+                late_mins, grace_mins, bool(day_lea), unexcused_late,
+                max_delay=max_delay_mins, has_half_day_leave=day_half_day_leave,
+            )
+            early_kind = _delay_badge_kind(
+                early_mins, grace_mins, bool(day_eea), unexcused_early,
+                max_delay=max_delay_mins, has_half_day_leave=day_half_day_leave,
+            )
             # Flag-only late with 0 stored mins still show as unexcused/excused via app
             if not late_kind and late_entry:
                 late_kind = "excused" if day_lea else "unexcused"

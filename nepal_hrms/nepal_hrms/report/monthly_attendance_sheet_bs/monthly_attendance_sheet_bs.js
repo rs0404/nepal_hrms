@@ -762,6 +762,8 @@ function sheetBsTimeBarLegendHtml(leaveLegendRows) {
 				<span class="legend-item"><span style="background:#eceae6;color:${SHEET_BS_INK};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">Eg</span> ${__("Early within grace")}</span>
 				<span class="legend-item"><span style="background:#ffffff;color:${SHEET_BS_REJECTED};box-shadow:inset 0 0 0 1px ${SHEET_BS_REJECTED};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E!</span> ${__("Early — no application")}</span>
 				<span class="legend-item"><span style="background:#ffffff;color:${SHEET_BS_APPROVED};box-shadow:inset 0 0 0 1px ${SHEET_BS_APPROVED};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">E✓</span> ${__("Early — approved")}</span>
+				<span class="legend-item"><span style="background:#eceae6;color:${SHEET_BS_INK};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">LL</span> ${__("Late — covered by half-day leave")}</span>
+				<span class="legend-item"><span style="background:#eceae6;color:${SHEET_BS_INK};font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">EL</span> ${__("Early — covered by half-day leave")}</span>
 				<span class="legend-item"><span style="background:#1baf7a;color:#ffffff;font-weight:700;font-size:10px;padding:1px 6px;border-radius:999px;">O</span> ${__("OOO application")}</span>
 			</div>
 		</div>`;
@@ -1480,6 +1482,7 @@ function cint(v) {
 function lateKindLabel(kind) {
 	if (kind === "grace") return "within grace";
 	if (kind === "excused") return "application approved";
+	if (kind === "excused_leave") return "covered by half-day leave";
 	if (kind === "unexcused") return "no application";
 	return "—";
 }
@@ -1492,11 +1495,15 @@ function cnrKindBadge(prefix, kind, appName, doctypeSlug) {
 		grace: `background:#eceae6;color:${SHEET_BS_INK};`,
 		unexcused: `background:#ffffff;color:${SHEET_BS_REJECTED};box-shadow:inset 0 0 0 1px ${SHEET_BS_REJECTED};`,
 		excused: `background:#ffffff;color:${SHEET_BS_APPROVED};box-shadow:inset 0 0 0 1px ${SHEET_BS_APPROVED};`,
+		// Excused, but by leave rather than by a late/early slip -- ink, so it
+		// does not claim an approved application the day does not have.
+		excused_leave: `background:#eceae6;color:${SHEET_BS_INK};`,
 	};
 	const labels = {
 		grace: `${prefix}g`,
 		unexcused: `${prefix}!`,
 		excused: `${prefix}✓`,
+		excused_leave: `${prefix}L`,
 	};
 	const badge = `<span style="${styles[kind] || ""}font-weight:700;font-size:9px;padding:1px 5px;border-radius:999px;line-height:1;white-space:nowrap;display:inline-block;margin:0;">${labels[kind] || prefix}</span>`;
 	if (appName) {
