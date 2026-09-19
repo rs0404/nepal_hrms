@@ -171,7 +171,17 @@ function format_related_link(row) {
 	const route = frappe.utils.get_form_link(row.doctype, row.name, true);
 	const status = row.status ? ` (${row.status})` : "";
 	const label = row.label || row.name;
-	return `<a href="${route}">${frappe.utils.escape_html(__(row.doctype))}: ${frappe.utils.escape_html(label)}${frappe.utils.escape_html(status)}</a>`;
+	// The headline is one line of links joined by separators, so the reason goes
+	// in the tooltip rather than inline where it would swamp the row.
+	const reasonParts = [];
+	if (row.reason) reasonParts.push(row.reason);
+	if (row.status === "Rejected" && row.rejection_reason) {
+		reasonParts.push(`${__("Rejected")}: ${row.rejection_reason}`);
+	}
+	const title = reasonParts.length
+		? ` title="${frappe.utils.escape_html(reasonParts.join(" — "))}"`
+		: "";
+	return `<a href="${route}"${title}>${frappe.utils.escape_html(__(row.doctype))}: ${frappe.utils.escape_html(label)}${frappe.utils.escape_html(status)}</a>`;
 }
 
 function set_attendance_link_field(frm, fieldname, rows, emptyLabel) {

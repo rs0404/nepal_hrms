@@ -92,6 +92,16 @@
 							{{ app.name }}
 							<span v-if="app.status" class="text-blue-400"> · {{ __(app.status) }}</span>
 						</div>
+						<div v-if="app.reason" class="mt-1 text-xs text-blue-900/80 whitespace-pre-line">
+							{{ app.reason }}
+						</div>
+						<div
+							v-if="app.rejection_reason && app.status === 'Rejected'"
+							class="mt-1 text-xs text-red-700 whitespace-pre-line"
+						>
+							<span class="font-semibold">{{ __("Rejected") }}:</span>
+							{{ app.rejection_reason }}
+						</div>
 					</button>
 				</div>
 			</div>
