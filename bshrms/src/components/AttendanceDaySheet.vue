@@ -51,6 +51,24 @@
 					</div>
 				</div>
 
+				<!-- Which holiday it actually is. "Holiday" alone leaves the reader
+				     guessing, and the name is already on the Holiday List row. -->
+				<div
+					v-if="holidayName"
+					class="flex items-center gap-2 rounded-lg px-3 py-2"
+					style="background: #eceae6"
+				>
+					<i class="flag-dot" style="background: #a32d2d" />
+					<div class="min-w-0">
+						<div class="text-sm font-medium" style="color: #a32d2d">
+							{{ holidayName }}
+						</div>
+						<div v-if="details.holiday?.holiday_list" class="text-[11px] text-gray-500 truncate">
+							{{ details.holiday.holiday_list }}
+						</div>
+					</div>
+				</div>
+
 				<div v-if="hasFlags" class="flex flex-wrap gap-1.5">
 					<span
 						v-if="lateChip"
@@ -68,7 +86,7 @@
 						{{ lateChip.label }}
 						<i
 							v-if="lateChip.app"
-							class="app-mark"
+							class="att-appmark"
 							:class="appStatusClass(lateChip.app)"
 							:title="__(lateChip.app)"
 						/>
@@ -89,7 +107,7 @@
 						{{ earlyChip.label }}
 						<i
 							v-if="earlyChip.app"
-							class="app-mark"
+							class="att-appmark"
 							:class="appStatusClass(earlyChip.app)"
 							:title="__(earlyChip.app)"
 						/>
@@ -99,7 +117,7 @@
 						class="flag-chip bg-teal-50 text-teal-700 ring-teal-200"
 					>
 						<i class="flag-dot bg-teal-600" />{{ oooChip.label }}
-						<i v-if="oooChip.app" class="app-mark" :class="appStatusClass(oooChip.app)" />
+						<i v-if="oooChip.app" class="att-appmark" :class="appStatusClass(oooChip.app)" />
 					</span>
 					<span
 						v-if="details.flags.sandwich"
@@ -125,8 +143,7 @@
 					<span
 						v-for="mark in dayLeaveMarks"
 						:key="mark"
-						class="leave-mark-badge"
-						:class="leaveMarkClass(mark)"
+						:class="dayCodeClass(mark)"
 					>
 						{{ mark }}
 					</span>
@@ -199,7 +216,7 @@
 								class="inline-flex items-center gap-1 shrink-0 text-xs font-semibold"
 								:class="relatedStatusClass(app.status)"
 							>
-								<i class="app-mark" :class="appStatusClass(app.status)" />
+								<i class="att-appmark" :class="appStatusClass(app.status)" />
 								{{ __(app.status) }}
 							</span>
 						</div>
@@ -251,7 +268,7 @@ import { modalController } from "@ionic/vue"
 import { useRouter } from "vue-router"
 
 import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
-import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import { dayCodeClass, dayCodes } from "@/utils/attendance_colors"
 import { appStatusClass, normalizeAppStatus } from "@/utils/app_status"
 
 const props = defineProps({
@@ -328,9 +345,16 @@ const leaveChip = computed(() => {
 		dot: "bg-blue-600",
 	}
 })
+/** Holiday name, falling back to the kind when the list row has no description. */
+const holidayName = computed(() => {
+	const h = details.value?.holiday
+	if (!h?.is_holiday) return ""
+	return h.description || (h.weekly_off ? __("Weekly Off") : __("Holiday"))
+})
+
 const dayLeaveMarks = computed(() => {
 	if (!details.value) return []
-	return leaveDayMarks({
+	return dayCodes({
 		status: details.value.status,
 		leave: details.value.flags?.leave,
 		half_day: details.value.flags?.half_day,
@@ -477,75 +501,14 @@ function openRelatedApplication(app) {
 	background-color: #7c3aed;
 }
 
-.leave-mark-badge {
-	display: inline-flex;
-	align-items: center;
+/* The sheet is a full-width panel, so the shared marks get a size bump here —
+   size only; the colours stay in main.css. */
+.att-code {
+	font-size: 10px;
+	padding: 2px 5px;
+}
+
+.att-appmark {
 	font-size: 11px;
-	font-weight: 700;
-	line-height: 1;
-	padding: 4px 6px;
-	border-radius: 6px;
-	letter-spacing: -0.02em;
-	white-space: nowrap;
-}
-
-.leave-mark-badge.half {
-	color: #1d4ed8;
-	background: #dbeafe;
-}
-
-.leave-mark-badge.sick {
-	color: #9a3412;
-	background: #ffedd5;
-}
-
-.leave-mark-badge.home {
-	color: #065f46;
-	background: #d1fae5;
-}
-
-.leave-mark-badge.penalty-half {
-	background: #f59e0b;
-	color: #451a03;
-}
-.leave-mark-badge.penalty-full {
-	background: #dc2626;
-	color: #fff7ed;
-}
-.leave-mark-badge.lwp {
-	color: #334155;
-	background: #e2e8f0;
-}
-
-.app-mark {
-	display: inline-block;
-	font-size: 11px;
-	font-weight: 800;
-	line-height: 1;
-	font-style: normal;
-}
-
-.app-mark.approved {
-	color: #16a34a;
-}
-
-.app-mark.approved::before {
-	content: "✓";
-}
-
-.app-mark.rejected {
-	color: #dc2626;
-}
-
-.app-mark.rejected::before {
-	content: "✕";
-}
-
-.app-mark.draft {
-	color: #d97706;
-}
-
-.app-mark.draft::before {
-	content: "○";
 }
 </style>

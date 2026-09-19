@@ -106,6 +106,7 @@ def _blank_calendar_day():
 		"leave_application": None,
 		"sandwich": 0,
 		"half_day": 0,
+		"holiday_name": "",
 	}
 
 
@@ -724,6 +725,9 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 						hi = holiday_info(employee, date)
 						if hi.weekly_off:
 							info["status"] = "Weekly Off"
+						# Same lookup already ran; carrying the name costs nothing
+						# and lets a day say which holiday it is.
+						info["holiday_name"] = hi.description
 					except Exception:
 						pass
 				events[date_str] = info
@@ -896,6 +900,14 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 
 	sandwich = False
 	sandwich_leave_type = None
+	# Initialised outside the try: the block below logs and swallows its errors,
+	# so the response must still have this key when the lookup fails.
+	holiday_detail = {
+		"is_holiday": 0,
+		"weekly_off": 0,
+		"description": "",
+		"holiday_list": "",
+	}
 
 	# Holiday/sandwich fallback when there is no submitted Attendance.
 	status = attendance.status if attendance else None
@@ -907,6 +919,14 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		)
 
 		hi = holiday_info(employee, day)
+		holiday_detail.update(
+			{
+				"is_holiday": 1 if hi.is_holiday else 0,
+				"weekly_off": 1 if hi.weekly_off else 0,
+				"description": hi.description or "",
+				"holiday_list": hi.holiday_list or "",
+			}
+		)
 		if hi.is_holiday:
 			sandwich = is_sandwiched(employee, day)
 			if sandwich:
@@ -1131,6 +1151,7 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		"employee": employee,
 		"date": day_str,
 		"status": status,
+		"holiday": holiday_detail,
 		"attendance": attendance,
 		"checkins": checkins,
 		"late_mins": late_mins,

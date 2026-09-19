@@ -114,24 +114,40 @@ def get_holiday_list_for_employee(employee):
 	return holiday_list
 
 
+def holiday_description(value):
+	"""Plain-text holiday name.
+
+	Holiday.description is a rich-text field, so it arrives wrapped in editor
+	markup ("<div class=\"ql-editor read-mode\"><p>Janai Purnima</p></div>").
+	Strip it here rather than at each caller -- none of them may render HTML.
+	"""
+	text = frappe.utils.strip_html(str(value or "")).strip()
+	return " ".join(text.split())
+
+
 def holiday_info(employee, attendance_date):
-	"""Return {is_holiday, weekly_off, holiday_list} for the employee on a date."""
+	"""Return {is_holiday, weekly_off, description, holiday_list} for a date."""
 	day = getdate(attendance_date)
 	holiday_list = get_holiday_list_for_employee_on_date(employee, day)
 	if not holiday_list:
-		return frappe._dict(is_holiday=False, weekly_off=False, holiday_list=None)
+		return frappe._dict(
+			is_holiday=False, weekly_off=False, description="", holiday_list=None
+		)
 
 	row = frappe.db.get_value(
 		"Holiday",
 		{"parent": holiday_list, "holiday_date": day},
-		["holiday_date", "weekly_off"],
+		["holiday_date", "weekly_off", "description"],
 		as_dict=True,
 	)
 	if not row:
-		return frappe._dict(is_holiday=False, weekly_off=False, holiday_list=holiday_list)
+		return frappe._dict(
+			is_holiday=False, weekly_off=False, description="", holiday_list=holiday_list
+		)
 	return frappe._dict(
 		is_holiday=True,
 		weekly_off=bool(cint(row.weekly_off)),
+		description=holiday_description(row.description),
 		holiday_list=holiday_list,
 	)
 

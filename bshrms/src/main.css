@@ -28,3 +28,88 @@ body {
 	-ms-overflow-style: none; /* IE and Edge */
 	scrollbar-width: none; /* Firefox */
 }
+
+/* ---------------------------------------------------------------------------
+   Attendance marks. Shared because four components each kept their own copy of
+   these rules and they had already drifted apart. Token values and the rule they
+   follow live in src/utils/attendance_colors.js.
+   --------------------------------------------------------------------------- */
+:root {
+	--att-late: #eb6834;
+	--att-early: #4a3aa7;
+	--att-ooo: #1baf7a;
+	--att-ink: #1c1917;
+	--att-rest-text: #a32d2d;
+}
+
+/* Letters that say what the fill means. Translucent so the outcome tint reads
+   through them; a penalty is a charge, so it gets the solid chip instead. */
+.att-code {
+	display: inline-block;
+	font-size: 8px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 1px 3px;
+	border-radius: 3px;
+	letter-spacing: -0.02em;
+	white-space: nowrap;
+	color: var(--att-ink);
+	background: rgba(255, 255, 255, 0.78);
+}
+
+.att-code-penalty {
+	color: #fff;
+	background: var(--att-ink);
+}
+
+/* One dot per exception. Hollow within grace, filled past it — the fill/outline
+   difference carries the severity so hue does not have to. */
+.att-dot {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	background: currentColor;
+}
+
+.att-dot-grace {
+	background: #fff;
+	box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.att-dot-late {
+	color: var(--att-late);
+}
+.att-dot-early {
+	color: var(--att-early);
+}
+.att-dot-ooo {
+	color: var(--att-ooo);
+}
+
+/* Application state is a glyph in ink, never a hue — it is a different question
+   from what the day was. */
+.att-appmark {
+	display: inline-block;
+	font-size: 8px;
+	font-weight: 800;
+	line-height: 1;
+	font-style: normal;
+	color: var(--att-ink);
+}
+.att-appmark.approved::before {
+	content: "✓";
+}
+.att-appmark.rejected::before {
+	content: "✕";
+}
+.att-appmark.draft::before {
+	content: "○";
+}
+.att-appmark.rejected {
+	opacity: 0.75;
+}
+.att-appmark.draft {
+	opacity: 0.55;
+}

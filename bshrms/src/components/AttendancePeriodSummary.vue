@@ -35,7 +35,17 @@
 		<div class="grid grid-cols-6 gap-1">
 			<div v-for="tile in tiles" :key="tile.key" class="flex flex-col gap-0.5">
 				<div class="flex flex-row gap-1 items-center">
-					<span class="h-2.5 w-2.5 shrink-0 rounded-md" :style="{ backgroundColor: tile.color }" />
+					<span
+						v-if="tile.swatch"
+						class="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+						:style="{
+							backgroundColor: tile.swatch.fill,
+							boxShadow: `inset 0 0 0 1.5px ${tile.swatch.ring}`,
+						}"
+					/>
+					<span v-else-if="tile.chip" class="att-code att-code-penalty shrink-0">
+						{{ tile.chip }}
+					</span>
 					<span class="text-gray-600 text-[11px] font-medium leading-4 whitespace-nowrap">
 						{{ __(tile.label) }}
 					</span>
@@ -66,6 +76,7 @@
 <script setup>
 import { computed } from "vue"
 import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
+import { OUTCOME } from "@/utils/attendance_colors"
 
 const props = defineProps({
 	// A createResource on nepal_hrms.api.attendance_calendar.get_attendance_period_summary
@@ -98,27 +109,23 @@ const auditLabel = computed(() => {
 	return `${__("counted through")} ${through}`
 })
 
-// Colours mirror the day-cell fills so the strip and the grid read as one thing.
-const TILE_COLORS = {
-	present: "#dcfce7",
-	leave: "#dbeafe",
-	lwp: "#fde68a",
-	absent: "#fee2e2",
-	penalty: "#fecaca",
-	payable: "#e5e7eb",
-}
-
 const tiles = computed(() => {
 	const t = totals.value || {}
 	// No "Half Day" tile: there is no such report count — a half day is 0.5 in two
 	// of these instead, which is the whole point of matching the report.
+	//
+	// Only the four outcome tiles carry a swatch, and it is the same token the day
+	// cells use, so the strip and the grid read as one thing. Penalty shows its own
+	// chip instead: it is not an outcome, and as a sixth pale red square it sat at
+	// ΔE 5.8 from Absent right beside it. Payable has no swatch at all — it is the
+	// total of the others, not a category, so it reads as the row's headline.
 	return [
-		{ key: "present", label: "Present", value: t.total_present, color: TILE_COLORS.present },
-		{ key: "leave", label: "Leave", value: t.paid_leave_days, color: TILE_COLORS.leave },
-		{ key: "lwp", label: "LWP", value: t.lwp_days, color: TILE_COLORS.lwp },
-		{ key: "absent", label: "Absent", value: t.total_absent, color: TILE_COLORS.absent },
-		{ key: "penalty", label: "Penalty", value: t.penalty_days, color: TILE_COLORS.penalty },
-		{ key: "payable", label: "Payable", value: t.payable_days, color: TILE_COLORS.payable },
+		{ key: "present", label: "Present", value: t.total_present, swatch: OUTCOME.present },
+		{ key: "leave", label: "Leave", value: t.paid_leave_days, swatch: OUTCOME.leave },
+		{ key: "lwp", label: "LWP", value: t.lwp_days, swatch: OUTCOME.lwp },
+		{ key: "absent", label: "Absent", value: t.total_absent, swatch: OUTCOME.absent },
+		{ key: "penalty", label: "Penalty", value: t.penalty_days, chip: "1P" },
+		{ key: "payable", label: "Payable", value: t.payable_days },
 	]
 })
 
