@@ -153,6 +153,10 @@ def _blank_calendar_day():
 		"leave_application": None,
 		"sandwich": 0,
 		"half_day": 0,
+		# Attendance.half_day_status: what the *other* half was. "Absent" there
+		# means the non-worked half is unpaid even when a leave covers this day,
+		# which is the only thing that tells the two apart in the cell fill.
+		"half_day_status": None,
 		"worked_half": None,
 		"holiday_name": "",
 	}
@@ -578,6 +582,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		fields=[
 			"attendance_date",
 			"status",
+			"half_day_status",
 			"leave_type",
 			"in_time",
 			"out_time",
@@ -629,6 +634,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		info.update(
 			{
 				"status": row.status,
+				"half_day_status": row.half_day_status or None,
 				"worked_half": _worked_half(row.in_time, row.shift, shift_mid_cache),
 				"leave": 1 if row.status == "On Leave" else 0,
 				"late": 1 if late_grace or late_after else 0,
@@ -912,6 +918,7 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 	att_fields = [
 		"name",
 		"status",
+		"half_day_status",
 		"in_time",
 		"out_time",
 		"working_hours",
@@ -1229,6 +1236,7 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 			"leave_app_status": leave_app_status,
 			"leave_application": leave_application_name,
 			"half_day": half_day,
+			"half_day_status": (attendance.get("half_day_status") if attendance else None) or None,
 			"is_lwp": _is_lwp_leave(
 				sandwich_leave_type
 				or (attendance.leave_type if attendance else None)

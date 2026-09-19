@@ -747,11 +747,26 @@ def _leave_acronym(leave_type, leave_type_details):
 
 
 def _half_day_other_half(status_abbr, leave_type, leave_type_details):
-    """Label for the non-worked half of a half-day attendance cell."""
+    """Label for the non-worked half of a half-day attendance cell.
+
+    HD/A wins over the leave. A day can carry an approved half-day leave and
+    still have Attendance.half_day_status = Absent, and that half is charged as
+    half a day of absence -- letting the leave paint the pill blue showed the
+    cell as fully covered while payroll deducted for it. The leave is still
+    named in the title and listed in the day's applications.
+    """
+    if status_abbr == "HD/A":
+        if leave_type:
+            return (
+                "Ab",
+                "absent",
+                _("Absent (half day) · {0}").format(
+                    _leave_acronym(leave_type, leave_type_details) or leave_type
+                ),
+            )
+        return "Ab", "absent", _("Absent (half day)")
     if leave_type:
         return _leave_acronym(leave_type, leave_type_details), "leave", leave_type
-    if status_abbr == "HD/A":
-        return "Ab", "absent", _("Absent (half day)")
     return "Ab", "absent", _("Absent / unpaid half")
 
 
