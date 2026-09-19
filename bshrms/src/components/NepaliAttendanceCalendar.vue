@@ -103,17 +103,11 @@
 					<span class="bs-day">{{ day.bsLabel }}</span>
 					<span class="ad-day">{{ day.adDay }}</span>
 
-					<span v-if="day.appOnlyMarks.length" class="app-only-marks" aria-hidden="true">
-						<i
-							v-for="m in day.appOnlyMarks"
-							:key="m.kind"
-							class="app-mark"
-							:class="appStatusClass(m.status)"
-							:title="appStatusTitle(m.kind, m.status)"
-						/>
-					</span>
-
-					<span v-if="day.dots.length" class="day-markers" aria-hidden="true">
+					<span
+						v-if="day.dots.length || day.appOnlyMarks.length"
+						class="day-markers"
+						aria-hidden="true"
+					>
 						<span v-for="dot in day.dots" :key="dot.kind" class="marker-stack">
 							<i class="marker-dot" :class="dot.cls" :title="dot.title" />
 							<i
@@ -122,6 +116,13 @@
 								:class="appStatusClass(dot.app)"
 							/>
 						</span>
+						<i
+							v-for="m in day.appOnlyMarks"
+							:key="m.kind"
+							class="app-mark"
+							:class="appStatusClass(m.status)"
+							:title="appStatusTitle(m.kind, m.status)"
+						/>
 					</span>
 				</button>
 			</div>
@@ -313,6 +314,9 @@ const periodWindow = computed(() => {
 
 // The dashboard's late/early and application panels describe a period too, and
 // there is no reason for them to describe a different one from this calendar.
+// `immediate` makes this run during setup, so periodWindow -- and therefore
+// periodSummary -- must already be declared above: reading a `const` before its
+// initializer throws, and a throw in setup renders the calendar not at all.
 watch(periodWindow, (w) => w && emit("period-change", { ...w }), { immediate: true })
 
 const attendanceEvents = createResource({
@@ -700,21 +704,14 @@ function applyLeaveSelection() {
 	pointer-events: none;
 }
 
-.day-cell .app-only-marks {
+/* Top-right corner, as the lib-rendered calendar had them: the bottom edge is
+   already taken by the AD day number, and a dot down there reads as belonging to
+   the row below rather than to this day. */
+.day-cell .day-markers {
 	position: absolute;
 	top: 3px;
 	right: 4px;
 	z-index: 2;
-	display: flex;
-	gap: 1px;
-	pointer-events: none;
-}
-
-.day-cell .day-markers {
-	position: absolute;
-	left: 50%;
-	bottom: 2px;
-	transform: translateX(-50%);
 	display: flex;
 	gap: 2px;
 	align-items: flex-start;
