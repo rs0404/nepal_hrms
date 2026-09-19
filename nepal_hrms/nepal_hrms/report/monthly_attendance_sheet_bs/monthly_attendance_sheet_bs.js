@@ -247,7 +247,9 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 		<div class="sheet-bs-audit-subtitle">${__("When ½P / 1P is charged")}</div>
 		${sheetBsPenaltyPolicyHTML(row)}
 		<div class="sheet-bs-audit-info">${__("½P and 1P write Attendance (Half Day / Absent) and cost the same paid days as an absence, but payroll charges them on the Penalty Deduction Base in Nepal HRMS Settings.")}</div>`;
-		if (days) tone = "rejected";
+		// Ink, not red: the ½P / 1P chips in the day cells are ink, and a penalty
+		// is its own thing — Absent is the red one and they are different columns.
+		if (days) tone = "penalty";
 	} else if (fieldname === "lwp_days") {
 		title = __("Leave Without Pay");
 		body = `<div class="sheet-bs-audit-section">
@@ -1133,7 +1135,12 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				colId === "holiday_extra_hours"
 					? (num > 0 ? `${sheetBsFormatOneDecimal(num)}h` : "0")
 					: sheetBsFormatOneDecimal(num);
-			return `<div class="sheet-bs-summary-cell sheet-bs-holiday-extra-col">${frappe.utils.escape_html(display)}</div>`;
+			// A zero here is the normal case — most people do not work rest days —
+			// so only highlight the cell when there is actually something to see.
+			const cls = num > 0
+				? "sheet-bs-summary-cell sheet-bs-holiday-extra-col"
+				: "sheet-bs-summary-cell";
+			return `<div class="${cls}">${frappe.utils.escape_html(display)}</div>`;
 		}
 
 		if (colId === "payable_days" && rowData) {
@@ -1154,7 +1161,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				<div class="sheet-bs-audit-subtitle">${__("Applications")}</div>
 				${sheetBsCnrApplicationsHTML(rowData, ["late_entry", "early_exit"])}
 				<div class="sheet-bs-audit-info">${__("½P starts on pool occurrence {0} (and later penalty slots). Attendance becomes Half Day (other half Absent). Payroll counts 0.5 Penalty Day at the Penalty Deduction Base rate.", [firstCharge])}</div>`,
-				{ tone: n ? "rejected" : "neutral" }
+				{ tone: n ? "penalty" : "neutral" }
 			);
 		}
 		if (colId === "penalty_full_days" && rowData) {
@@ -1169,7 +1176,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 				<div class="sheet-bs-audit-info">${escalate
 					? __("1P starts after more than {0} pool days. Attendance becomes Absent. Payroll counts 1.0 Penalty Day at the Penalty Deduction Base rate.", [threshold])
 					: __("Full-day escalation is off in Nepal HRMS Settings.")}</div>`,
-				{ tone: n ? "rejected" : "neutral" }
+				{ tone: n ? "penalty" : "neutral" }
 			);
 		}
 
