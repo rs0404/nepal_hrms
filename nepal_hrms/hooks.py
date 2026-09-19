@@ -23,7 +23,7 @@ add_to_apps_screen = [
 ]
 
 app_include_css = [
-	"/assets/nepal_hrms/css/attendance_bar.css?v=20260919a",
+	"/assets/nepal_hrms/css/attendance_bar.css?v=20260919c",
 ]
 
 app_include_js = [

@@ -1884,7 +1884,8 @@ def build_bar_data(
                         "type": "normal",
                     })
                 else: # HD/A
-                    # First half worked, second half leave
+                    # First half worked, second half absent -- its own type, so
+                    # the bar shows the charged half in the absent colour.
                     result["segments"].append({
                         "start": _minutes_to_time(shift_start_mins),
                         "end": _minutes_to_time(half_point),
@@ -1893,7 +1894,7 @@ def build_bar_data(
                     result["segments"].append({
                         "start": _minutes_to_time(half_point),
                         "end": _minutes_to_time(shift_end_mins),
-                        "type": "halfday",
+                        "type": "halfday_absent",
                     })
         return result
 
@@ -2058,7 +2059,12 @@ def build_bar_data(
 
 
 def _convert_segments_for_half_day(segments, status_abbr, shift_start_mins, shift_end_mins):
-    """Mark the leave half of the shift as halfday instead of stacking purple on green."""
+    """Mark the non-worked half of the shift instead of stacking purple on green.
+
+    HD/A takes its own type: that half is charged as absence, so the bar shows
+    it in the absent colour rather than sharing the one the covered half uses.
+    """
+    half_type = "halfday_absent" if status_abbr == "HD/A" else "halfday"
     if not segments:
         half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
         if status_abbr == "HD/A":
@@ -2068,7 +2074,7 @@ def _convert_segments_for_half_day(segments, status_abbr, shift_start_mins, shif
         return [{
             "start": _minutes_to_time(leave_lo),
             "end": _minutes_to_time(leave_hi),
-            "type": "halfday",
+            "type": half_type,
             "start_mins": leave_lo,
             "end_mins": leave_hi,
         }]
@@ -2101,7 +2107,7 @@ def _convert_segments_for_half_day(segments, status_abbr, shift_start_mins, shif
                 "start_mins": s,
                 "end_mins": ov_lo,
             })
-        leave_type = "halfday" if seg["type"] != "extra" else seg["type"]
+        leave_type = half_type if seg["type"] != "extra" else seg["type"]
         converted.append({
             "start": _minutes_to_time(ov_lo),
             "end": _minutes_to_time(ov_hi),
