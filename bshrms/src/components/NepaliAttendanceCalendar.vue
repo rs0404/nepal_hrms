@@ -84,19 +84,16 @@
 						'is-today': day.ad === todayStr,
 						'is-selected': selectedDates.has(day.ad),
 						'is-saturday': day.weekday === 6,
+						'is-rest': day.outcome === 'holiday',
 						'month-edge': day.monthEdge,
 					}"
 					:style="day.fill"
+					:title="day.holidayName"
 					@click="onDayClick(day)"
 				>
-					<span v-if="day.marks.length" class="leave-marks" aria-hidden="true">
-						<span
-							v-for="mark in day.marks"
-							:key="mark"
-							class="leave-mark-badge"
-							:class="leaveMarkClass(mark)"
-						>
-							{{ mark }}
+					<span v-if="day.codes.length" class="day-codes" aria-hidden="true">
+						<span v-for="code in day.codes" :key="code" :class="dayCodeClass(code)">
+							{{ code }}
 						</span>
 					</span>
 
@@ -109,17 +106,17 @@
 						aria-hidden="true"
 					>
 						<span v-for="dot in day.dots" :key="dot.kind" class="marker-stack">
-							<i class="marker-dot" :class="dot.cls" :title="dot.title" />
+							<i class="att-dot" :class="dot.cls" :title="dot.title" />
 							<i
 								v-if="dot.app"
-								class="app-mark"
+								class="att-appmark"
 								:class="appStatusClass(dot.app)"
 							/>
 						</span>
 						<i
 							v-for="m in day.appOnlyMarks"
 							:key="m.kind"
-							class="app-mark"
+							class="att-appmark"
 							:class="appStatusClass(m.status)"
 							:title="appStatusTitle(m.kind, m.status)"
 						/>
@@ -193,52 +190,57 @@
 			{{ __("Could not load attendance markers") }}
 		</div>
 
-		<div class="flex flex-wrap gap-x-3 gap-y-1 mx-1 text-[11px] text-gray-600">
-			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot late grace" />{{ __("Late · grace") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot late after" />{{ __("Late · after grace") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot early grace" />{{ __("Early · grace") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot early after" />{{ __("Early · after grace") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot ooo" />{{ __("Out of Office") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="app-mark approved" />{{ __("Approved application") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="app-mark rejected" />{{ __("Rejected application") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="app-mark draft" />{{ __("Draft application") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<i class="marker-dot sandwich" />{{ __("Sandwich") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<span class="leave-mark-badge half">1/2</span>{{ __("Half day leave") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<span class="leave-mark-badge sick">SL</span>{{ __("Sick leave") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<span class="leave-mark-badge home">HL</span>{{ __("Home leave") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<span class="leave-mark-badge lwp">LWP</span>{{ __("Leave without pay") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<span class="leave-mark-badge penalty-half">½P</span>{{ __("Half-day pool penalty") }}
-			</span>
-			<span class="inline-flex items-center gap-1">
-				<span class="leave-mark-badge penalty-full">1P</span>{{ __("Full-day pool penalty") }}
-			</span>
+		<!-- Outcome first, because it is the only thing carrying a hue; the letters
+		     and glyphs under it are the other channels. -->
+		<div class="flex flex-col gap-1 mx-1 text-[11px] text-gray-600">
+			<div class="flex flex-wrap gap-x-3 gap-y-1">
+				<span v-for="o in OUTCOME_LEGEND" :key="o.key" class="inline-flex items-center gap-1">
+					<i class="legend-cell" :style="o.style" />{{ __(o.label) }}
+				</span>
+			</div>
+			<div class="flex flex-wrap gap-x-3 gap-y-1">
+				<span class="inline-flex items-center gap-1">
+					<i class="att-dot att-dot-late att-dot-grace" />{{ __("Late · within grace") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-dot att-dot-late" />{{ __("Late · after grace") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-dot att-dot-early" />{{ __("Early exit") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-dot att-dot-ooo" />{{ __("Out of Office") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-dot att-dot-sandwich" />{{ __("Sandwich") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-appmark approved" />{{ __("Approved") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-appmark rejected" />{{ __("Rejected") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-appmark draft" />{{ __("Pending") }}
+				</span>
+			</div>
+			<div class="flex flex-wrap gap-x-3 gap-y-1">
+				<span class="inline-flex items-center gap-1">
+					<span class="att-code">½</span>{{ __("Half day") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="att-code">SL</span>{{ __("Sick") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="att-code">HL</span>{{ __("Home") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="att-code att-code-penalty">½P</span>{{ __("Half-day penalty") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="att-code att-code-penalty">1P</span>{{ __("Full-day penalty") }}
+				</span>
+			</div>
 		</div>
 	</div>
 </template>
@@ -248,7 +250,13 @@ import { onMounted, ref, inject, watch, computed } from "vue"
 import { createResource, FeatherIcon } from "frappe-ui"
 import { ensureNepaliDateLib } from "@/utils/nepali_calendar"
 import { groupContiguousDates } from "@/utils/leave_ranges"
-import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import {
+	OUTCOME,
+	dayCellStyle,
+	dayCodeClass,
+	dayCodes,
+	dayOutcome,
+} from "@/utils/attendance_colors"
 import AttendancePeriodSummary from "@/components/AttendancePeriodSummary.vue"
 import {
 	appStatusClass,
@@ -258,6 +266,20 @@ import {
 } from "@/utils/app_status"
 
 const emit = defineEmits(["select-day", "create-leave", "refresh", "period-change"])
+
+const OUTCOME_LEGEND = [
+	{ key: "present", label: "Present" },
+	{ key: "leave", label: "Leave" },
+	{ key: "lwp", label: "LWP" },
+	{ key: "absent", label: "Absent" },
+	{ key: "holiday", label: "Holiday / weekly off" },
+].map((o) => ({
+	...o,
+	style: {
+		backgroundColor: OUTCOME[o.key].fill,
+		boxShadow: `inset 0 0 0 1.5px ${OUTCOME[o.key].ring}`,
+	},
+}))
 
 const props = defineProps({
 	employee: { type: String, default: null },
@@ -274,18 +296,6 @@ const selectedCount = computed(() => selectedDates.value.size)
 // Bumped once the date library is on the page, purely to re-run the day builder.
 const libReady = ref(0)
 
-const STATUS_FILL = {
-	Present: { backgroundColor: "#dcfce7", boxShadow: "inset 0 0 0 1.5px #4ade80" },
-	"Work From Home": { backgroundColor: "#ccfbf1", boxShadow: "inset 0 0 0 1.5px #2dd4bf" },
-	"Half Day": { backgroundColor: "#fef9c3", boxShadow: "inset 0 0 0 1.5px #facc15" },
-	Absent: { backgroundColor: "#fee2e2", boxShadow: "inset 0 0 0 1.5px #f87171" },
-	"On Leave": { backgroundColor: "#dbeafe", boxShadow: "inset 0 0 0 1.5px #60a5fa" },
-	"Leave Pending": { backgroundColor: "#fed7aa", boxShadow: "inset 0 0 0 1.5px #fb923c" },
-	"Leave Rejected": { backgroundColor: "#ffe4e6", boxShadow: "inset 0 0 0 1.5px #fda4af" },
-	Holiday: { backgroundColor: "#f3e8ff", boxShadow: "inset 0 0 0 1.5px #d8b4fe" },
-	"Weekly Off": { backgroundColor: "#f3e8ff", boxShadow: "inset 0 0 0 1.5px #d8b4fe" },
-}
-const PAINTABLE = new Set(Object.keys(STATUS_FILL))
 
 // Which payroll period to show, as the BS month that NAMES it (the month it ends
 // in). null means "whatever period contains today" — the server decides, so the
@@ -404,7 +414,6 @@ const periodDays = computed(() => {
 		const nd = NepaliDate.fromAD(cursor)
 		const info = attendanceEvents.data?.[ad]
 		const m = dayMarkers(info)
-		const status = resolvePaintStatus(info)
 		days.push({
 			ad,
 			adDay: cursor.getUTCDate(),
@@ -414,9 +423,11 @@ const periodDays = computed(() => {
 			// The first day of the period's second BS month gets a divider, so the
 			// Shrawan/Bhadra handover is visible rather than implied.
 			monthEdge: prevMonthIndex !== null && nd.monthIndex !== prevMonthIndex,
-			fill: PAINTABLE.has(status) ? STATUS_FILL[status] : null,
-			status,
-			marks: leaveDayMarks(info),
+			fill: dayCellStyle(info),
+			outcome: dayOutcome(info),
+			holidayName: (info && info.holiday_name) || "",
+			status: resolvePaintStatus(info),
+			codes: dayCodes(info),
 			dots: markerDots(m),
 			appOnlyMarks: appOnlyMarks(m),
 			late: m.lateDelay,
@@ -534,11 +545,13 @@ const dayMarkers = (info) => {
 /** Dots under the day number, in the order the legend lists them. */
 function markerDots(m) {
 	const dots = []
-	if (m.sandwich) dots.push({ kind: "sandwich", cls: "sandwich", title: __("Sandwich"), app: "" })
+	// Sandwich is a property of the leave, not an exception of its own; it rides
+	// the leave hue rather than claiming a seventh colour.
+	if (m.sandwich) dots.push({ kind: "sandwich", cls: "att-dot-sandwich", title: __("Sandwich"), app: "" })
 	if (m.lateDelay) {
 		dots.push({
 			kind: "late",
-			cls: `late ${m.late_grace ? "grace" : "after"}`,
+			cls: `att-dot-late${m.late_grace ? " att-dot-grace" : ""}`,
 			title: appStatusTitle(
 				m.late_grace ? __("Late (within grace)") : __("Late (after grace)"),
 				m.late_app
@@ -549,7 +562,7 @@ function markerDots(m) {
 	if (m.earlyDelay) {
 		dots.push({
 			kind: "early",
-			cls: `early ${m.early_grace ? "grace" : "after"}`,
+			cls: `att-dot-early${m.early_grace ? " att-dot-grace" : ""}`,
 			title: appStatusTitle(
 				m.early_grace ? __("Early (within grace)") : __("Early (after grace)"),
 				m.early_app
@@ -560,7 +573,7 @@ function markerDots(m) {
 	if (m.oooDelay) {
 		dots.push({
 			kind: "ooo",
-			cls: "ooo",
+			cls: "att-dot-ooo",
 			title: appStatusTitle(__("Out of Office"), m.ooo_app),
 			app: m.ooo_app,
 		})
@@ -578,9 +591,16 @@ function appOnlyMarks(m) {
 	return marks
 }
 
+// Statuses the day sheet knows how to title. Leave variants are derived below
+// when the raw status is something else (e.g. a pending application on a blank day).
+const KNOWN_STATUSES = new Set([
+	"Present", "Work From Home", "Half Day", "Absent",
+	"On Leave", "Leave Pending", "Leave Rejected", "Holiday", "Weekly Off",
+])
+
 function resolvePaintStatus(info) {
 	const status = dayStatus(info)
-	if (PAINTABLE.has(status)) return status
+	if (KNOWN_STATUSES.has(status)) return status
 	const m = dayMarkers(info)
 	if (!m.leave) return status
 	if (m.rejected) return "Leave Rejected"
@@ -656,11 +676,20 @@ function applyLeaveSelection() {
 	font-size: 0.8rem;
 	font-weight: 600;
 	line-height: 1.1;
-	color: #1f2937;
+	color: #1c1917;
 }
 
-.day-cell.is-saturday .bs-day {
-	color: #e11d48;
+/* Saturdays and holidays alike — the red numeral is how a Nepali calendar says
+   "not a working day", independent of the fill behind it. */
+.day-cell.is-saturday .bs-day,
+.day-cell.is-rest .bs-day {
+	color: var(--att-rest-text);
+}
+
+.day-cell.is-saturday .ad-day,
+.day-cell.is-rest .ad-day {
+	color: var(--att-rest-text);
+	opacity: 0.8;
 }
 
 .day-cell .ad-day {
@@ -669,17 +698,17 @@ function applyLeaveSelection() {
 	bottom: 3px;
 	font-size: 0.58rem;
 	line-height: 1;
-	opacity: 0.65;
-	color: #374151;
+	opacity: 0.6;
+	color: #1c1917;
 }
 
 .day-cell.is-today {
-	outline: 1.5px solid #2563eb;
+	outline: 1.5px solid #1c1917;
 	outline-offset: -1.5px;
 }
 
 .day-cell.is-selected {
-	outline: 2px solid #1d4ed8;
+	outline: 2px solid #2a78d6;
 	outline-offset: -2px;
 }
 
@@ -694,7 +723,7 @@ function applyLeaveSelection() {
 	background: #cbd5e1;
 }
 
-.day-cell .leave-marks {
+.day-cell .day-codes {
 	position: absolute;
 	top: 2px;
 	left: 2px;
@@ -704,9 +733,6 @@ function applyLeaveSelection() {
 	pointer-events: none;
 }
 
-/* Top-right corner, as the lib-rendered calendar had them: the bottom edge is
-   already taken by the AD day number, and a dot down there reads as belonging to
-   the row below rather than to this day. */
 .day-cell .day-markers {
 	position: absolute;
 	top: 3px;
@@ -725,112 +751,17 @@ function applyLeaveSelection() {
 	gap: 1px;
 }
 
-.marker-dot {
+/* Sandwich rides the leave hue rather than claiming a colour of its own. */
+.att-dot-sandwich {
+	color: #2a78d6;
+	box-shadow: inset 0 0 0 1.5px #fff;
+}
+
+.legend-cell {
 	display: inline-block;
-	width: 6px;
-	height: 6px;
-	border-radius: 50%;
-	flex-shrink: 0;
-}
-
-.marker-dot.late.after,
-.marker-dot.late:not(.grace) {
-	background-color: #ea580c;
-}
-
-.marker-dot.early.after,
-.marker-dot.early:not(.grace) {
-	background-color: #7c3aed;
-}
-
-.marker-dot.late.grace {
-	background-color: #fff;
-	box-shadow: inset 0 0 0 1.5px #fb923c;
-}
-
-.marker-dot.early.grace {
-	background-color: #fff;
-	box-shadow: inset 0 0 0 1.5px #a78bfa;
-}
-
-.marker-dot.ooo {
-	background-color: #0f766e;
-}
-
-.marker-dot.sandwich {
-	background-color: #be123c;
-}
-
-.app-mark {
-	display: inline-block;
-	font-size: 8px;
-	font-weight: 800;
-	line-height: 1;
-	font-style: normal;
-}
-
-.app-mark.approved {
-	color: #16a34a;
-}
-
-.app-mark.approved::before {
-	content: "✓";
-}
-
-.app-mark.rejected {
-	color: #dc2626;
-}
-
-.app-mark.rejected::before {
-	content: "✕";
-}
-
-.app-mark.draft {
-	color: #d97706;
-}
-
-.app-mark.draft::before {
-	content: "○";
-}
-
-.leave-mark-badge {
-	display: inline-block;
-	font-size: 8px;
-	font-weight: 700;
-	line-height: 1;
-	padding: 1px 2px;
+	width: 12px;
+	height: 12px;
 	border-radius: 3px;
-	letter-spacing: -0.02em;
-	white-space: nowrap;
-}
-
-.leave-mark-badge.half {
-	color: #1d4ed8;
-	background: #dbeafe;
-}
-
-.leave-mark-badge.sick {
-	color: #9a3412;
-	background: #ffedd5;
-}
-
-.leave-mark-badge.home {
-	color: #065f46;
-	background: #d1fae5;
-}
-
-.leave-mark-badge.penalty-half {
-	background: #f59e0b;
-	color: #451a03;
-}
-
-.leave-mark-badge.penalty-full {
-	background: #dc2626;
-	color: #fff7ed;
-}
-
-.leave-mark-badge.lwp {
-	color: #334155;
-	background: #e2e8f0;
+	flex-shrink: 0;
 }
 </style>

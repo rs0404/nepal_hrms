@@ -50,29 +50,32 @@
 					:key="'day-' + index"
 					class="relative flex flex-col items-center pt-2"
 					:class="isOutsidePeriod(index) ? 'outside-period' : ''"
+					:title="getEventOnDate(index)?.holiday_name || ''"
 					@click="onDayClick(index)"
 				>
 					<div
-						v-if="leaveDayMarks(getEventOnDate(index)).length"
+						v-if="dayCodes(getEventOnDate(index)).length"
 						class="absolute top-0 left-1/2 -translate-x-1/2 z-10 flex gap-px"
 					>
 						<span
-							v-for="mark in leaveDayMarks(getEventOnDate(index))"
-							:key="mark"
-							class="leave-mark-badge"
-							:class="leaveMarkClass(mark)"
+							v-for="code in dayCodes(getEventOnDate(index))"
+							:key="code"
+							:class="dayCodeClass(code)"
 						>
-							{{ mark }}
+							{{ code }}
 						</span>
 					</div>
 					<div
 						class="h-9 w-9 flex rounded-lg mx-auto cursor-pointer"
-						:class="[
-							statusColor(getEventOnDate(index)),
-							isSelected(index) ? 'ring-2 ring-blue-600 ring-offset-1' : '',
-						]"
+						:class="isSelected(index) ? 'ring-2 ring-offset-1' : ''"
+						:style="statusStyle(getEventOnDate(index))"
 					>
-						<span class="text-gray-800 text-sm font-medium m-auto">
+						<span
+							class="text-sm font-medium m-auto"
+							:style="{
+								color: isRestDay(index) ? 'var(--att-rest-text)' : '#1c1917',
+							}"
+						>
 							{{ index }}
 						</span>
 					</div>
@@ -80,8 +83,8 @@
 						v-if="hasMarkers(getEventOnDate(index))"
 						class="flex gap-0.5 mt-0.5 min-h-[14px] items-start justify-center"
 					>
-						<i v-if="dayMarkers(getEventOnDate(index)).leave" class="marker-dot" :class="dayMarkers(getEventOnDate(index)).pending ? 'pending' : 'leave'" />
-						<i v-if="dayMarkers(getEventOnDate(index)).sandwich" class="marker-dot sandwich" />
+						<i v-if="dayMarkers(getEventOnDate(index)).leave" class="att-dot att-dot-leave" />
+						<i v-if="dayMarkers(getEventOnDate(index)).sandwich" class="att-dot att-dot-sandwich" />
 						<span
 							v-if="
 								dayMarkers(getEventOnDate(index)).lateDelay ||
@@ -91,10 +94,8 @@
 						>
 							<i
 								v-if="dayMarkers(getEventOnDate(index)).lateDelay"
-								class="marker-dot late"
-								:class="
-									dayMarkers(getEventOnDate(index)).late_grace ? 'grace' : 'after'
-								"
+								class="att-dot att-dot-late"
+								:class="dayMarkers(getEventOnDate(index)).late_grace ? 'att-dot-grace' : ''"
 								:title="
 									appStatusTitle(
 										dayMarkers(getEventOnDate(index)).late_grace
@@ -106,7 +107,7 @@
 							/>
 							<i
 								v-if="dayMarkers(getEventOnDate(index)).late_app"
-								class="app-mark"
+								class="att-appmark"
 								:class="appStatusClass(dayMarkers(getEventOnDate(index)).late_app)"
 							/>
 						</span>
@@ -119,10 +120,8 @@
 						>
 							<i
 								v-if="dayMarkers(getEventOnDate(index)).earlyDelay"
-								class="marker-dot early"
-								:class="
-									dayMarkers(getEventOnDate(index)).early_grace ? 'grace' : 'after'
-								"
+								class="att-dot att-dot-early"
+								:class="dayMarkers(getEventOnDate(index)).early_grace ? 'att-dot-grace' : ''"
 								:title="
 									appStatusTitle(
 										dayMarkers(getEventOnDate(index)).early_grace
@@ -134,18 +133,18 @@
 							/>
 							<i
 								v-if="dayMarkers(getEventOnDate(index)).early_app"
-								class="app-mark"
+								class="att-appmark"
 								:class="appStatusClass(dayMarkers(getEventOnDate(index)).early_app)"
 							/>
 						</span>
 						<span v-if="dayMarkers(getEventOnDate(index)).ooo" class="marker-stack">
 							<i
-								class="marker-dot ooo"
+								class="att-dot att-dot-ooo"
 								:title="appStatusTitle(__('Out of Office'), dayMarkers(getEventOnDate(index)).ooo_app)"
 							/>
 							<i
 								v-if="dayMarkers(getEventOnDate(index)).ooo_app"
-								class="app-mark"
+								class="att-appmark"
 								:class="appStatusClass(dayMarkers(getEventOnDate(index)).ooo_app)"
 							/>
 						</span>
@@ -201,55 +200,60 @@
 			     an English month; the label inside says which window these cover. -->
 			<AttendancePeriodSummary :resource="periodSummary" />
 
-			<div class="flex flex-wrap gap-x-3 gap-y-1 mx-1 text-[11px] text-gray-600">
-				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot late grace" />{{ __("Late · grace") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot late after" />{{ __("Late · after grace") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot early grace" />{{ __("Early · grace") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot early after" />{{ __("Early · after grace") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot ooo" />{{ __("Out of Office") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="app-mark approved" />{{ __("Approved application") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="app-mark rejected" />{{ __("Rejected application") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="app-mark draft" />{{ __("Draft application") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<i class="marker-dot sandwich" />{{ __("Sandwich") }}
-				</span>
-				<span v-if="hasOutsidePeriodDays" class="inline-flex items-center gap-1">
-					<i class="outside-period-swatch" />{{ __("Outside the payroll period") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<span class="leave-mark-badge half">1/2</span>{{ __("Half day leave") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<span class="leave-mark-badge sick">SL</span>{{ __("Sick leave") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<span class="leave-mark-badge home">HL</span>{{ __("Home leave") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<span class="leave-mark-badge lwp">LWP</span>{{ __("Leave without pay") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<span class="leave-mark-badge penalty-half">½P</span>{{ __("Half-day pool penalty") }}
-				</span>
-				<span class="inline-flex items-center gap-1">
-					<span class="leave-mark-badge penalty-full">1P</span>{{ __("Full-day pool penalty") }}
-				</span>
+			<!-- Same three channels as the BS calendar, in the same order: outcome
+			     first, then exceptions, then the letters. -->
+			<div class="flex flex-col gap-1 mx-1 text-[11px] text-gray-600">
+				<div class="flex flex-wrap gap-x-3 gap-y-1">
+					<span v-for="o in OUTCOME_LEGEND" :key="o.key" class="inline-flex items-center gap-1">
+						<i class="legend-cell" :style="o.style" />{{ __(o.label) }}
+					</span>
+					<span v-if="hasOutsidePeriodDays" class="inline-flex items-center gap-1">
+						<i class="outside-period-swatch" />{{ __("Outside the payroll period") }}
+					</span>
+				</div>
+				<div class="flex flex-wrap gap-x-3 gap-y-1">
+					<span class="inline-flex items-center gap-1">
+						<i class="att-dot att-dot-late att-dot-grace" />{{ __("Late · within grace") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-dot att-dot-late" />{{ __("Late · after grace") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-dot att-dot-early" />{{ __("Early exit") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-dot att-dot-ooo" />{{ __("Out of Office") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-dot att-dot-sandwich" />{{ __("Sandwich") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-appmark approved" />{{ __("Approved") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-appmark rejected" />{{ __("Rejected") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-appmark draft" />{{ __("Pending") }}
+					</span>
+				</div>
+				<div class="flex flex-wrap gap-x-3 gap-y-1">
+					<span class="inline-flex items-center gap-1">
+						<span class="att-code">½</span>{{ __("Half day") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<span class="att-code">SL</span>{{ __("Sick") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<span class="att-code">HL</span>{{ __("Home") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<span class="att-code att-code-penalty">½P</span>{{ __("Half-day penalty") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<span class="att-code att-code-penalty">1P</span>{{ __("Full-day penalty") }}
+					</span>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -259,7 +263,13 @@
 import { computed, inject, ref, watch } from "vue"
 import { createResource, FeatherIcon } from "frappe-ui"
 import { groupContiguousDates } from "@/utils/leave_ranges"
-import { leaveDayMarks, leaveMarkClass } from "@/utils/leave_marks"
+import {
+	OUTCOME,
+	dayCellStyle,
+	dayCodeClass,
+	dayCodes,
+	dayOutcome,
+} from "@/utils/attendance_colors"
 import AttendancePeriodSummary from "@/components/AttendancePeriodSummary.vue"
 import {
 	appStatusClass,
@@ -283,17 +293,26 @@ const isSelf = computed(
 const firstOfMonth = ref(dayjs().date(1).startOf("D"))
 const todayStr = dayjs().format("YYYY-MM-DD")
 
-const colorMap = {
-	Present: "bg-green-200 ring-1 ring-inset ring-green-400",
-	"Work From Home": "bg-teal-200 ring-1 ring-inset ring-teal-400",
-	"Half Day": "bg-yellow-200 ring-1 ring-inset ring-yellow-400",
-	Absent: "bg-red-200 ring-1 ring-inset ring-red-400",
-	"On Leave": "bg-blue-200 ring-1 ring-inset ring-blue-400",
-	"Leave Pending": "bg-orange-100 ring-1 ring-inset ring-orange-400",
-	"Leave Rejected": "bg-rose-100 ring-1 ring-inset ring-rose-300",
-	Holiday: "bg-gray-200 ring-1 ring-inset ring-gray-300",
-	"Weekly Off": "bg-gray-200 ring-1 ring-inset ring-gray-300",
-}
+// Same tokens as the BS grid, applied as a style rather than Tailwind classes so
+// the two calendars cannot drift apart again.
+const OUTCOME_LEGEND = [
+	{ key: "present", label: "Present" },
+	{ key: "leave", label: "Leave" },
+	{ key: "lwp", label: "LWP" },
+	{ key: "absent", label: "Absent" },
+	{ key: "holiday", label: "Holiday / weekly off" },
+].map((o) => ({
+	...o,
+	style: {
+		backgroundColor: OUTCOME[o.key].fill,
+		boxShadow: `inset 0 0 0 1.5px ${OUTCOME[o.key].ring}`,
+	},
+}))
+
+const KNOWN_STATUSES = new Set([
+	"Present", "Work From Home", "Half Day", "Absent",
+	"On Leave", "Leave Pending", "Leave Rejected", "Holiday", "Weekly Off",
+])
 
 const selectMode = ref(false)
 const selectedDates = ref(new Set())
@@ -358,7 +377,7 @@ const dayMarkers = (info) => {
 
 function resolvePaintStatus(info) {
 	const status = dayStatus(info)
-	if (status && colorMap[status]) return status
+	if (status && KNOWN_STATUSES.has(status)) return status
 	const m = dayMarkers(info)
 	if (!m.leave) return status
 	if (m.rejected) return "Leave Rejected"
@@ -434,10 +453,10 @@ const onDayClick = (index) => {
 	})
 }
 
-const statusColor = (info) => {
-	const status = resolvePaintStatus(info)
-	return status ? colorMap[status] : ""
-}
+const statusStyle = (info) => dayCellStyle(info)
+
+/** Holidays and weekly offs get red numerals, matching the BS calendar. */
+const isRestDay = (index) => dayOutcome(getEventOnDate(index)) === "holiday"
 
 watch(
 	() => firstOfMonth.value,
@@ -551,12 +570,16 @@ watch(
 	);
 }
 
-.outside-period-swatch {
+.outside-period-swatch,
+.legend-cell {
 	display: inline-block;
-	width: 10px;
-	height: 10px;
+	width: 12px;
+	height: 12px;
 	border-radius: 3px;
 	flex-shrink: 0;
+}
+
+.outside-period-swatch {
 	opacity: 0.4;
 	background-color: #f1f5f9;
 	background-image: repeating-linear-gradient(
@@ -566,125 +589,20 @@ watch(
 	);
 }
 
-.marker-dot {
-	display: inline-block;
-	width: 5px;
-	height: 5px;
-	border-radius: 50%;
-	flex-shrink: 0;
-}
-
-.marker-dot.leave {
-	background-color: #2563eb;
-}
-
-.marker-dot.pending {
-	background-color: #d97706;
-}
-
-.marker-dot.late.after,
-.marker-dot.late:not(.grace) {
-	background-color: #ea580c;
-}
-
-.marker-dot.early.after,
-.marker-dot.early:not(.grace) {
-	background-color: #7c3aed;
-}
-
-.marker-dot.late.grace {
-	background-color: #fff;
-	box-shadow: inset 0 0 0 1.5px #fb923c;
-}
-
-.marker-dot.early.grace {
-	background-color: #fff;
-	box-shadow: inset 0 0 0 1.5px #a78bfa;
-}
-
-.marker-dot.ooo {
-	background-color: #0f766e;
-}
-
-.marker-dot.sandwich {
-	background-color: #be123c;
-}
-
 .marker-stack {
 	display: inline-flex;
 	flex-direction: column;
 	align-items: center;
-	line-height: 1;
+	gap: 1px;
 }
 
-.app-mark {
-	display: inline-block;
-	font-size: 8px;
-	font-weight: 800;
-	line-height: 1;
-	font-style: normal;
+/* Leave and sandwich ride the leave hue; neither is an outcome of its own. */
+.att-dot-leave,
+.att-dot-sandwich {
+	color: #2a78d6;
 }
 
-.app-mark.approved {
-	color: #16a34a;
-}
-
-.app-mark.approved::before {
-	content: "✓";
-}
-
-.app-mark.rejected {
-	color: #dc2626;
-}
-
-.app-mark.rejected::before {
-	content: "✕";
-}
-
-.app-mark.draft {
-	color: #d97706;
-}
-
-.app-mark.draft::before {
-	content: "○";
-}
-
-.leave-mark-badge {
-	display: inline-block;
-	font-size: 8px;
-	font-weight: 700;
-	line-height: 1;
-	padding: 1px 2px;
-	border-radius: 3px;
-	letter-spacing: -0.02em;
-	white-space: nowrap;
-}
-
-.leave-mark-badge.half {
-	color: #1d4ed8;
-	background: #dbeafe;
-}
-
-.leave-mark-badge.sick {
-	color: #9a3412;
-	background: #ffedd5;
-}
-
-.leave-mark-badge.home {
-	color: #065f46;
-	background: #d1fae5;
-}
-
-.leave-mark-badge.penalty-half {
-	background: #f59e0b;
-	color: #451a03;
-}
-.leave-mark-badge.penalty-full {
-	background: #dc2626;
-	color: #fff7ed;
-}
-.leave-mark-badge.lwp {
-	color: #334155;
-	background: #e2e8f0;
+.att-dot-sandwich {
+	box-shadow: inset 0 0 0 1.5px #fff;
 }
 </style>
