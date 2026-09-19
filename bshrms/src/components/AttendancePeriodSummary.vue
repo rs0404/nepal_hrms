@@ -122,7 +122,9 @@ const tiles = computed(() => {
 	return [
 		{ key: "present", label: "Present", value: t.total_present, swatch: OUTCOME.present },
 		{ key: "leave", label: "Leave", value: t.paid_leave_days, swatch: OUTCOME.leave },
-		{ key: "lwp", label: "LWP", value: t.lwp_days, swatch: OUTCOME.lwp },
+		// Shares the Leave swatch on purpose: LWP is leave, and the label is the
+		// distinction. Same reason the calendar gives it a letter, not a hue.
+		{ key: "lwp", label: "LWP", value: t.lwp_days, swatch: OUTCOME.leave },
 		{ key: "absent", label: "Absent", value: t.total_absent, swatch: OUTCOME.absent },
 		{ key: "penalty", label: "Penalty", value: t.penalty_days, chip: "1P" },
 		{ key: "payable", label: "Payable", value: t.payable_days },

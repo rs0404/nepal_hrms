@@ -22,16 +22,22 @@
  * the letters and keep the colours.
  */
 
-/** Dark-mode steps are recorded per token; the PWA is light-only today. */
+/**
+ * Four outcomes, one hue each.
+ *
+ * Every kind of leave shares one blue and lets its letters (L / SL / HL / LWP)
+ * say which kind — they are all leave, and the kind is what varies, not the
+ * category. Collapsing them is what freed amber for Holiday, and this set is the
+ * first to clear every check outright: CVD ΔE 12.7, normal-vision ΔE 24.0,
+ * all-pairs. The previous five-hue version could only reach the 6–8 warn band.
+ */
 export const OUTCOME = {
-	// fill                 ring        dark ring   code
-	present: { fill: "#e0f0e0", ring: "#008300", code: "" }, // dark: #008300
-	leave: { fill: "#e5effa", ring: "#2a78d6", code: "L" }, // dark: #3987e5
-	lwp: { fill: "#fdf4e0", ring: "#eda100", code: "LWP" }, // dark: #c98500
-	absent: { fill: "#fce9e9", ring: "#e34948", code: "A" }, // dark: #e34948
-	// Neutral on purpose: a non-working day should recede, and a hueless swatch
-	// is outside the categorical set, so it needs no letter.
-	holiday: { fill: "#eceae6", ring: "#8a8781", code: "" },
+	present: { fill: "#c7e9d4", ring: "#008300", code: "" },
+	leave: { fill: "#cbdafa", ring: "#2a78d6", code: "L" },
+	absent: { fill: "#fad3e7", ring: "#d4537e", code: "A" },
+	// Amber, not grey: a rest day should still look like a day. Red numerals do
+	// the rest, so it needs no letter.
+	holiday: { fill: "#fde8c4", ring: "#eda100", code: "" },
 }
 
 /**
@@ -61,51 +67,71 @@ function statusOf(info) {
 	return typeof info === "string" ? info : info.status || null
 }
 
-/** Paid leave and leave without pay are different outcomes; they are paid differently. */
-function leaveOutcome(info) {
-	return info && typeof info !== "string" && info.is_lwp ? "lwp" : "leave"
-}
-
-/** "present" | "leave" | "lwp" | "absent" | "holiday" | null */
+/** "present" | "leave" | "absent" | "holiday" | null */
 export function dayOutcome(info) {
 	const status = statusOf(info)
 	if (!status) return null
 	if (PRESENT_STATUSES.has(status)) return "present"
 	if (HOLIDAY_STATUSES.has(status)) return "holiday"
-	if (LEAVE_STATUSES.has(status)) return leaveOutcome(info)
+	if (LEAVE_STATUSES.has(status)) return "leave"
 	if (status === "Absent") return "absent"
 	// A half day is half worked; the fill leads with that and splits to the rest.
 	if (status === "Half Day") return "present"
 	return null
 }
 
-/** The outcome occupying the other half of a Half Day, or null. */
-export function halfDayOutcome(info) {
+/**
+ * The two halves of a half day as [workedOutcome, otherOutcome], or null.
+ *
+ * A half day arrives two ways and both must split: status "Half Day" (worked
+ * half + absent half) and status "On Leave" with half_day set (worked half +
+ * leave half). Keying only on the status string missed the second, which is the
+ * common one — every half day in the live data is a half-day leave.
+ */
+export function halfDayParts(info) {
 	if (!info || typeof info === "string") return null
-	if (info.status !== "Half Day") return null
-	if (info.leave || info.leave_type) return leaveOutcome(info)
-	return "absent"
+	const isHalf = !!info.half_day || info.status === "Half Day"
+	if (!isHalf) return null
+	const onLeave = !!info.leave || !!info.leave_type || LEAVE_STATUSES.has(info.status)
+	return ["present", onLeave ? "leave" : "absent"]
 }
 
-/** Inline style for a day cell, or null when the day has no attendance at all. */
+/**
+ * Inline style for a day cell, or null when the day has no attendance at all.
+ *
+ * A half day splits corner to corner: **top-left is the first half of the day,
+ * bottom-right the second**. Which is which comes from worked_half, inferred
+ * server-side from the check-in against the shift midpoint. With no shift or no
+ * check-in there is nothing to infer, and the worked half leads.
+ */
 export function dayCellStyle(info) {
 	const outcome = dayOutcome(info)
 	if (!outcome) return null
 	const base = OUTCOME[outcome]
-	const other = halfDayOutcome(info)
+	const parts = halfDayParts(info)
 	const ring = { boxShadow: `inset 0 0 0 1.5px ${base.ring}` }
-	if (!other) return { backgroundColor: base.fill, ...ring }
-	// 135° so the split reads as a diagonal rather than as two stacked rows.
+	if (!parts) return { backgroundColor: base.fill, ...ring }
+
+	const [worked, other] = parts
+	const workedSecond = info && typeof info !== "string" && info.worked_half === "second"
+	const [first, second] = workedSecond
+		? [OUTCOME[other].fill, OUTCOME[worked].fill]
+		: [OUTCOME[worked].fill, OUTCOME[other].fill]
+	// 135° runs top-left to bottom-right, so the first colour is the first half.
 	return {
-		backgroundImage: `linear-gradient(135deg, ${base.fill} 0 50%, ${OUTCOME[other].fill} 50% 100%)`,
+		backgroundImage: `linear-gradient(135deg, ${first} 0 50%, ${second} 50% 100%)`,
 		backgroundColor: base.fill,
 		...ring,
 	}
 }
 
-/** Leave-kind letters, or "" for a leave type with no shorthand. */
+/** Which kind of leave, since the fill no longer distinguishes them. */
 function leaveKindCode(info) {
 	const name = String((info && info.leave_type) || "").toLowerCase()
+	if (info && info.is_lwp) return "LWP"
+	if (name.includes("without pay") || name.includes("unpaid") || name.includes("lwp")) {
+		return "LWP"
+	}
 	if (name.includes("sick")) return "SL"
 	if (name.includes("home")) return "HL"
 	return ""
@@ -125,10 +151,10 @@ export function dayCodes(info) {
 	if (info.pool_penalty === "half" || info.penalty_mark === "½P") return ["½P"]
 
 	const codes = []
-	if (info.half_day) codes.push("½")
+	// Same test as the split: "Half Day" status carries no half_day flag of its own.
+	if (halfDayParts(info)) codes.push("½")
 	const outcome = dayOutcome(info)
-	if (outcome === "lwp") codes.push("LWP")
-	else if (outcome === "leave") codes.push(leaveKindCode(info) || OUTCOME.leave.code)
+	if (outcome === "leave") codes.push(leaveKindCode(info) || OUTCOME.leave.code)
 	else if (outcome === "absent") codes.push(OUTCOME.absent.code)
 	return codes
 }

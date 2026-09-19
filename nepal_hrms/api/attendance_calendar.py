@@ -4,7 +4,16 @@
 """Rich attendance calendar payload for bshrms (status + leave / late / early markers)."""
 
 import frappe
-from frappe.utils import add_days, cint, date_diff, get_first_day, get_last_day, getdate, today
+from frappe.utils import (
+	add_days,
+	cint,
+	date_diff,
+	get_datetime,
+	get_first_day,
+	get_last_day,
+	getdate,
+	today,
+)
 
 from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
 
@@ -84,6 +93,44 @@ def _apply_cnr_application_statuses(employee, from_date, to_date, events):
 			info[status_field] = _better_cnr_app_status(info.get(status_field), incoming)
 
 
+def _shift_midpoint(shift, cache):
+	"""Seconds-since-midnight midpoint of a shift, or None for an overnight one."""
+	if not shift:
+		return None
+	if shift not in cache:
+		row = frappe.db.get_value(
+			"Shift Type", shift, ["start_time", "end_time"], as_dict=True
+		)
+		mid = None
+		if row and row.start_time is not None and row.end_time is not None:
+			start, end = row.start_time.total_seconds(), row.end_time.total_seconds()
+			# An overnight shift has no meaningful "first half" on one calendar day.
+			if end > start:
+				mid = start + (end - start) / 2
+		cache[shift] = mid
+	return cache[shift]
+
+
+def _worked_half(in_time, shift, cache):
+	"""'first' | 'second' | None -- which half of the day was actually worked.
+
+	Attendance.half_day_status records what the *other* half was (Present/Absent),
+	never which half of the clock, so the only real signal is when the person
+	turned up: a check-in past the shift midpoint means the morning was the
+	leave/absent half. Without a shift or a check-in there is nothing to infer
+	from, and the caller falls back to "worked half first".
+	"""
+	mid = _shift_midpoint(shift, cache)
+	if mid is None or not in_time:
+		return None
+	try:
+		t = get_datetime(in_time)
+	except Exception:
+		return None
+	secs = t.hour * 3600 + t.minute * 60 + t.second
+	return "second" if secs >= mid else "first"
+
+
 def _blank_calendar_day():
 	return {
 		"status": None,
@@ -106,6 +153,7 @@ def _blank_calendar_day():
 		"leave_application": None,
 		"sandwich": 0,
 		"half_day": 0,
+		"worked_half": None,
 		"holiday_name": "",
 	}
 
@@ -555,6 +603,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 	except Exception:
 		settings = frappe._dict()
 	grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
+	shift_mid_cache = {}
 
 	for row in attendance_rows:
 		d = getdate(row.attendance_date)
@@ -580,6 +629,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		info.update(
 			{
 				"status": row.status,
+				"worked_half": _worked_half(row.in_time, row.shift, shift_mid_cache),
 				"leave": 1 if row.status == "On Leave" else 0,
 				"late": 1 if late_grace or late_after else 0,
 				"early": 1 if early_grace or early_after else 0,
