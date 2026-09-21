@@ -56,15 +56,12 @@ def _snapshot(doc):
 	return {field: flt(doc.get(field)) for field in sorted(fields)}
 
 
-def sync_slip(doc, save=True):
-	"""Apply attendance-derived absence to one slip. Returns a result row."""
-	row = {
-		"name": doc.name,
-		"employee": doc.employee,
-		"employee_name": doc.employee_name,
-		"before": _snapshot(doc),
-	}
+def seed_absence_from_attendance(doc):
+	"""Put attendance-derived absence on the slip, ready to be calculated.
 
+	Shared by the Sync with Attendance button and by slip creation, so a slip made
+	from a Payroll Entry starts from the same figures the button would give it.
+	"""
 	absent = _attendance_absent_days(doc)
 	doc.absent_days = absent
 	# The slip narrows absent_days to genuine absence and reports penalties on their
@@ -77,6 +74,19 @@ def sync_slip(doc, save=True):
 	doc.flags.use_manual_absent_days = 1
 	# Tells apply_manual_absent_days this figure came from Attendance, not a human.
 	doc.flags.absent_days_from_attendance = 1
+	return absent
+
+
+def sync_slip(doc, save=True):
+	"""Apply attendance-derived absence to one slip. Returns a result row."""
+	row = {
+		"name": doc.name,
+		"employee": doc.employee,
+		"employee_name": doc.employee_name,
+		"before": _snapshot(doc),
+	}
+
+	absent = seed_absence_from_attendance(doc)
 
 	# No lwp argument on purpose. HRMS keeps whatever non-zero figure it is handed
 	# (`if not lwp: lwp = actual_lwp`), so passing the stored one pins a stale value

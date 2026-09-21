@@ -121,11 +121,26 @@ def get_pool_penalty_days(employee, start_date, end_date):
             "employee": employee,
             "attendance_date": ["between", [start_date, end_date]],
             "docstatus": 1,
-            "custom_cnr_pool_penalty": ["in", ["half", "full"]],
         },
-        fields=["attendance_date", "custom_cnr_pool_penalty"],
+        fields=["attendance_date", "status", "half_day_status", "custom_cnr_pool_penalty"],
         order_by="attendance_date asc",
     )
+
+    # The mark is only written when someone runs Recalculate C&R. The Monthly
+    # Attendance Sheet BS does not wait for that -- it assigns the occurrence pool
+    # live -- so a slip reading marks alone charged nothing while the sheet showed
+    # the penalty. Assign it the same way here and let a stored mark override.
+    from nepal_hrms.custom_code.attendance_policy import (
+        assign_employee_pool_penalties_for_range,
+        get_hr_settings,
+    )
+
+    try:
+        assigned = assign_employee_pool_penalties_for_range(
+            employee, start_date, end_date, get_hr_settings()
+        )
+    except Exception:
+        assigned = {}
 
     # A holiday never earns a penalty. Date-based, not a status filter on the
     # query: a worked holiday carries status "Present".
@@ -136,15 +151,36 @@ def get_pool_penalty_days(employee, start_date, end_date):
     days = 0.0
     dates = []
     for row in rows:
-        if getdate(row.attendance_date) in holiday_dates:
+        day = getdate(row.attendance_date)
+        if day in holiday_dates:
             continue
-        kind = (row.custom_cnr_pool_penalty or "").strip()
+        kind = (row.custom_cnr_pool_penalty or "").strip() or (
+            assigned.get(day) or ""
+        )
+        if kind not in ("half", "full"):
+            continue
         units = 1.0 if kind == "full" else half_day_units
         days += units
         dates.append(
-            {"date": str(row.attendance_date), "kind": kind, "units": units}
+            {
+                "date": str(row.attendance_date),
+                "kind": kind,
+                "units": units,
+                # Whether HRMS already counted this day inside absent_days. A live
+                # assignment on a row still reading Present is not in that bucket,
+                # so subtracting it would invent absence that is not there.
+                "in_absent_bucket": _counted_in_absent_bucket(row),
+            }
         )
     return flt(days), dates
+
+
+def _counted_in_absent_bucket(row):
+    """True when HRMS's absent_days already contains this day."""
+    status = (row.get("status") or "").strip()
+    if status == "Absent":
+        return True
+    return status == "Half Day" and (row.get("half_day_status") or "").strip() == "Absent"
 
 
 def _has_half_day_leave(employee, attendance_date):
@@ -511,8 +547,16 @@ def compute_nepal_hr_variables(doc, data):
     # Split them out so each is charged on its own configured base; never let the
     # split drive the genuine-absence count negative if the two disagree.
     penalty_days, penalty_dates = get_pool_penalty_days(employee, start_date, end_date)
-    penalty_days = min(flt(penalty_days), total_absent_days)
-    unapproved_absent_days = flt(total_absent_days - penalty_days)
+    penalty_days = flt(penalty_days)
+    # Only the penalty days HRMS already folded into absent_days come back out of
+    # it. A penalty assigned live, on a row still reading Present, was never in
+    # that bucket -- clamping the whole figure against it used to zero the charge
+    # entirely whenever Recalculate C&R had not been run.
+    penalty_inside_bucket = min(
+        flt(sum(flt(d.get("units")) for d in penalty_dates if d.get("in_absent_bucket"))),
+        total_absent_days,
+    )
+    unapproved_absent_days = flt(total_absent_days - penalty_inside_bucket)
     if unapproved_absent_days < 0:
         unapproved_absent_days = 0.0
 
@@ -977,9 +1021,35 @@ def _manual_absent_override_enabled(doc):
 
 class CustomSalarySlip(SalarySlip):
     def validate(self):
+        self._seed_absence_from_attendance()
         if _manual_absent_override_enabled(self):
             self.flags.use_manual_absent_days = 1
         super().validate()
+
+    def _seed_absence_from_attendance(self):
+        """A new slip starts from what Attendance says, not from zero.
+
+        Payroll Settings payroll_based_on = "Leave" makes HRMS ignore Attendance
+        entirely, so a slip created from a Payroll Entry arrived with absent_days
+        = 0 and stayed that way until someone pressed Sync with Attendance. Only
+        new slips are seeded: once a slip exists, its figures are the payroll
+        officer's to keep or to refresh with the button.
+        """
+        if not self.is_new():
+            return
+        if cint(getattr(self.flags, "skip_attendance_seed", 0)):
+            return
+        if not (self.employee and self.start_date and self.end_date):
+            return
+        try:
+            from nepal_hrms.api.salary_slip_sync import seed_absence_from_attendance
+
+            seed_absence_from_attendance(self)
+        except Exception:
+            # Never block payroll over this: the button is still there.
+            frappe.log_error(
+                frappe.get_traceback(), "Nepal HRMS: attendance seed on slip creation"
+            )
 
     @contextmanager
     def _bs_extended_period(self):
