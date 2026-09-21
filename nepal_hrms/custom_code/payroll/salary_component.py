@@ -260,11 +260,7 @@ def create_multiple_salary_components():
             },
             {
                 "amount_based_on_formula": 1,
-                "formula": (
-                    "(late_entry_half_days + early_exit_half_days + out_of_office_half_days) * late_deduction_rate "
-                    "+ lwp_days * lwp_deduction_rate "
-                    "+ unapproved_absent_days * unapproved_absent_rate"
-                ),
+                "formula": "leave_late_deduction_total",
                 "name": "Leaves and Late Comings",
                 "salary_component": "Leaves and Late Comings",
                 "salary_component_abbr": "leaves_and_late_comings",
@@ -282,12 +278,11 @@ def create_multiple_salary_components():
         frappe.logger().error(f"Error while creating multiple salary components: {str(e)}")
 
 
-LEAVE_LATE_FORMULA = (
-    "(late_entry_half_days + early_exit_half_days + out_of_office_half_days) * late_deduction_rate "
-    "+ lwp_days * lwp_deduction_rate "
-    "+ unapproved_absent_days * unapproved_absent_rate "
-    "+ penalty_days * penalty_deduction_rate"
-)
+LEAVE_LATE_FORMULA = "leave_late_deduction_total"
+# One figure, computed once in compute_nepal_hr_variables and applied to earnings
+# by the earned-salary pass. Spelling the terms out again here let the row drift
+# from the amount actually charged every time a term moved -- which is how
+# late/early half days leaving for penalty_days silently halved this row.
 # Note: ½P / 1P occurrence-pool penalties are charged through penalty_days on their
 # own configured base, and are excluded from unapproved_absent_days.
 

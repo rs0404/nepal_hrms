@@ -32,6 +32,7 @@ app_include_js = [
 	"/assets/nepal_hrms/js/attendance_cnr_bulk.js",
 	"/assets/nepal_hrms/js/attendance_policy_escape_list.js",
 	"/assets/nepal_hrms/js/icon_patch.js",
+	"/assets/nepal_hrms/js/salary_slip_attendance_sync.js",
 ]
 
 boot_session = "nepal_hrms.boot.get_boot_info"
@@ -56,6 +57,7 @@ doctype_js = {
 
 doctype_list_js = {
 	"Salary Component": "public/js/custom_button.js",
+	"Salary Slip": "public/js/salary_slip_list.js",
 	"Leave Allocation": "public/js/leave_allocation.js",
 	"Attendance": "public/js/attendance_list_cnr.js",
 	"Attendance Policy Escape": "public/js/attendance_policy_escape_list.js",

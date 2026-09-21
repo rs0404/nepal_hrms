@@ -68,6 +68,8 @@
   "column_break_deduction",
   "lwp_deduction_base",
   "penalty_deduction_base",
+  "bs_period_tail_section",
+  "extend_payroll_to_previous_bs_month_tail",
   "earned_salary_deduction_section",
   "calculate_attendance_deductions_through_earned_salary",
   "column_break_earned_salary_deduction",
@@ -185,7 +187,7 @@
   {
    "default": "0",
    "depends_on": "eval: doc.enable_late_early_penalty === 1",
-   "description": "When enabled, a day covered by a submitted and approved Attendance Request is fully excused: no Late Entry / Early Exit flag, no occurrence-pool count, and no \u00bdP / 1P penalty. Late and early minutes are still recorded for reference. When disabled, late and early are decided only from the actual check-in and check-out times, regardless of any Attendance Request.",
+   "description": "When enabled, a day covered by a submitted and approved Attendance Request is fully excused: no Late Entry / Early Exit flag, no occurrence-pool count, and no ½P / 1P penalty. Late and early minutes are still recorded for reference. When disabled, late and early are decided only from the actual check-in and check-out times, regardless of any Attendance Request.",
    "fieldname": "excuse_late_early_on_attendance_request",
    "fieldtype": "Check",
    "label": "Approved Attendance Request Excuses Late / Early"
@@ -225,7 +227,7 @@
   {
    "default": "2",
    "depends_on": "eval: doc.enable_late_early_penalty === 1",
-   "description": "Number of free late/early occurrences in the grace\u2192max band (no application) before the first half-day. Example: 2 means first 2 free, 3rd deducts half-day.",
+   "description": "Number of free late/early occurrences in the grace→max band (no application) before the first half-day. Example: 2 means first 2 free, 3rd deducts half-day.",
    "fieldname": "initial_grace_occurrences",
    "fieldtype": "Int",
    "label": "Initial Grace Occurrences"
@@ -356,7 +358,7 @@
   {
    "default": "5",
    "depends_on": "eval: doc.enable_continuous_lwp_gross_deduction === 1",
-   "description": "Per Leave Application length in days (to_date \u2212 from_date + 1). If any LWP application covering the payroll period is at least this many days, LWP deduction uses gross salary.",
+   "description": "Per Leave Application length in days (to_date − from_date + 1). If any LWP application covering the payroll period is at least this many days, LWP deduction uses gross salary.",
    "fieldname": "continuous_lwp_threshold_days",
    "fieldtype": "Int",
    "label": "Continuous LWP Threshold Days"
@@ -526,11 +528,24 @@
    "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)\nAssignment Base (Total Salary)"
   },
   {
-   "description": "Base for late / early occurrence-pool penalties (\u00bdP counts 0.5 day, 1P counts 1.0 day). Leave blank to keep charging them on the Half-Day Deduction Base.",
+   "description": "Base for late / early occurrence-pool penalties (½P counts 0.5 day, 1P counts 1.0 day). Leave blank to keep charging them on the Half-Day Deduction Base.",
    "fieldname": "penalty_deduction_base",
    "fieldtype": "Select",
    "label": "Penalty Deduction Base",
    "options": "Basic Salary Only\nBasic Salary + Grade\nBasic Salary + Dearness Allowance\nBasic Salary + Grade + Dearness Allowance\nBasic Remuneration (SSF/PF Base)\nTotal Fixed Remuneration (Gross)\nAssignment Base (Total Salary)"
+  },
+  {
+   "fieldname": "bs_period_tail_section",
+   "fieldtype": "Section Break",
+   "label": "Payroll Year Opening Period",
+   "description": "Payroll cycles need not begin on the first day of a BS month. The payroll year's opening slip is the only one with no earlier slip to carry its leading days, so they reach no slip at all."
+  },
+  {
+   "default": "0",
+   "fieldname": "extend_payroll_to_previous_bs_month_tail",
+   "fieldtype": "Check",
+   "label": "Extend the Payroll Year's Opening Period",
+   "description": "Count the payroll year's first Salary Slip from the day its cycle actually begins, so working days, leave, absence and penalties cover the span the Monthly Attendance Sheet BS reports. The cycle's first day is read from the slip's own end date and the opening month from the Payroll Period or Fiscal Year covering it; later periods in the year are never changed."
   },
   {
    "description": "Controls whether the complete attendance deduction (late entry, early exit, out of office, LWP and unapproved absence) reduces earned salary components instead of posting as a separate deduction.",
@@ -682,13 +697,13 @@
   },
   {
    "default": "custom_basic_remuneration / 30",
-   "description": "Pre-fills Salary Structure Assignment \u2192 Leave Encashment Formula when that field is empty. Edit freely on each Assignment.\n\nAvailable names include: base, custom_basic_remuneration (alias basic_remuneration), custom_basic_salary, custom_dearness_allowance, custom_grade_amount, custom_total_fixed_remuneration, custom_total_allowances, nsa_<abbr>, and Salary Structure component abbrs.\n\nExample: custom_basic_remuneration / 30",
+   "description": "Pre-fills Salary Structure Assignment → Leave Encashment Formula when that field is empty. Edit freely on each Assignment.\n\nAvailable names include: base, custom_basic_remuneration (alias basic_remuneration), custom_basic_salary, custom_dearness_allowance, custom_grade_amount, custom_total_fixed_remuneration, custom_total_allowances, nsa_<abbr>, and Salary Structure component abbrs.\n\nExample: custom_basic_remuneration / 30",
    "fieldname": "default_leave_encashment_formula",
    "fieldtype": "Small Text",
    "label": "Default Leave Encashment Formula"
   },
   {
-   "description": "Defines the period a payroll run covers. Used to suggest dates on Payroll Entry and Salary Slip, and to resolve per-period day overrides.\n\nTo change the day count for one month only \u2014 for example treating Shrawan as 32 days instead of 31 \u2014 create a <b>Nepal Payroll Period Override</b>. Overrides carry an <i>Applies From</i> date and are snapshotted onto each salary slip when it is first calculated, so existing slips keep the divisor they were computed with.",
+   "description": "Defines the period a payroll run covers. Used to suggest dates on Payroll Entry and Salary Slip, and to resolve per-period day overrides.\n\nTo change the day count for one month only — for example treating Shrawan as 32 days instead of 31 — create a <b>Nepal Payroll Period Override</b>. Overrides carry an <i>Applies From</i> date and are snapshotted onto each salary slip when it is first calculated, so existing slips keep the divisor they were computed with.",
    "fieldname": "payroll_period_section",
    "fieldtype": "Section Break",
    "label": "Attendance & Payroll Period"
@@ -734,7 +749,7 @@
   {
    "default": "10820",
    "depends_on": "eval: doc.enforce_minimum_wage === 1",
-   "description": "\u0906\u0927\u093e\u0930\u092d\u0942\u0924 \u0924\u0932\u092c floor. The basic half of the statutory minimum wage. Note: your existing Basic Salary formula hardcodes 12170 - set whichever figure is current.",
+   "description": "आधारभूत तलब floor. The basic half of the statutory minimum wage. Note: your existing Basic Salary formula hardcodes 12170 - set whichever figure is current.",
    "fieldname": "minimum_monthly_basic",
    "fieldtype": "Currency",
    "label": "Minimum Monthly Basic Salary"
@@ -761,7 +776,7 @@
   {
    "default": "6480",
    "depends_on": "eval: doc.enforce_minimum_wage === 1",
-   "description": "\u092e\u0939\u0901\u0917\u0940 \u092d\u0924\u094d\u0924\u093e floor. The DA half of the statutory minimum wage.",
+   "description": "महँगी भत्ता floor. The DA half of the statutory minimum wage.",
    "fieldname": "minimum_monthly_dearness_allowance",
    "fieldtype": "Currency",
    "label": "Minimum Monthly Dearness Allowance"
@@ -855,7 +870,7 @@
    "options": "Nepal Scheduled Payroll"
   },
   {
-   "description": "Creates the Nepal salary components, four salary structures (SSF and PF/Gratuity, each in a Wages and a Salary variant), and the income tax slab \u2014 then applies the account mapping above. Safe to re-run: existing records are updated, never duplicated. Structures already on the site are left untouched.",
+   "description": "Creates the Nepal salary components, four salary structures (SSF and PF/Gratuity, each in a Wages and a Salary variant), and the income tax slab — then applies the account mapping above. Safe to re-run: existing records are updated, never duplicated. Structures already on the site are left untouched.",
    "fieldname": "payroll_setup_section",
    "fieldtype": "Section Break",
    "label": "Payroll Setup"

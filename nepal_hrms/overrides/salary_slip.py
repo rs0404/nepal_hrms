@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import frappe, traceback
 from frappe import _
 from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip, get_salary_component_data
@@ -200,36 +202,6 @@ def _get_paid_leave_days(employee, start_date, end_date):
     return flt(paid_days)
 
 
-def _classify_late_or_early(mins, app, employee, att_date, grace, max_delay):
-    """
-    C&R rules:
-    - Within grace: ignore
-    - Any approved Late/Early application: fully excused (no pool, no half-day)
-    - Major (> max delay): half-day unless half-day leave or Office Work
-    - Minor with no approved slip: counts toward occurrence pool
-    Returns: None | 'minor' | 'major'
-    """
-    from nepal_hrms.custom_code.attendance_policy import classify_delay
-
-    kind = classify_delay(mins, grace, max_delay)
-    if not kind:
-        return None
-
-    # Approved application fully excuses grace→max and also Office Work majors
-    if app:
-        if kind == "minor":
-            return None
-        if app.type_of_work == "Office Work":
-            return None
-
-    if kind == "major":
-        if _has_half_day_leave(employee, att_date):
-            return None
-        return "major"
-
-    # minor, no approved slip → occurrence pool
-    return "minor"
-
 
 def count_sandwich_holiday_absents(
     employee, attendance_rows, holidays, already_counting_holiday_attendance=False
@@ -266,6 +238,46 @@ def count_sandwich_holiday_absents(
 def period_leave_days_for_gross_rule(lwp_days, absent_days):
     """LWP + absent days in the payroll period that can trip LWP onto Gross."""
     return flt(lwp_days) + flt(absent_days)
+
+
+def longest_lwp_streak(dates):
+    """Longest run of consecutive dates in the set. 0 when empty."""
+    ordered = sorted(getdate(day) for day in dates or [])
+    if not ordered:
+        return 0
+    longest = run = 1
+    for previous, current in zip(ordered, ordered[1:]):
+        run = run + 1 if (current - previous).days == 1 else 1
+        if run > longest:
+            longest = run
+    return longest
+
+
+def lwp_days_in_qualifying_streaks(dates, threshold, start_date, end_date):
+    """Days inside runs at least `threshold` long, counted within the period only.
+
+    Only the unbroken stretch earns the gross rate. Unpaid days scattered
+    elsewhere in the month are ordinary LWP and stay on the configured base.
+    """
+    threshold = cint(threshold)
+    ordered = sorted(getdate(day) for day in dates or [])
+    if not ordered or threshold <= 0:
+        return 0
+    start = getdate(start_date)
+    end = getdate(end_date)
+
+    qualifying = 0
+    run = [ordered[0]]
+    for previous, current in zip(ordered, ordered[1:]):
+        if (current - previous).days == 1:
+            run.append(current)
+            continue
+        if len(run) >= threshold:
+            qualifying += sum(1 for day in run if start <= day <= end)
+        run = [current]
+    if len(run) >= threshold:
+        qualifying += sum(1 for day in run if start <= day <= end)
+    return qualifying
 
 
 def lwp_should_use_gross(
@@ -436,7 +448,9 @@ def compute_nepal_hr_variables(doc, data):
     late_entry_full_days = 0.0
     early_exit_full_days = 0.0
 
-    start_date = getdate(doc.start_date)
+    from nepal_hrms.custom_code.payroll.bs_period import effective_start_date
+
+    start_date = effective_start_date(doc)
     end_date = getdate(doc.end_date)
     employee = doc.employee
 
@@ -447,117 +461,11 @@ def compute_nepal_hr_variables(doc, data):
 
     period_escapes = get_policy_escapes_for_period(employee, start_date, end_date)
 
-    # 1. Late Entry & Early Exit Penalty Calculation
-    # get_singles_dict returns Check/Int fields as strings ("0"/"1"), so truthiness
-    # and numeric compares must go through cint().
-    if cint(getattr(settings, "enable_late_early_penalty", 0)):
-        grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
-        max_delay = cint(getattr(settings, "late_early_max_delay_mins", None) or 60)
-
-        att_meta = frappe.get_meta("Attendance")
-        has_late_pool = att_meta.has_field("custom_cnr_late_in_pool")
-        has_early_pool = att_meta.has_field("custom_cnr_early_in_pool")
-
-        fields = [
-            "name",
-            "attendance_date",
-            "late_entry",
-            "early_exit",
-            "custom_late_mins",
-            "custom_early_mins",
-            "in_time",
-            "out_time",
-            "shift",
-        ]
-        if has_late_pool:
-            fields.append("custom_cnr_late_in_pool")
-        if has_early_pool:
-            fields.append("custom_cnr_early_in_pool")
-
-        attendances = frappe.get_all(
-            "Attendance",
-            filters={
-                "employee": employee,
-                "attendance_date": ["between", [start_date, end_date]],
-                "docstatus": 1,
-            },
-            fields=fields,
-        )
-
-        minor_late_count = 0
-        major_late_count = 0
-        minor_early_count = 0
-        major_early_count = 0
-
-        from nepal_hrms.custom_code.attendance_policy import compute_late_early_minutes
-        from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
-
-        holiday_dates = holiday_dates_between(employee, start_date, end_date)
-        excused_request_dates = set()
-        if cint(getattr(settings, "excuse_late_early_on_attendance_request", 0) or 0):
-            from nepal_hrms.custom_code.attendance_policy import (
-                approved_attendance_request_dates,
-            )
-
-            excused_request_dates = approved_attendance_request_dates(
-                employee, start_date, end_date
-            )
-
-        for att in attendances:
-            att_date = att.attendance_date
-            if has_policy_escape(employee, "escape_late_early", att_date):
-                continue
-            if getdate(att_date) in holiday_dates:
-                continue
-            if getdate(att_date) in excused_request_dates:
-                continue
-            late_mins = cint(att.custom_late_mins or 0)
-            early_mins = cint(att.custom_early_mins or 0)
-            if (not late_mins and att.in_time) or (not early_mins and att.out_time):
-                calc_late, calc_early = compute_late_early_minutes(
-                    employee, att_date, in_time=att.in_time, out_time=att.out_time, shift=att.shift
-                )
-                if not late_mins:
-                    late_mins = calc_late
-                if not early_mins:
-                    early_mins = calc_early
-
-            # Late: prefer pool flag for minors; always classify for majors / legacy rows
-            if has_late_pool and cint(att.get("custom_cnr_late_in_pool")):
-                minor_late_count += 1
-            elif late_mins > grace_mins or att.late_entry:
-                if late_mins <= grace_mins and att.late_entry:
-                    late_mins = grace_mins + 1
-                lea = get_approved_application("Late Entry Application", employee, att_date)
-                result = _classify_late_or_early(
-                    late_mins, lea, employee, att_date, grace_mins, max_delay
-                )
-                if result == "minor":
-                    minor_late_count += 1
-                elif result == "major":
-                    major_late_count += 1
-
-            if has_early_pool and cint(att.get("custom_cnr_early_in_pool")):
-                minor_early_count += 1
-            elif early_mins > grace_mins or att.early_exit:
-                if early_mins <= grace_mins and att.early_exit:
-                    early_mins = grace_mins + 1
-                eea = get_approved_application("Early Exit Application", employee, att_date)
-                result = _classify_late_or_early(
-                    early_mins, eea, employee, att_date, grace_mins, max_delay
-                )
-                if result == "minor":
-                    minor_early_count += 1
-                elif result == "major":
-                    major_early_count += 1
-
-        # Pool ½P / 1P now change Attendance (Half Day absent / Absent) and
-        # are counted in absent_days at the unapproved-absence (gross) rate.
-        # Do not also charge them on Leave and Late Deduction.
-        late_entry_half_days = float(major_late_count)
-        late_entry_full_days = 0.0
-        early_exit_half_days = float(major_early_count)
-        early_exit_full_days = 0.0
+    # 1. Late Entry & Early Exit
+    # Nothing to count here any more: every C&R penalty -- pool ½P / 1P and major
+    # delays alike -- is written onto Attendance as a penalty mark and charged once
+    # through Penalty Days below, which is how the Monthly Attendance Sheet BS
+    # reports it. These two stay at zero so the fields on the slip agree.
 
     # 2. Out of Office Overages
     # Personal Work OOO Application over max paid hours => half-day.
@@ -592,7 +500,10 @@ def compute_nepal_hr_variables(doc, data):
     # subtracts both (see hrms salary_slip.py get_working_days_details). Deducting
     # lwp_days here under-counted unapproved absence by exactly the LWP days, so
     # 3 absent + 2 LWP was charged as 1 + 2 = 3 days instead of 5.
-    total_absent_days = flt(doc.absent_days or 0)
+    # absent_days is rewritten below to carry genuine absence only, so reading it
+    # here would drop the penalties on every recompute. custom_total_unpaid_days is
+    # the stable copy of HRMS's full bucket, snapshotted in get_working_days_details.
+    total_absent_days = flt(_total_unpaid_days(doc))
     if total_absent_days < 0:
         total_absent_days = 0.0
 
@@ -604,6 +515,12 @@ def compute_nepal_hr_variables(doc, data):
     unapproved_absent_days = flt(total_absent_days - penalty_days)
     if unapproved_absent_days < 0:
         unapproved_absent_days = 0.0
+
+    # Absent and penalty are different things and are never shown as one number.
+    # HRMS keeps a single bucket; the slip reports genuine absence in absent_days and
+    # the penalties in Penalty Days, which is how the Monthly Attendance Sheet BS
+    # reports them too. The full bucket stays on custom_total_unpaid_days.
+    doc.absent_days = unapproved_absent_days
 
     # 4. LWP streak / period-leave count & Gross Salary Deduction Rate
     # Policy: normal LWP on the configured base; unapproved absence or either
@@ -623,12 +540,22 @@ def compute_nepal_hr_variables(doc, data):
         },
         fields=["from_date", "to_date", "leave_type"],
     )
+    # The streak is the run of unpaid days the employee actually took, not the
+    # length of any one Leave Application. Six consecutive days filed as four
+    # applications is still six days away, and measuring each application alone
+    # let a long absence dodge the continuous-LWP rule entirely.
+    lwp_dates = set()
     for l in lwp_leaves:
-        is_lwp = frappe.db.get_value("Leave Type", l.leave_type, "is_lwp")
-        if is_lwp:
-            streak = (getdate(l.to_date) - getdate(l.from_date)).days + 1
-            if streak > max_continuous_lwp:
-                max_continuous_lwp = streak
+        if not frappe.db.get_value("Leave Type", l.leave_type, "is_lwp"):
+            continue
+        day = getdate(l.from_date)
+        last = getdate(l.to_date)
+        while day <= last:
+            lwp_dates.add(day)
+            day = add_days(day, 1)
+
+    max_continuous_lwp = longest_lwp_streak(lwp_dates)
+    lwp_streak_dates = lwp_dates
 
     # Per-day rates come from the Salary Structure Assignment via `data`, which
     # carries every SSA field (SalarySlip selects "*"). They must NOT be read off
@@ -748,7 +675,26 @@ def compute_nepal_hr_variables(doc, data):
         period_threshold=period_threshold,
         escape_lwp_gross=period_escapes.escape_continuous_lwp_gross,
     )
-    lwp_deduction_rate = gross_daily if use_gross else configured_lwp_daily
+    # Only the qualifying stretch is charged on gross; the rest stays on the
+    # configured LWP base. A period-leave breach is a statement about the whole
+    # period, so it does take every unpaid day with it.
+    if is_period_leave_gross:
+        gross_lwp_days = flt(lwp_days)
+    elif is_continuous_lwp_gross:
+        gross_lwp_days = min(
+            flt(
+                lwp_days_in_qualifying_streaks(
+                    lwp_streak_dates, threshold_lwp, start_date, end_date
+                )
+            ),
+            flt(lwp_days),
+        )
+    else:
+        gross_lwp_days = 0.0
+    normal_lwp_days = max(flt(lwp_days) - gross_lwp_days, 0.0)
+
+    lwp_deduction_rate = configured_lwp_daily
+    gross_lwp_rate = gross_daily if gross_lwp_days else 0.0
 
     # The escape only relaxes a configured gross absence rate.
     if cint(period_escapes.escape_absent_gross) and absent_base_name == GROSS_BASE:
@@ -780,6 +726,12 @@ def compute_nepal_hr_variables(doc, data):
         )
 
     lwp_notes = []
+    if gross_lwp_days and normal_lwp_days:
+        lwp_notes.append(
+            _(
+                "{0} unpaid day(s) fall in a qualifying stretch and are charged on the gross base; the remaining {1} stay on {2}."
+            ).format(flt(gross_lwp_days), flt(normal_lwp_days), lwp_base_name)
+        )
     if use_gross and is_continuous_lwp_gross:
         lwp_notes.append(
             _("A single LWP application reached the continuous threshold of {0} days, so LWP is charged on Gross instead of the configured base.").format(threshold_lwp)
@@ -818,10 +770,10 @@ def compute_nepal_hr_variables(doc, data):
             notes=[_("Each late entry, early exit or out-of-office penalty counts as half a day, so the daily rate is halved.")],
         ),
         "custom_lwp_deduction_rate": explain(
-            GROSS_BASE if use_gross else lwp_base_name,
-            total_fixed if use_gross else lwp_monthly_base,
-            lwp_deduction_rate,
-            notes=lwp_notes,
+            lwp_base_name, lwp_monthly_base, lwp_deduction_rate, notes=lwp_notes
+        ),
+        "custom_gross_lwp_rate": explain(
+            GROSS_BASE, total_fixed, gross_lwp_rate, notes=lwp_notes
         ),
         "custom_unapproved_absent_rate": explain(
             absent_selection,
@@ -853,7 +805,9 @@ def compute_nepal_hr_variables(doc, data):
         late_entry_half_days + early_exit_half_days + out_of_office_half_days
     )
     half_day_deduction = flt(half_day_penalties * late_deduction_rate, 2)
-    lwp_deduction_amount = flt(lwp_days * lwp_deduction_rate, 2)
+    lwp_deduction_amount = flt(
+        gross_lwp_days * gross_lwp_rate + normal_lwp_days * lwp_deduction_rate, 2
+    )
     absent_deduction_amount = flt(unapproved_absent_days * unapproved_absent_rate, 2)
     penalty_deduction_amount = flt(penalty_days * penalty_deduction_rate, 2)
     leave_late_deduction_total = flt(
@@ -877,6 +831,10 @@ def compute_nepal_hr_variables(doc, data):
     data["unapproved_absent_rate"] = unapproved_absent_rate
     data["penalty_deduction_rate"] = penalty_deduction_rate
     data["late_deduction_rate"] = late_deduction_rate
+    data["gross_lwp_days"] = gross_lwp_days
+    data["normal_lwp_days"] = normal_lwp_days
+    data["gross_lwp_rate"] = gross_lwp_rate
+    data["max_continuous_lwp_days"] = flt(max_continuous_lwp)
     data["is_continuous_lwp_gross"] = is_continuous_lwp_gross
     data["is_period_leave_gross"] = is_period_leave_gross
     data["period_leave_days"] = period_leave_days
@@ -920,6 +878,9 @@ def compute_nepal_hr_variables(doc, data):
         "custom_leave_late_deduction_total": leave_late_deduction_total,
         "custom_is_continuous_lwp_gross": is_continuous_lwp_gross,
         "custom_is_period_leave_gross": is_period_leave_gross,
+        "custom_gross_lwp_days": gross_lwp_days,
+        "custom_gross_lwp_rate": flt(gross_lwp_rate, 2),
+        "custom_max_continuous_lwp_days": flt(max_continuous_lwp),
     }
     for fieldname, value in visible_values.items():
         if doc.meta.has_field(fieldname):
@@ -968,6 +929,23 @@ def compute_nepal_hr_variables(doc, data):
     }
 
 
+
+def _total_unpaid_days(doc):
+    """Full unpaid bucket: genuine absence plus every C&R penalty.
+
+    HRMS computes this into absent_days; we snapshot it before absent_days is
+    narrowed to genuine absence, so a recompute never loses the penalty half.
+    """
+    if doc.meta.has_field("custom_total_unpaid_days"):
+        # Zero reads as "never snapshotted" -- slips saved before this field existed
+        # carry the real bucket on absent_days, and trusting their 0 would drop it.
+        # When the bucket genuinely is 0, absent_days is 0 too, so the answer is same.
+        stored = flt(doc.get("custom_total_unpaid_days") or 0)
+        if stored:
+            return stored
+    return flt(doc.absent_days or 0)
+
+
 def apply_manual_absent_days(doc, manual_absent, calculated_absent):
     """Keep user-edited absent days and adjust payment days by the delta."""
     manual_absent = max(flt(manual_absent), 0.0)
@@ -975,13 +953,16 @@ def apply_manual_absent_days(doc, manual_absent, calculated_absent):
     delta = manual_absent - calculated_absent
     if abs(delta) > 1e-9:
         doc.payment_days = max(flt(doc.payment_days) - delta, 0.0)
-        frappe.msgprint(
-            _("Absent Days set manually. Attendance had {0} absent day(s).").format(
-                calculated_absent
-            ),
-            indicator="orange",
-            alert=True,
-        )
+        # A sync pulled this figure straight off Attendance; calling that "manual"
+        # would send the reader looking for an edit nobody made.
+        if not cint(getattr(getattr(doc, "flags", None), "absent_days_from_attendance", 0)):
+            frappe.msgprint(
+                _("Absent Days set manually. Attendance had {0} absent day(s).").format(
+                    calculated_absent
+                ),
+                indicator="orange",
+                alert=True,
+            )
     doc.absent_days = manual_absent
     return manual_absent
 
@@ -1000,15 +981,46 @@ class CustomSalarySlip(SalarySlip):
             self.flags.use_manual_absent_days = 1
         super().validate()
 
+    @contextmanager
+    def _bs_extended_period(self):
+        """Run a block with start_date moved back to BS day 29 of the prior month.
+
+        HRMS derives working days, holidays and attendance from self.start_date, so
+        the span has to move for the whole calculation, not just our own scans. The
+        stored start_date is restored afterwards: it names the document and belongs
+        to the Payroll Entry.
+        """
+        from nepal_hrms.custom_code.payroll.bs_period import effective_start_date
+
+        original = self.start_date
+        extended = effective_start_date(self)
+        if getdate(extended) == getdate(original):
+            yield
+            return
+        self.start_date = extended
+        try:
+            yield
+        finally:
+            self.start_date = original
+
     def get_working_days_details(self, lwp=None, for_preview=0):
+        with self._bs_extended_period():
+            return self._get_working_days_details(lwp=lwp, for_preview=for_preview)
+
+    def _get_working_days_details(self, lwp=None, for_preview=0):
         use_manual_absent = _manual_absent_override_enabled(self)
-        manual_absent = flt(self.absent_days) if use_manual_absent else None
+        # A resave starts from the full bucket, not the narrowed absent_days the
+        # previous run left behind -- otherwise every save sheds the penalties.
+        manual_absent = flt(_total_unpaid_days(self)) if use_manual_absent else None
 
         super().get_working_days_details(lwp=lwp, for_preview=for_preview)
 
         if manual_absent is not None and not for_preview:
             calculated_absent = flt(self.absent_days)
             apply_manual_absent_days(self, manual_absent, calculated_absent)
+
+        if not for_preview and self.meta.has_field("custom_total_unpaid_days"):
+            self.custom_total_unpaid_days = flt(self.absent_days)
 
         # Formulas may have already run against stale absent_days; force a rebuild.
         for attr in ("_nepal_hr_variables_loaded", "_nepal_hr_vars"):
@@ -1023,6 +1035,32 @@ class CustomSalarySlip(SalarySlip):
                 self.custom_absent_days_manual = 1
         self.get_working_days_details(lwp=self.leave_without_pay)
         self.calculate_net_pay()
+
+    def calculate_lwp_or_ppl_based_on_leave_application(
+        self, holidays, working_days_list, daily_wages_fraction_for_half_day
+    ):
+        """Let Leave Type.include_holiday decide, as the setting promises.
+
+        HRMS strips holidays out of working_days_list before this runs whenever
+        Payroll Settings.include_holidays_in_total_working_days is off, so its own
+        `if not leave.include_holiday and d in holidays: continue` never sees them
+        and a holiday inside an LWP stretch is silently free. Hand the holidays back
+        and that test does its job -- leave types that exclude holidays still skip
+        them, and the Monthly Attendance Sheet BS and the slip agree on the count.
+        """
+        start = getdate(self.start_date)
+        end = getdate(self.actual_end_date or self.end_date)
+        days = list(working_days_list)
+        known = {getdate(day) for day in days}
+        for holiday in holidays or []:
+            day = getdate(holiday)
+            if start <= day <= end and day not in known:
+                days.append(day)
+        days.sort()
+
+        return super().calculate_lwp_or_ppl_based_on_leave_application(
+            holidays, days, daily_wages_fraction_for_half_day
+        )
 
     def calculate_lwp_ppl_and_absent_days_based_on_attendance(
         self, holidays, daily_wages_fraction_for_half_day, consider_marked_attendance_on_holidays

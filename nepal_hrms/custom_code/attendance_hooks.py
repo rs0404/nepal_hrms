@@ -1,5 +1,6 @@
-# Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
-# For license information, please see license.txt
+import frappe
+from frappe import _
+from frappe.utils import format_date, get_link_to_form, getdate
 
 from nepal_hrms.custom_code.attendance_policy import (
 	_cnr_snapshot,
@@ -45,8 +46,44 @@ def validate_attendance(doc, method=None):
 	_apply_and_flag_comment(doc)
 
 
+def guard_duplicate_attendance(doc, method=None):
+	"""Refuse a second submitted Attendance for one employee and date.
+
+	HRMS inserts leave-driven Attendance with flags.ignore_validate set, which skips
+	validate() and with it its own validate_duplicate_record(). A Leave Application
+	whose lookup misses an existing row then inserts a second one, and both are
+	counted -- a half-day leave billed twice. before_submit still runs, so the check
+	belongs here where nothing can bypass it.
+	"""
+	if not doc.employee or not doc.attendance_date:
+		return
+
+	duplicate = frappe.db.get_value(
+		"Attendance",
+		{
+			"employee": doc.employee,
+			"attendance_date": getdate(doc.attendance_date),
+			"docstatus": 1,
+			"name": ["!=", doc.name],
+		},
+		"name",
+	)
+	if not duplicate:
+		return
+
+	frappe.throw(
+		_("Attendance for {0} on {1} is already submitted: {2}").format(
+			frappe.bold(doc.employee),
+			frappe.bold(format_date(doc.attendance_date)),
+			get_link_to_form("Attendance", duplicate),
+		),
+		title=_("Duplicate Attendance"),
+	)
+
+
 def before_submit_attendance(doc, method=None):
 	"""Ensure C&R minutes/status are applied immediately before submit."""
+	guard_duplicate_attendance(doc)
 	# validate already applied; only re-apply if somehow skipped, avoid duplicate comments
 	if getattr(doc.flags, "cnr_pending_comment", None) is None:
 		_apply_and_flag_comment(doc)

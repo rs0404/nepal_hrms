@@ -1,6 +1,3 @@
-# Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
 """C&R attendance helpers: late/early minutes, grace flags, application linking, OOO hours."""
 
 import frappe
@@ -304,6 +301,12 @@ def _apply_pool_or_major_status(doc, pool_kind, unexcused, was_cnr_half_day, is_
 		if hasattr(doc, "custom_cnr_pool_penalty"):
 			doc.custom_cnr_pool_penalty = ""
 		return
+	# A major delay (beyond max delay) is a half-day penalty in its own right, so it
+	# carries the same ½P mark as a pool occurrence. That is what puts it under
+	# Penalty Days in the BS sheet and on the slip, rather than a separate late /
+	# early half-day line the report has no column for.
+	if not pool_kind and unexcused:
+		pool_kind = "half"
 	previous = (getattr(doc, "custom_cnr_pool_penalty", None) or "").strip()
 	if hasattr(doc, "custom_cnr_pool_penalty"):
 		doc.custom_cnr_pool_penalty = pool_kind or ""
@@ -316,12 +319,6 @@ def _apply_pool_or_major_status(doc, pool_kind, unexcused, was_cnr_half_day, is_
 		doc.status = "Half Day"
 		if hasattr(doc, "half_day_status"):
 			doc.half_day_status = "Absent"
-		return
-	if unexcused:
-		if (doc.status or "") in ("Present", "Half Day", "Absent"):
-			doc.status = "Half Day"
-			if hasattr(doc, "half_day_status"):
-				doc.half_day_status = "Present"
 		return
 	if (
 		was_cnr_half_day

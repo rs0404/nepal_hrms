@@ -8,6 +8,13 @@ frappe.ui.form.on("Salary Slip", {
 
 	refresh(frm) {
 		frm.set_df_property("absent_days", "read_only", 0);
+		frm.set_df_property(
+			"absent_days",
+			"description",
+			__(
+				"Genuine absence only. Late / early penalties are counted separately in Penalty Days, exactly as the Monthly Attendance Sheet BS reports them."
+			)
+		);
 		configure_fixed_and_earned_columns(frm);
 		configure_total_deduction_help(frm);
 		apply_dynamic_rate_help(frm);
@@ -68,6 +75,11 @@ frappe.ui.form.on("Salary Slip", {
     },
 
 	absent_days(frm) {
+		// A typed figure replaces the stored bucket outright; leaving the old one
+		// behind would make the server recompute from a number nobody entered.
+		if (frm.fields_dict.custom_total_unpaid_days) {
+			frm.set_value("custom_total_unpaid_days", frm.doc.absent_days);
+		}
 		recalculate_salary_from_working_days(frm, { use_manual_absent: true });
 	},
 });
@@ -234,8 +246,11 @@ const SALARY_SLIP_HELP_FIELDS = [
 	"custom_out_of_office_half_days",
 	"custom_unapproved_absent_days",
 	"custom_penalty_days",
+	"custom_max_continuous_lwp_days",
+	"custom_gross_lwp_days",
 	"custom_late_deduction_rate",
 	"custom_lwp_deduction_rate",
+	"custom_gross_lwp_rate",
 	"custom_unapproved_absent_rate",
 	"custom_penalty_deduction_rate",
 	"custom_is_continuous_lwp_gross",

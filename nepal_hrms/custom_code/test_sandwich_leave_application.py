@@ -1,4 +1,3 @@
-# Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
 from datetime import date
 from unittest import TestCase
 from unittest.mock import patch
@@ -123,3 +122,48 @@ class TestEvaluateLeaveSandwich(TestCase):
 			_day_is_full_leave_or_absent("EMP-001", date(2026, 8, 24))
 		)
 		self.assertEqual(get_attendance.call_args.args[1]["docstatus"], 1)
+
+	def test_pre_existing_sandwich_elsewhere_does_not_block(self):
+		"""HR-LAP for 2026-07-16 must not trip on the 07-24/07-27 sandwich."""
+		result = self._run(
+			holidays=[
+				date(2026, 7, 18),
+				date(2026, 7, 19),
+				date(2026, 7, 25),
+				date(2026, 7, 26),
+			],
+			leave_anchor_days=[
+				date(2026, 7, 17),
+				date(2026, 7, 23),
+				date(2026, 7, 24),
+				date(2026, 7, 27),
+				date(2026, 7, 28),
+			],
+			from_date=date(2026, 7, 16),
+			to_date=date(2026, 7, 16),
+			current_leave={
+				"name": "LAP-NEW",
+				"from_date": date(2026, 7, 16),
+				"to_date": date(2026, 7, 16),
+			},
+		)
+		self.assertFalse(result["violation"])
+		self.assertEqual(result["uncovered_holidays"], [])
+
+	def test_sandwich_anchored_by_this_application_still_blocks(self):
+		"""Same calendar, but the application itself is the Friday anchor."""
+		result = self._run(
+			holidays=[date(2026, 7, 25), date(2026, 7, 26)],
+			leave_anchor_days=[date(2026, 7, 27)],
+			from_date=date(2026, 7, 24),
+			to_date=date(2026, 7, 24),
+			current_leave={
+				"name": "LAP-FRI",
+				"from_date": date(2026, 7, 24),
+				"to_date": date(2026, 7, 24),
+			},
+		)
+		self.assertTrue(result["violation"])
+		self.assertEqual(
+			result["uncovered_holidays"], ["2026-07-25", "2026-07-26"]
+		)

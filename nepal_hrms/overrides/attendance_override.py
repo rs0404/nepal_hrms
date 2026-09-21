@@ -1,6 +1,3 @@
-# Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
 """
 Override for mark_attendance_and_link_log from HRMS.
 When unapproved OOO Work check-ins are present:
@@ -406,6 +403,9 @@ def compute_hours_from_checkin_rows(rows, shift_name=None):
 		has_normal=has_normal,
 		has_ooo=has_ooo,
 		has_unapproved_ooo=has_unapproved_ooo,
+		# An IN with no OUT after it. The hours are unknowable, not zero: someone who
+		# punched in was here. Callers must not read the resulting status as absence.
+		unpaired_in=last_in_time is not None,
 		status=status,
 	)
 
@@ -442,12 +442,20 @@ def compute_day_hours_from_checkins(employee, attendance_date):
 	return computed
 
 
+def _has_approved_attendance_request(attendance):
+	"""True when this Attendance row was written by a submitted Attendance Request."""
+	request = getattr(attendance, "attendance_request", None)
+	if not request:
+		return False
+	return cint(frappe.db.get_value("Attendance Request", request, "docstatus")) == 1
+
+
 def sync_attendance_hours_from_checkins(employee, attendance_date):
 	"""
 	Rewrite Attendance hours/status from all punches that day.
 
 	Used when a late biometric IN arrives after OOO-only attendance was already marked.
-	Does not override On Leave.
+	Does not override On Leave, nor a status an approved Attendance Request set.
 	"""
 	attendance_date = getdate(attendance_date)
 	attendance_name = get_attendance_for_employee_date(employee, attendance_date)
@@ -462,9 +470,17 @@ def sync_attendance_hours_from_checkins(employee, attendance_date):
 	before_status = attendance.status
 	before_hours = flt(attendance.working_hours)
 
+	# Two cases where the computed status must not overwrite the stored one. An
+	# approved Attendance Request is a manager's ruling on the day. An unpaired IN
+	# means the punch record is incomplete, not that nobody came -- treating the
+	# resulting 0 hours as absence marks present people absent and silently undoes
+	# any correction. Hours and times still refresh in both cases.
+	keep_status = _has_approved_attendance_request(attendance) or computed.unpaired_in
+	status = attendance.status if keep_status else computed.status
+
 	values = {
 		"working_hours": computed.total_hours,
-		"status": computed.status,
+		"status": status,
 		"in_time": computed.first_in,
 		"out_time": computed.last_out,
 		"late_entry": attendance.late_entry,

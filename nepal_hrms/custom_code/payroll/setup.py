@@ -1,6 +1,3 @@
-# Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
 """One-click Nepal payroll setup, driven from Nepal HRMS Settings.
 
 Creates the salary components, four salary structures, and the income tax slab,
@@ -127,12 +124,11 @@ def _shared_components(scheme):
 	return comps
 
 
-LEAVE_LATE_FORMULA = (
-	"(late_entry_half_days + early_exit_half_days + out_of_office_half_days) * late_deduction_rate "
-	"+ lwp_days * lwp_deduction_rate "
-	"+ unapproved_absent_days * unapproved_absent_rate "
-	"+ penalty_days * penalty_deduction_rate"
-)
+LEAVE_LATE_FORMULA = "leave_late_deduction_total"
+# One figure, computed once in compute_nepal_hr_variables and applied to earnings
+# by the earned-salary pass. Spelling the terms out again here let the row drift
+# from the amount actually charged every time a term moved -- which is how
+# late/early half days leaving for penalty_days silently halved this row.
 
 
 def _account_map(settings):

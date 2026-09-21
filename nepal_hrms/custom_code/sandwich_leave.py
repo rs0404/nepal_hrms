@@ -70,7 +70,10 @@ def evaluate_leave_sandwich(employee, from_date, to_date, current_leave=None):
 	"""
 	Return sandwich evaluation for a Leave Application date range.
 
-	violation: uncovered holiday/weekend sandwiched between leave/absent on both sides
+	violation: uncovered holiday/weekend sandwiched between leave/absent on both sides,
+		where *this* application is one of the two anchors. A sandwich standing
+		entirely on other days is pre-existing — it belongs to the attendance side
+		and must not block an unrelated application filed nearby.
 	warning: leave touches a weekend/holiday but no true sandwich violation
 	"""
 	from_d = getdate(from_date)
@@ -88,9 +91,14 @@ def evaluate_leave_sandwich(employee, from_date, to_date, current_leave=None):
 		if is_holiday_or_weekend(employee, day) and not (from_d <= day <= to_d):
 			prev_wd = get_adjacent_working_day(employee, day, direction=-1)
 			next_wd = get_adjacent_working_day(employee, day, direction=1)
-			if day_is_full_leave_or_absent_for_sandwich(
-				employee, prev_wd, leave_ctx
-			) and day_is_full_leave_or_absent_for_sandwich(employee, next_wd, leave_ctx):
+			# Only this application's own sandwiches are its problem: at least one
+			# anchoring working day has to sit inside the range being validated.
+			anchored_here = (from_d <= prev_wd <= to_d) or (from_d <= next_wd <= to_d)
+			if (
+				anchored_here
+				and day_is_full_leave_or_absent_for_sandwich(employee, prev_wd, leave_ctx)
+				and day_is_full_leave_or_absent_for_sandwich(employee, next_wd, leave_ctx)
+			):
 				uncovered.append(day)
 		day = add_days(day, 1)
 

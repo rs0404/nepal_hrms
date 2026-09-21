@@ -12,3 +12,5 @@ nepal_hrms.patches.v1.configure_attendance_sheet_leave_groups
 nepal_hrms.patches.v1.backfill_cnr_estimated_times
 nepal_hrms.patches.v1.split_penalty_from_absent_deduction
 nepal_hrms.patches.v1.clear_unexcused_flags_covered_by_leave
+nepal_hrms.patches.v1.drop_per_slip_bs_tail_flag
+nepal_hrms.patches.v1.leave_late_formula_single_total
