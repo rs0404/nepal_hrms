@@ -38,6 +38,11 @@ export const OUTCOME = {
 	// Amber, not grey: a rest day should still look like a day. Red numerals do
 	// the rest, so it needs no letter.
 	holiday: { fill: "#fde8c4", ring: "#eda100", code: "" },
+	// A penalty is a charge, not an outcome, so it takes the solid ink of the
+	// ½P / 1P chip rather than borrowing the absent pink. Colouring a charged
+	// half as absence contradicted the summary, which counts it under Penalty
+	// Days and not one hour under Absent.
+	penalty: { fill: "#d6d3d1", ring: "#1c1917", code: "P" },
 }
 
 /**
@@ -93,11 +98,18 @@ export function dayOutcome(info) {
  * have its other half marked Absent, which payroll charges as half a day. Left
  * to the leave flag alone the cell came out present + leave, showing nothing of
  * the half that was actually deducted.
+ *
+ * A ½P comes first of all: that half is a penalty, and calling it absent put the
+ * cell at odds with Penalty Days, which is where the charge is reported.
  */
 export function halfDayParts(info) {
 	if (!info || typeof info === "string") return null
 	const isHalf = !!info.half_day || info.status === "Half Day"
 	if (!isHalf) return null
+	// A ½P is charged as a penalty, not an absence. The worked half stands.
+	if (info.pool_penalty === "half" || info.penalty_mark === "½P") {
+		return ["present", "penalty"]
+	}
 	if (info.half_day_status === "Absent") return ["present", "absent"]
 	const onLeave = !!info.leave || !!info.leave_type || LEAVE_STATUSES.has(info.status)
 	return ["present", onLeave ? "leave" : "absent"]

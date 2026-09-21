@@ -37,6 +37,9 @@ function sheetBsMarkReportPage() {
 // normal-vision ΔE 24.0. Keep the two files in step — HR reads them side by side.
 const SHEET_BS_OUTCOME = {
 	present: { fill: "#c7e9d4", ring: "#008300" },
+	// A penalty is a charge, not an outcome, so it takes the same solid ink as the
+	// ½P / 1P chip rather than borrowing the absent pink.
+	penalty: { fill: "#d6d3d1", ring: "#1c1917" },
 	leave: { fill: "#cbdafa", ring: "#2a78d6" },
 	absent: { fill: "#fad3e7", ring: "#d4537e" },
 	holiday: { fill: "#fde8c4", ring: "#eda100" },
@@ -1414,9 +1417,10 @@ function renderTimeBar(barData, status) {
 		ooo: "#1baf7a",
 		wfh: "#4a3aa7",
 		halfday: SHEET_BS_OUTCOME.present.ring,
-		// The non-worked half of a HD/A: charged as absence, so it takes the
-		// absent colour rather than sharing the covered half's.
+		// The charged half of a HD/A. Absence takes the absent colour; a ½P takes
+		// the penalty ink, so the bar agrees with the pill and with Penalty Days.
 		halfday_absent: SHEET_BS_OUTCOME.absent.ring,
+		halfday_penalty: SHEET_BS_OUTCOME.penalty.ring,
 		gap: SHEET_BS_OUTCOME.absent.ring,
 		extra: "#2a78d6",
 		holiday: "#8a8781",
@@ -1523,13 +1527,16 @@ function isHalfDayCell(status, halfDayFlag, targetAmount) {
 
 function getOtherHalfPillHTML(label, kind, attendance_doc) {
 	if (!label) return "";
-	const isLeave = kind === "leave";
-	// The other half of a half day, so it takes that outcome's own fill.
-	const bg = isLeave ? SHEET_BS_OUTCOME.leave.fill : SHEET_BS_OUTCOME.absent.fill;
+	// The other half of a half day, so it takes that outcome's own colours. This
+	// used to be leave-or-absent, which painted every other kind pink -- a half
+	// worked read as a half absent, in the one colour that means the opposite.
+	const outcome = SHEET_BS_OUTCOME[kind] || SHEET_BS_OUTCOME.absent;
+	const bg = outcome.fill;
+	const ring = outcome.ring;
 	const color = SHEET_BS_INK;
 	let linkStart = attendance_doc ? `<a href="/app/attendance/${attendance_doc}" target="_blank" style="text-decoration:none;color:inherit;">` : "";
 	let linkEnd = attendance_doc ? `</a>` : "";
-	return `${linkStart}<div class="cnr-pill-other cnr-pill-other--${kind || "absent"}" style="display:flex;align-items:center;justify-content:center;background:${bg};color:${color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;border:1px solid rgba(0,0,0,0.08);min-width:28px;line-height:1;margin:0;${attendance_doc ? "cursor:pointer;" : ""}">
+	return `${linkStart}<div class="cnr-pill-other cnr-pill-other--${kind || "absent"}" style="display:flex;align-items:center;justify-content:center;background:${bg};color:${color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;border:1px solid ${ring};min-width:28px;line-height:1;margin:0;${attendance_doc ? "cursor:pointer;" : ""}">
 		<span style="line-height:1;">${frappe.utils.escape_html(String(label).slice(0, 3))}</span>
 	</div>${linkEnd}`;
 }

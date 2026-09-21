@@ -274,6 +274,7 @@ const OUTCOME_LEGEND = [
 	{ key: "present", label: "Present" },
 	{ key: "leave", label: "Leave" },
 	{ key: "absent", label: "Absent" },
+	{ key: "penalty", label: "Penalty (½P / 1P)" },
 	{ key: "holiday", label: "Holiday / weekly off" },
 ].map((o) => ({
 	...o,
