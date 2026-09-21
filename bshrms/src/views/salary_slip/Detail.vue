@@ -11,6 +11,29 @@
 				:tabs="tabs"
 				:showFormButton="false"
 			>
+				<!-- The payslip itself, the way people recognise it. Rendered into an
+				     iframe because a print format is a whole HTML document with its
+				     own styles, which would otherwise bleed into the app. -->
+				<template #printPreview>
+					<div class="flex h-full flex-col">
+						<div v-if="printHTML.loading" class="p-4 text-base text-gray-600">
+							{{ __("Loading salary slip…") }}
+						</div>
+						<ErrorMessage
+							v-else-if="printHTML.error"
+							class="p-4"
+							:message="__('Could not load the salary slip')"
+						/>
+						<iframe
+							v-else-if="printHTML.data?.html"
+							class="w-full grow border-0 bg-white"
+							:srcdoc="printHTML.data.html"
+							:title="__('Salary Slip')"
+							sandbox="allow-same-origin"
+						/>
+					</div>
+				</template>
+
 				<!-- Child Tables -->
 				<template #earnings="{ isFormReadOnly }">
 					<SalaryDetailTable
@@ -78,7 +101,16 @@ const formFields = createResource({
 })
 formFields.reload()
 
+const printHTML = createResource({
+	url: "nepal_hrms.api.salary_slip_print.get_salary_slip_html",
+	params: { name: props.id },
+	auto: true,
+})
+
 const tabs = [
+	// First, because it is what the employee came to see. The field tabs stay
+	// behind it for anyone checking how a figure was reached.
+	{ name: "Salary Slip", slot: "printPreview" },
 	{ name: "Details", lastField: "payment_days" },
 	{ name: "Earnings & Deductions", lastField: "base_total_deduction" },
 	{ name: "Net Pay Info", lastField: "base_total_in_words" },
