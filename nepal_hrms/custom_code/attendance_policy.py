@@ -89,6 +89,72 @@ def compute_late_early_minutes(employee, attendance_date, in_time=None, out_time
 	return late_mins, early_mins
 
 
+def earliest_arrival(doc):
+	"""The day's first check-in, not whichever IN happened to pair with an OUT.
+
+	HRMS records in_time from its own IN/OUT pairing, so a missed lunch punch
+	leaves the afternoon IN there and the morning arrival disappears. Lateness
+	measured from that is hours wrong -- a minor delay reads as a major one and
+	the day is demoted to a half day for a punch nobody missed.
+	"""
+	stored = getattr(doc, "in_time", None)
+	if not doc.employee or not doc.attendance_date:
+		return stored
+	try:
+		from nepal_hrms.overrides.attendance_override import (
+			compute_day_hours_from_checkins,
+		)
+
+		first_in = compute_day_hours_from_checkins(
+			doc.employee, doc.attendance_date
+		).first_in
+	except Exception:
+		return stored
+	if not first_in:
+		return stored
+	if stored and get_datetime(stored) < get_datetime(first_in):
+		return stored
+	return first_in
+
+
+def apply_attendance_request_status(doc, request, holiday=None):
+	"""Mark the day the way an approved Attendance Request says it should read.
+
+	The request is a manager's ruling that the person was working, so it outranks
+	an Absent written by a missing punch or a delay past the max. It does not
+	outrank leave or a day off: those are what the person was actually doing.
+	"""
+	if holiday is not None and getattr(holiday, "is_holiday", False):
+		return
+	status = (doc.status or "").strip()
+	if status in ("On Leave", "Holiday", "Weekly Off"):
+		return
+
+	# A half-day leave already holds the other half. Keep it, and let the request
+	# account for the half it covers rather than overwriting the leave.
+	if getattr(doc, "leave_type", None):
+		doc.status = "Half Day"
+		if hasattr(doc, "half_day_status"):
+			doc.half_day_status = "Present"
+		return
+
+	request = request or {}
+	half_day_date = request.get("half_day_date")
+	if cint(request.get("half_day")) and (
+		not half_day_date or getdate(half_day_date) == getdate(doc.attendance_date)
+	):
+		# HRMS's own convention for a half-day request: the request covers one half,
+		# the other is unpaid unless something else claims it.
+		doc.status = "Half Day"
+		if hasattr(doc, "half_day_status"):
+			doc.half_day_status = "Absent"
+		return
+
+	doc.status = "Present"
+	if hasattr(doc, "half_day_status"):
+		doc.half_day_status = None
+
+
 def _is_genuine_absent(doc):
 	"""Absent that is not an occurrence-pool 1P we wrote."""
 	if (doc.status or "").strip() != "Absent":
@@ -464,7 +530,7 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 	late_mins, early_mins = compute_late_early_minutes(
 		doc.employee,
 		doc.attendance_date,
-		in_time=getattr(doc, "in_time", None),
+		in_time=earliest_arrival(doc),
 		out_time=getattr(doc, "out_time", None),
 		shift=getattr(doc, "shift", None),
 	)
@@ -498,7 +564,9 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 		# custom_cnr_pool_penalty is the only signal the period sweep uses to
 		# recognise a status it wrote itself, so clearing it strands any Half Day /
 		# Absent we put here. Undo that in the same pass or nothing ever will.
-		if apply_unexcused_status and (
+		if apply_unexcused_status and attendance_request_excused:
+			apply_attendance_request_status(doc, attendance_request, holiday)
+		elif apply_unexcused_status and (
 			was_cnr_half_day or previous_penalty in ("half", "full")
 		):
 			from nepal_hrms.custom_code.attendance_holiday import has_checkins
@@ -519,14 +587,18 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 	# penalty_on so the excuse cannot zero core HRMS fields on a site running
 	# without the penalty engine.
 	attendance_request_excused = False
+	attendance_request = None
 	if (
 		penalty_on
 		and not escape_late_early
 		and cint(getattr(settings, "excuse_late_early_on_attendance_request", 0) or 0)
-		and get_approved_attendance_request(doc.employee, doc.attendance_date)
 	):
-		attendance_request_excused = True
-		escape_late_early = True
+		attendance_request = get_approved_attendance_request(
+			doc.employee, doc.attendance_date
+		)
+		if attendance_request:
+			attendance_request_excused = True
+			escape_late_early = True
 
 	unexcused_late = 0
 	unexcused_early = 0
@@ -1013,7 +1085,7 @@ def get_approved_attendance_request(employee, attendance_date):
 			"from_date": ["<=", day],
 			"to_date": [">=", day],
 		},
-		fields=["name", "status", "from_date", "to_date"],
+		fields=["name", "status", "from_date", "to_date", "half_day", "half_day_date"],
 		ignore_permissions=True,
 	)
 	for row in rows:

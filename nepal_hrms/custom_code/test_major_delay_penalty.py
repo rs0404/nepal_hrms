@@ -78,7 +78,8 @@ class TestReportSeesMajorAsPenalty(TestCase):
 		self.assertEqual(day["present_half"], 0.5)
 		self.assertEqual(day["paid_flag"], 0.5)
 
-	def test_unmarked_half_day_still_reads_as_absence(self):
+	def test_an_unmarked_half_day_is_not_a_penalty(self):
+		"""Without the mark it is an ordinary half day: half worked, half absent."""
 		day = classify_attendance_day(
 			status="Half Day",
 			half_day_status="Absent",
@@ -89,4 +90,5 @@ class TestReportSeesMajorAsPenalty(TestCase):
 			pool_penalty="",
 		)
 		self.assertEqual(day["penalty_half"], 0.0)
-		self.assertEqual(day["absent_half"], 1.0)
+		self.assertEqual(day["absent_half"], 0.5)
+		self.assertEqual(day["present_half"], 0.5)
