@@ -746,15 +746,21 @@ def _leave_acronym(leave_type, leave_type_details):
     return leave_type_acronym(leave_type)
 
 
-def _half_day_other_half(status_abbr, leave_type, leave_type_details):
-    """Label for the non-worked half of a half-day attendance cell.
+def _half_day_other_half(status_abbr, leave_type, leave_type_details, pool_penalty=None):
+    """Label for the other half of a half-day attendance cell.
 
     HD/A wins over the leave. A day can carry an approved half-day leave and
     still have Attendance.half_day_status = Absent, and that half is charged as
     half a day of absence -- letting the leave paint the pill blue showed the
     cell as fully covered while payroll deducted for it. The leave is still
     named in the title and listed in the day's applications.
+
+    A ½P is the exception: the main pill already says the penalised half, and
+    the other half was worked. Calling it absent contradicted the summary, which
+    counts the day under Penalty Days and not one hour under Absent.
     """
+    if (pool_penalty or "") == "half":
+        return "P", "present", _("Present (half day) · ½P charged on the other half")
     if status_abbr == "HD/A":
         if leave_type:
             return (
@@ -1666,7 +1672,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 bar_data = build_bar_data(
                     emp.name, curr, day_checkins, att, is_holiday,
                     emp_holidays.get(curr), shift_map, shift_type_details, leave_apps,
-                    status_abbr, emp.default_shift
+                    status_abbr, emp.default_shift, day_penalty
                 )
 
             unexcused_late = cint(getattr(att, "custom_cnr_unexcused_late", 0) or 0) if att else 0
@@ -1694,7 +1700,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             other_half_label, other_half_kind, other_half_title = "", "", ""
             if is_half_day and status_abbr in ("HD/P", "HD/A"):
                 other_half_label, other_half_kind, other_half_title = _half_day_other_half(
-                    status_abbr, leave_type, leave_type_details
+                    status_abbr, leave_type, leave_type_details, day_penalty
                 )
 
             checkin_logs, first_in, last_out = _checkin_payloads(day_checkins)
@@ -1781,6 +1787,7 @@ def build_bar_data(
     leave_apps,
     status_abbr,
     default_shift=None,
+    pool_penalty=None,
 ):
     """Build time bar segment data for a single employee-day."""
     result = {
@@ -1884,8 +1891,9 @@ def build_bar_data(
                         "type": "normal",
                     })
                 else: # HD/A
-                    # First half worked, second half absent -- its own type, so
-                    # the bar shows the charged half in the absent colour.
+                    # First half worked, second half charged -- its own type, so
+                    # the bar names the charge rather than sharing the worked
+                    # half's colour. A ½P is a penalty, not an absence.
                     result["segments"].append({
                         "start": _minutes_to_time(shift_start_mins),
                         "end": _minutes_to_time(half_point),
@@ -1894,7 +1902,7 @@ def build_bar_data(
                     result["segments"].append({
                         "start": _minutes_to_time(half_point),
                         "end": _minutes_to_time(shift_end_mins),
-                        "type": "halfday_absent",
+                        "type": _charged_half_type(pool_penalty),
                     })
         return result
 
@@ -2045,7 +2053,7 @@ def build_bar_data(
 
     if result["is_half_day"]:
         segments = _convert_segments_for_half_day(
-            segments, status_abbr, shift_start_mins, shift_end_mins
+            segments, status_abbr, shift_start_mins, shift_end_mins, pool_penalty
         )
 
     # Sort segments by start time and clean up internal fields
@@ -2058,13 +2066,23 @@ def build_bar_data(
     return result
 
 
-def _convert_segments_for_half_day(segments, status_abbr, shift_start_mins, shift_end_mins):
+def _charged_half_type(pool_penalty):
+    """Segment type for the half a HD/A is charged on."""
+    return "halfday_penalty" if (pool_penalty or "") == "half" else "halfday_absent"
+
+
+def _convert_segments_for_half_day(
+    segments, status_abbr, shift_start_mins, shift_end_mins, pool_penalty=None
+):
     """Mark the non-worked half of the shift instead of stacking purple on green.
 
-    HD/A takes its own type: that half is charged as absence, so the bar shows
-    it in the absent colour rather than sharing the one the covered half uses.
+    HD/A takes its own type: that half is charged, so the bar names the charge
+    rather than sharing the colour the covered half uses. A ½P is a penalty and
+    is coloured as one; anything else is absence.
     """
-    half_type = "halfday_absent" if status_abbr == "HD/A" else "halfday"
+    half_type = (
+        _charged_half_type(pool_penalty) if status_abbr == "HD/A" else "halfday"
+    )
     if not segments:
         half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
         if status_abbr == "HD/A":

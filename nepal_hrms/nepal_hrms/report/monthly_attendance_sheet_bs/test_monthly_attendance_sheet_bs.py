@@ -508,3 +508,37 @@ class TestAttendanceSheetExport(TestCase):
 
 		self.assertTrue(sheet.cell(2, 2).font.bold)
 		self.assertFalse(sheet.cell(2, 3).font.bold)
+
+
+class TestPenaltyHalfPresentation(TestCase):
+	"""A ½P cell reads penalty + present, never penalty + absent."""
+
+	def test_the_other_half_of_a_penalty_day_is_present(self):
+		label, kind, title = report._half_day_other_half("HD/A", None, {}, "half")
+		self.assertEqual((label, kind), ("P", "present"))
+		self.assertIn("½P", title)
+
+	def test_a_penalty_day_carrying_leave_still_reads_present(self):
+		label, kind, _title = report._half_day_other_half("HD/A", "Sick Leave", {}, "half")
+		self.assertEqual((label, kind), ("P", "present"))
+
+	def test_an_unpenalised_hd_a_is_still_absent(self):
+		label, kind, _title = report._half_day_other_half("HD/A", None, {}, "")
+		self.assertEqual((label, kind), ("Ab", "absent"))
+
+	def test_a_full_day_penalty_is_not_a_half_day_case(self):
+		label, kind, _title = report._half_day_other_half("HD/A", None, {}, "full")
+		self.assertEqual((label, kind), ("Ab", "absent"))
+
+	def test_the_charged_half_takes_the_penalty_colour(self):
+		self.assertEqual(report._charged_half_type("half"), "halfday_penalty")
+
+	def test_an_uncharged_half_stays_absent_coloured(self):
+		self.assertEqual(report._charged_half_type(""), "halfday_absent")
+		self.assertEqual(report._charged_half_type(None), "halfday_absent")
+
+	def test_the_bar_conversion_follows_the_penalty(self):
+		penalty = report._convert_segments_for_half_day([], "HD/A", 540, 1050, "half")
+		self.assertEqual(penalty[0]["type"], "halfday_penalty")
+		absence = report._convert_segments_for_half_day([], "HD/A", 540, 1050, None)
+		self.assertEqual(absence[0]["type"], "halfday_absent")
