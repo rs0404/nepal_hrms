@@ -1,6 +1,3 @@
-# Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
 """Attendance day classification -- the single definition of what a day counts as.
 
 This used to live inside the Monthly Attendance Sheet BS report, which made the
@@ -201,14 +198,19 @@ def classify_attendance_day(
         day["paid_flag"] = day["paid_leave_full"]
         return day
     if status == "Half Day":
-        if half_day_status == "Present":
-            day["present_half"] = 0.5
-        else:
-            day["absent_half"] = 0.5
         if leave_type:
+            # Leave claims one half; half_day_status names what the other half was.
+            if half_day_status == "Present":
+                day["present_half"] = 0.5
+            else:
+                day["absent_half"] = 0.5
             _add_leave_unit(day, leave_type, 0.5, leave_type_details, full=False)
         else:
-            day["absent_half"] += 0.5
+            # No leave, so this is an hours-threshold half day: the person worked
+            # half and the other half is unaccounted. Counting the whole day as
+            # absent billed a full absence for someone who was demonstrably here.
+            day["present_half"] = 0.5
+            day["absent_half"] = 0.5
         day["paid_flag"] = (
             day["present_half"] + day["paid_leave_half"]
         )

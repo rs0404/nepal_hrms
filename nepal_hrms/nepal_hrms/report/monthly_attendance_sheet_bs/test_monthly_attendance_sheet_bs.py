@@ -191,10 +191,14 @@ class TestCanonicalPaidDays(TestCase):
 		self.assertEqual(full["penalty_full"], 1)
 		self.assertEqual(full["absent_full"], 0)
 		self.assertEqual(full["paid_flag"], 0)
+		# A half day carrying no leave is an hours-threshold half day: half worked,
+		# half unaccounted. It used to bill a whole day of absence for someone who
+		# was demonstrably present for part of it.
 		plain_half = self.classify(status="Half Day", half_day_status="Absent")
-		self.assertEqual(plain_half["absent_half"], 1.0)
+		self.assertEqual(plain_half["absent_half"], 0.5)
+		self.assertEqual(plain_half["present_half"], 0.5)
 		self.assertEqual(plain_half["penalty_half"], 0)
-		self.assertEqual(plain_half["paid_flag"], 0)
+		self.assertEqual(plain_half["paid_flag"], 0.5)
 
 	def test_summary_column_order_is_exact(self):
 		columns = report.get_columns({}, date(2026, 1, 2), date(2026, 1, 1))

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import frappe
 from frappe import _
-from frappe.utils import getdate
+from frappe.utils import add_days, cint, format_date, getdate, today
 
 from nepal_hrms.custom_code.attendance_holiday import get_adjacent_working_day, is_holiday_or_weekend
 from nepal_hrms.custom_code.sandwich_leave import evaluate_leave_sandwich
@@ -10,6 +10,62 @@ from nepal_hrms.custom_code.sandwich_leave import evaluate_leave_sandwich
 def validate_leave_application_reason(doc, method=None):
 	if not (doc.description or "").strip():
 		frappe.throw(_("Reason is required."))
+
+
+def exempt_leave_types(settings):
+	"""Leave types the submission deadline does not apply to."""
+	rows = getattr(settings, "leave_types_exempt_from_deadline", None) or []
+	names = set()
+	for row in rows:
+		# get_singles_dict hands back plain dicts; a loaded Single hands back rows.
+		leave_type = row.get("leave_type") if isinstance(row, dict) else getattr(row, "leave_type", None)
+		if leave_type:
+			names.add(leave_type)
+	return names
+
+
+def validate_leave_application_deadline(doc, method=None):
+	"""Block back-dated leave once the window has passed, bar the exempt types.
+
+	Sickness is not known in advance, so a site can keep specific types open while
+	everything else has to be filed within the configured days of the leave ending.
+	"""
+	from nepal_hrms.custom_code.attendance_policy import get_hr_settings
+
+	if doc.docstatus == 2 or (doc.status or "") == "Cancelled":
+		return
+	if not doc.to_date:
+		return
+
+	settings = get_hr_settings()
+	if not cint(getattr(settings, "enable_leave_application_deadline", 0) or 0):
+		return
+	if doc.leave_type in exempt_leave_types(settings):
+		return
+
+	from nepal_hrms.custom_code.policy_escape import has_policy_escape
+
+	if doc.employee and has_policy_escape(doc.employee, "escape_applications", doc.to_date):
+		return
+
+	max_days = max(cint(getattr(settings, "late_early_application_max_days", None) or 2), 0)
+	deadline = add_days(getdate(doc.to_date), max_days)
+	if getdate(today()) <= deadline:
+		return
+
+	frappe.throw(
+		_(
+			"{0} leave ending {1} cannot be filed now. It had to be submitted within "
+			"{2} day(s) of that date (deadline was {3}). Ask HR to add {0} to the "
+			"exempt leave types if it should stay open."
+		).format(
+			doc.leave_type,
+			format_date(doc.to_date),
+			max_days,
+			format_date(deadline),
+		),
+		title=_("Leave Submission Deadline Passed"),
+	)
 
 
 def validate_leave_balance_including_drafts(doc, method=None):

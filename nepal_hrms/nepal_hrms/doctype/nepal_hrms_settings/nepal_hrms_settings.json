@@ -28,6 +28,8 @@
   "enable_late_early_application_deadline",
   "column_break_deadline",
   "late_early_application_max_days",
+  "enable_leave_application_deadline",
+  "leave_types_exempt_from_deadline",
   "sandwich_section",
   "enable_leave_sandwich_rule",
   "column_break_sandwich",
@@ -286,11 +288,26 @@
   },
   {
    "default": "2",
-   "depends_on": "eval: doc.enable_late_early_application_deadline === 1",
-   "description": "Max days after the attendance date to submit a Late Entry, Early Exit or Out of Office Application. Example: 2 means the form must be filed within 2 days of that attendance date.",
+   "depends_on": "eval: doc.enable_late_early_application_deadline === 1 || doc.enable_leave_application_deadline === 1",
+   "description": "Max days after the attendance date to submit a Late Entry, Early Exit or Out of Office Application. Example: 2 means the form must be filed within 2 days of that attendance date. The Leave Submission Deadline uses the same window, measured from the leave's end date.",
    "fieldname": "late_early_application_max_days",
    "fieldtype": "Int",
    "label": "Max Days to Submit Application"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, a Leave Application filed more than the max days below after its own end date is blocked. Leave types listed beside this stay open indefinitely -- sickness is rarely known in advance.",
+   "fieldname": "enable_leave_application_deadline",
+   "fieldtype": "Check",
+   "label": "Enable Leave Submission Deadline"
+  },
+  {
+   "depends_on": "eval: doc.enable_leave_application_deadline === 1",
+   "description": "Leave types exempt from the deadline. Anything not listed is blocked once the window has passed.",
+   "fieldname": "leave_types_exempt_from_deadline",
+   "fieldtype": "Table MultiSelect",
+   "label": "Leave Types Exempt from the Deadline",
+   "options": "Nepal HRMS Frequent Leave Type"
   },
   {
    "fieldname": "sandwich_section",
