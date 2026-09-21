@@ -83,6 +83,12 @@
 						</ul>
 					</div>
 
+					<template v-for="tab in slotTabs" :key="tab.name">
+						<div v-show="tab.name === activeTab" class="h-full">
+							<slot :name="tab.slot" :isFormReadOnly="isFormReadOnly"></slot>
+						</div>
+					</template>
+
 					<template v-for="(fieldList, tabName, index) in tabFields">
 						<div
 							v-show="tabName === activeTab"
@@ -563,6 +569,8 @@ watch(
 	{ immediate: true }
 )
 
+const slotTabs = computed(() => (props.tabs || []).filter((tab) => tab.slot))
+
 const tabFields = computed(() => {
 	let fieldsByTab = {}
 	let fieldList = []
@@ -570,6 +578,9 @@ const tabFields = computed(() => {
 	let lastFieldIndex = 0
 
 	props.tabs?.forEach((tab) => {
+		// A tab with a slot draws its own content -- a rendered print format, say --
+		// and must not eat into the field ranges the field tabs are sliced from.
+		if (tab.slot) return
 		lastFieldIndex = props.fields.findIndex(
 			(field) => field.fieldname === tab.lastField
 		)
