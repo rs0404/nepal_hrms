@@ -22,6 +22,7 @@
   "column_break_escapes",
   "escape_absent_gross",
   "escape_applications",
+  "escape_attendance_deduction",
   "section_reason",
   "reason"
  ],
@@ -136,6 +137,13 @@
    "fieldname": "escape_applications",
    "fieldtype": "Check",
    "label": "Escape Late / Early / OOO Applications"
+  },
+  {
+   "default": "0",
+   "description": "Pay is driven by leave alone. Absent days, \u00bdP / 1P penalties and late/early/OOO half-days are not charged, and payment days are not reduced by attendance. Only LWP leave applications deduct.",
+   "fieldname": "escape_attendance_deduction",
+   "fieldtype": "Check",
+   "label": "Escape Attendance-Based Deduction"
   },
   {
    "fieldname": "section_reason",

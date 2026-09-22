@@ -93,6 +93,13 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 				default: 0,
 			},
 			{
+				fieldname: "escape_attendance_deduction",
+				label: __("Escape Attendance-Based Deduction"),
+				fieldtype: "Check",
+				default: 0,
+				description: __("Only LWP leave deducts; attendance does not affect pay"),
+			},
+			{
 				fieldname: "section_reason",
 				fieldtype: "Section Break",
 			},
@@ -121,6 +128,7 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 				values.escape_continuous_lwp_gross,
 				values.escape_absent_gross,
 				values.escape_applications,
+				values.escape_attendance_deduction,
 			];
 			if (!flags.some((v) => cint(v))) {
 				frappe.msgprint(__("Select at least one escape rule"));
@@ -138,6 +146,7 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 					escape_continuous_lwp_gross: cint(values.escape_continuous_lwp_gross),
 					escape_absent_gross: cint(values.escape_absent_gross),
 					escape_applications: cint(values.escape_applications),
+					escape_attendance_deduction: cint(values.escape_attendance_deduction),
 					reason: values.reason || "",
 					is_active: 1,
 				},
