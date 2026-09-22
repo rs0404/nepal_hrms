@@ -6,10 +6,10 @@
  "engine": "InnoDB",
  "field_order": ["company", "purpose", "account"],
  "fields": [
-  {"columns": 3, "fieldname": "company", "fieldtype": "Link", "in_list_view": 1, "label": "Company", "options": "Company", "reqd": 1},
+  {"columns": 2, "fieldname": "company", "fieldtype": "Link", "in_list_view": 1, "label": "Company", "options": "Company", "reqd": 1},
   {"columns": 4, "fieldname": "purpose", "fieldtype": "Select", "in_list_view": 1, "label": "Purpose", "reqd": 1,
-   "options": "Salary Expense\nWages Expense\nOvertime Expense\nSSF Payable\nProvident Fund Payable\nGratuity Payable\nCIT Payable\nInsurance Payable\nTDS Payable\nLeave Encashment Expense (Salary)\nLeave Encashment Expense (Wages)\nEmployer Contribution Expense",
-   "description": "Which kind of payroll posting this account backs. Setup assigns it to every matching Salary Component."},
+   "options": "Salary Expense\nWages Expense\nOvertime Expense\nSSF Payable\nProvident Fund Payable\nGratuity Payable\nCIT Payable\nInsurance Payable\nTDS Payable\nLeave Encashment Expense (Salary)\nLeave Encashment Expense (Wages)\nEmployer Contribution Expense\nEmployer SSF Expense (Salary)\nEmployer SSF Expense (Wages)\nProvident Fund Employer Expense (Salary)\nProvident Fund Employer Expense (Wages)\nGratuity Expense (Salary)\nGratuity Expense (Wages)",
+   "description": "Which kind of payroll posting this account backs. Setup assigns it to every matching Salary Component. An employer contribution looks first for its own purpose, then for Employer Contribution Expense, then falls back to Salary/Wages Expense \u2014 so map only the level of detail you want."},
   {"columns": 4, "fieldname": "account", "fieldtype": "Link", "in_list_view": 1, "label": "Account", "options": "Account", "reqd": 1}
  ],
  "index_web_pages_for_search": 1,

@@ -111,6 +111,7 @@ doc_events = {
 	},
 	"Attendance": {
 		"validate": "nepal_hrms.custom_code.attendance_hooks.validate_attendance",
+		"on_submit": "nepal_hrms.notifications.pwa.notify_attendance",
 		"before_submit": [
 			"nepal_hrms.custom_code.attendance_hooks.before_submit_attendance",
 			"nepal_hrms.api.ooo_attendance.check_ooo_hold",
@@ -120,20 +121,32 @@ doc_events = {
 	},
 	"Late Entry Application": {
 		"validate": "nepal_hrms.custom_code.application_hooks.validate_late_early_application",
+		"after_insert": "nepal_hrms.notifications.pwa.notify_application_created",
 		"before_submit": "nepal_hrms.custom_code.application_hooks.before_submit_cnr_application",
-		"on_submit": "nepal_hrms.custom_code.application_hooks.on_submit_late_early_application",
+		"on_submit": [
+			"nepal_hrms.custom_code.application_hooks.on_submit_late_early_application",
+			"nepal_hrms.notifications.pwa.notify_application_decided",
+		],
 		"on_cancel": "nepal_hrms.custom_code.application_hooks.on_cancel_late_early_application",
 	},
 	"Early Exit Application": {
 		"validate": "nepal_hrms.custom_code.application_hooks.validate_late_early_application",
+		"after_insert": "nepal_hrms.notifications.pwa.notify_application_created",
 		"before_submit": "nepal_hrms.custom_code.application_hooks.before_submit_cnr_application",
-		"on_submit": "nepal_hrms.custom_code.application_hooks.on_submit_late_early_application",
+		"on_submit": [
+			"nepal_hrms.custom_code.application_hooks.on_submit_late_early_application",
+			"nepal_hrms.notifications.pwa.notify_application_decided",
+		],
 		"on_cancel": "nepal_hrms.custom_code.application_hooks.on_cancel_late_early_application",
 	},
 	"Out of Office Application": {
 		"validate": "nepal_hrms.custom_code.application_hooks.validate_ooo_application",
+		"after_insert": "nepal_hrms.notifications.pwa.notify_application_created",
 		"before_submit": "nepal_hrms.custom_code.application_hooks.before_submit_cnr_application",
-		"on_submit": "nepal_hrms.custom_code.application_hooks.on_submit_ooo_application",
+		"on_submit": [
+			"nepal_hrms.custom_code.application_hooks.on_submit_ooo_application",
+			"nepal_hrms.notifications.pwa.notify_application_decided",
+		],
 		"on_cancel": "nepal_hrms.custom_code.application_hooks.on_cancel_ooo_application",
 	},
 	"Salary Structure Assignment": {

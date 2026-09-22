@@ -30,6 +30,19 @@ VARIANTS = ("Salary", "Wages")
 # purpose -> which components draw their account from it
 EXPENSE_PURPOSE = {"Salary": "Salary Expense", "Wages": "Wages Expense"}
 
+# An employer contribution is the company's own cost, not part of what the
+# employee earns, so a site may want it off the wage bill and in an account of
+# its own. Keyed by the component's base name, before the variant suffix.
+EMPLOYER_EXPENSE_PURPOSE = {
+	"Employer's Contribution SSF": "Employer SSF Expense",
+	"Provident Fund Employer": "Provident Fund Employer Expense",
+	"Gratuity": "Gratuity Expense",
+}
+
+# Mapped when a site wants one account for every employer contribution rather
+# than one per kind. Sits between the specific purpose and the wage bill.
+GENERIC_EMPLOYER_PURPOSE = "Employer Contribution Expense"
+
 
 def _settings():
 	return frappe.get_single("Nepal HRMS Settings")
@@ -140,12 +153,38 @@ def _account_map(settings):
 	return out
 
 
-def _apply_account(component_name, purpose, accounts):
-	"""Write Salary Component Account rows for every company mapped to this purpose."""
+def _expense_purposes(component_name, variant):
+	"""Purposes to try for one variant component, most specific first.
+
+	An employer contribution looks for its own purpose, then the generic one,
+	and only then the wage bill. A site that maps none of them keeps posting
+	exactly where it always did, so this never moves an account on its own.
+	"""
+	suffix = f" - {variant}"
+	base = component_name[: -len(suffix)] if component_name.endswith(suffix) else component_name
+
+	specific = EMPLOYER_EXPENSE_PURPOSE.get(base)
+	if not specific:
+		return (EXPENSE_PURPOSE[variant],)
+	return (f"{specific} ({variant})", GENERIC_EMPLOYER_PURPOSE, EXPENSE_PURPOSE[variant])
+
+
+def _apply_account(component_name, purposes, accounts):
+	"""Write Salary Component Account rows, the most specific mapped purpose winning.
+
+	Resolved per company: one company may map a contribution's own expense
+	account while another maps nothing and keeps the variant expense account.
+	"""
+	if isinstance(purposes, str):
+		purposes = (purposes,)
+
 	applied = 0
 	doc = None
-	for (company, mapped_purpose), account in accounts.items():
-		if mapped_purpose != purpose:
+	for company in sorted({company for company, _purpose in accounts}):
+		account = next(
+			(accounts[(company, p)] for p in purposes if (company, p) in accounts), None
+		)
+		if not account:
 			continue
 		doc = doc or frappe.get_doc("Salary Component", component_name)
 		existing = next((a for a in doc.accounts if a.company == company), None)
@@ -169,7 +208,7 @@ def _ensure_components(scheme, ot_multiplier, accounts):
 		for spec in _variant_components(variant, scheme, ot_multiplier):
 			name = _upsert(spec)
 			names.append(name)
-			_apply_account(name, EXPENSE_PURPOSE[variant], accounts)
+			_apply_account(name, _expense_purposes(name, variant), accounts)
 		created[variant] = names
 
 	for spec in _shared_components(scheme):
