@@ -221,12 +221,27 @@ def delay_excused_for_attendance_status(mins, app, employee, attendance_date, gr
 	return _has_half_day_leave(employee, attendance_date)
 
 
-def delay_in_occurrence_pool(mins, app, grace, max_delay):
-	"""True when delay is minor and has no approved application (counts toward monthly pool)."""
+def delay_in_occurrence_pool(mins, app, grace, max_delay, settings=None):
+	"""True when a minor delay counts toward the occurrence pool.
+
+	An approved slip normally keeps the day out of the pool. Personal Work is the
+	arguable case: the slip explains where someone was, but the time was theirs,
+	not the company's -- so a site can choose to keep counting it. Office Work is
+	company time and is never counted, whichever way the setting is set.
+	"""
 	kind = classify_delay(mins, grace, max_delay)
 	if kind != "minor":
 		return False
-	return not app
+	if not app:
+		return True
+
+	if (app.get("type_of_work") or "") != "Personal Work":
+		return False
+
+	settings = settings if settings is not None else get_hr_settings()
+	return bool(
+		cint(getattr(settings, "count_personal_work_in_occurrence_pool", 0) or 0)
+	)
 
 
 def _month_bounds(attendance_date):
@@ -642,7 +657,7 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 				late_mins, lea, doc.employee, doc.attendance_date, grace, max_delay
 			):
 				unexcused_late = 1
-			if delay_in_occurrence_pool(late_mins, lea, grace, max_delay):
+			if delay_in_occurrence_pool(late_mins, lea, grace, max_delay, settings):
 				late_in_pool = 1
 		if doc.early_exit:
 			eea = get_approved_application(
@@ -652,7 +667,7 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 				early_mins, eea, doc.employee, doc.attendance_date, grace, max_delay
 			):
 				unexcused_early = 1
-			if delay_in_occurrence_pool(early_mins, eea, grace, max_delay):
+			if delay_in_occurrence_pool(early_mins, eea, grace, max_delay, settings):
 				early_in_pool = 1
 
 	if hasattr(doc, "custom_cnr_unexcused_late"):
