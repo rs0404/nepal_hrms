@@ -13,6 +13,7 @@ ESCAPE_FLAGS = (
 	"escape_continuous_lwp_gross",
 	"escape_absent_gross",
 	"escape_applications",
+	"escape_attendance_deduction",
 )
 
 

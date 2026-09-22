@@ -40,6 +40,7 @@ def bulk_assign_attendance_policy_escapes(
 	escape_continuous_lwp_gross=0,
 	escape_absent_gross=0,
 	escape_applications=0,
+	escape_attendance_deduction=0,
 	reason=None,
 	is_active=1,
 ):
@@ -59,6 +60,7 @@ def bulk_assign_attendance_policy_escapes(
 		"escape_continuous_lwp_gross": cint(escape_continuous_lwp_gross),
 		"escape_absent_gross": cint(escape_absent_gross),
 		"escape_applications": cint(escape_applications),
+		"escape_attendance_deduction": cint(escape_attendance_deduction),
 	}
 	if not any(flags.values()):
 		frappe.throw(_("Select at least one escape rule"))

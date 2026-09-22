@@ -496,6 +496,12 @@ def compute_nepal_hr_variables(doc, data):
     )
 
     period_escapes = get_policy_escapes_for_period(employee, start_date, end_date)
+    # Pay follows leave alone. get_working_days_details has already handed back
+    # the payment days attendance took and zeroed the absent bucket, which is
+    # what silences the unapproved-absence charge and keeps absent days out of
+    # the period-leave gross threshold; the OOO half-days and the pool penalties
+    # are counted here instead, so they are stopped here.
+    escape_attendance = cint(period_escapes.escape_attendance_deduction)
 
     # 1. Late Entry & Early Exit
     # Nothing to count here any more: every C&R penalty -- pool ½P / 1P and major
@@ -520,7 +526,9 @@ def compute_nepal_hr_variables(doc, data):
         fields=["attendance_date", "total_hours", "type_of_work"],
     )
     for ooo in ooo_apps:
-        if has_policy_escape(employee, "escape_applications", ooo.attendance_date):
+        if escape_attendance or has_policy_escape(
+            employee, "escape_applications", ooo.attendance_date
+        ):
             continue
         if ooo.type_of_work == "Personal Work" and flt(ooo.total_hours) > max_paid_ooo:
             if not _has_half_day_leave(employee, ooo.attendance_date):
@@ -548,6 +556,10 @@ def compute_nepal_hr_variables(doc, data):
     # split drive the genuine-absence count negative if the two disagree.
     penalty_days, penalty_dates = get_pool_penalty_days(employee, start_date, end_date)
     penalty_days = flt(penalty_days)
+    if escape_attendance:
+        # Cleared rather than left at rate 0: a breakdown listing penalty dates
+        # next to a zero charge reads as a bug, not as an escape.
+        penalty_days, penalty_dates = 0.0, []
     # Only the penalty days HRMS already folded into absent_days come back out of
     # it. A penalty assigned live, on a row still reading Present, was never in
     # that bucket -- clamping the whole figure against it used to zero the charge
@@ -805,6 +817,13 @@ def compute_nepal_hr_variables(doc, data):
             _("Penalty Deduction Base is not set, so the Half-Day Deduction Base is used.")
         )
 
+    if escape_attendance:
+        escape_note = _(
+            "A policy escape pays this employee on leave alone, so attendance charges nothing this period."
+        )
+        absent_notes.append(escape_note)
+        penalty_notes.append(escape_note)
+
     rate_explanations = {
         "custom_late_deduction_rate": explain(
             half_day_base_name,
@@ -943,6 +962,7 @@ def compute_nepal_hr_variables(doc, data):
                 "penalty_deduction_base": penalty_base_name,
                 "penalty_dates": penalty_dates,
                 "total_absent_days": total_absent_days,
+                "escape_attendance_deduction": escape_attendance,
                 "period_leave_days": period_leave_days,
                 "is_period_leave_gross": is_period_leave_gross,
                 "rate_explanations": rate_explanations,
@@ -1092,10 +1112,48 @@ class CustomSalarySlip(SalarySlip):
         if not for_preview and self.meta.has_field("custom_total_unpaid_days"):
             self.custom_total_unpaid_days = flt(self.absent_days)
 
+        if not for_preview:
+            self._restore_attendance_escaped_days()
+
         # Formulas may have already run against stale absent_days; force a rebuild.
         for attr in ("_nepal_hr_variables_loaded", "_nepal_hr_vars"):
             if hasattr(self, attr):
                 delattr(self, attr)
+
+    def _restore_attendance_escaped_days(self):
+        """Give back every payment day attendance took, for an escaped employee.
+
+        HRMS subtracts LWP *and* the attendance bucket -- absent, unmarked days
+        and half-absent days -- from payment_days, folding the latter three into
+        absent_days as it goes. absent_days is therefore exactly the attendance
+        share of the reduction, so adding it back leaves the LWP share standing
+        and nothing else. Zeroing it here is what also keeps the deduction
+        pipeline quiet: total_absent_days, the unapproved-absence charge and the
+        period-leave gross threshold all read this figure through
+        _total_unpaid_days(), so they see a clean attendance month too.
+        """
+        if not self.employee:
+            return
+
+        from nepal_hrms.custom_code.policy_escape import get_policy_escapes_for_period
+
+        escapes = get_policy_escapes_for_period(
+            self.employee, self.start_date, self.end_date
+        )
+        if not cint(escapes.escape_attendance_deduction):
+            return
+
+        absent = flt(self.absent_days)
+        if absent > 0:
+            # total_working_days is the ceiling: LWP has already come out of
+            # payment_days and must stay out.
+            self.payment_days = min(
+                flt(self.payment_days) + absent,
+                max(flt(self.total_working_days) - flt(self.leave_without_pay), 0.0),
+            )
+        self.absent_days = 0.0
+        if self.meta.has_field("custom_total_unpaid_days"):
+            self.custom_total_unpaid_days = 0.0
 
     @frappe.whitelist()
     def process_salary_based_on_working_days(self, use_manual_absent=0):
