@@ -12,6 +12,7 @@
   "send_to_employee",
   "send_to_reports_to",
   "send_to_approver",
+  "send_to_pwa",
   "channel",
   "message"
  ],
@@ -71,6 +72,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Approver"
+  },
+  {
+   "default": "0",
+   "fieldname": "send_to_pwa",
+   "fieldtype": "Check",
+   "label": "PWA",
+   "description": "Also deliver to the BSHRMS PWA as a PWA Notification, and push it to the device. Recipients follow the Employee / Reports To / Approver boxes on this row. Leave Application is excluded: HRMS already notifies it."
   },
   {
    "depends_on": "eval: doc.send_to_channel",

@@ -126,6 +126,11 @@ const allowPushNotifications = computed(
 		arePushNotificationsEnabled.data
 )
 
+// Doctypes with no detail view of their own, sent somewhere useful instead.
+const FALLBACK_ROUTE_BY_TYPE = {
+	Attendance: { name: "AttendanceDashboard" },
+}
+
 const markAllAsRead = createResource({
 	url: "hrms.api.mark_all_notifications_as_read",
 	onSuccess() {
@@ -145,8 +150,19 @@ function markAsRead(name) {
 }
 
 function getItemRoute(item) {
+	// The route name is derived from the doctype, so a notification about a
+	// doctype with no detail view here -- Attendance, for one -- would resolve
+	// to nothing and router-link throws while rendering the whole list. Fall
+	// back to a real route instead of losing the page.
+	const type = item.reference_document_type || ""
+	const name = `${type.replace(/\s+/g, "")}DetailView`
+
+	if (!type || !item.reference_document_name || !router.hasRoute(name)) {
+		return FALLBACK_ROUTE_BY_TYPE[type] || { name: "Home" }
+	}
+
 	return {
-		name: `${item.reference_document_type.replace(/\s+/g, "")}DetailView`,
+		name,
 		params: { id: item.reference_document_name },
 	}
 }
