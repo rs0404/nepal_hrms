@@ -6,7 +6,12 @@ app_email = "support@yarsalabs.com"
 app_license = "GNU General Public License (v3)"
 app_logo_url = "/assets/nepal_hrms/icon/app-icon.svg"
 app_home = "/bshrms"
-required_apps = ["hrms", "nepal_compliance"]
+# Org-qualified on purpose. A bare name that is not yet in the bench's apps.txt
+# sends frappe's installer to GitHub to guess the repo, and an app that lives in
+# neither the frappe nor the erpnext org 404s with InvalidRemoteException instead
+# of the "please install X first" message it meant to show. The repo segment must
+# spell the module name, because install_app matches it against installed_apps.
+required_apps = ["frappe/hrms", "yarsa/nepal_compliance"]
 
 website_route_rules = [
 	{"from_route": "/bshrms/<path:app_path>", "to_route": "bshrms"},
