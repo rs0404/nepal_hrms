@@ -58,6 +58,7 @@ doctype_js = {
 	"Out of Office Application": "public/js/cnr_application.js",
 	"Salary Structure Assignment": "public/js/salary_structure_assignment.js",
 	"Salary Structure": "public/js/salary_structure.js",
+	"Additional Salary": "public/js/additional_salary.js",
 }
 
 doctype_list_js = {
@@ -155,6 +156,9 @@ doc_events = {
 			"nepal_hrms.custom_code.payroll.salary_breakdown.sync_salary_breakdown",
 			"nepal_hrms.custom_code.salary_structure_assignment.validate_leave_encashment",
 		]
+	},
+	"Additional Salary": {
+		"validate": "nepal_hrms.custom_code.payroll.component_variant.validate_component_variant",
 	},
 	"Leave Application": {
 		"validate": [

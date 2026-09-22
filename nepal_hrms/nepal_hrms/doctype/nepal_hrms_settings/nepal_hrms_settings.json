@@ -113,6 +113,8 @@
   "minimum_daily_remuneration",
   "payroll_accounts_section",
   "payroll_accounts",
+  "component_variant_section",
+  "additional_salary_variant_action",
   "payroll_automation_section",
   "enable_scheduled_payroll",
   "scheduled_run_options_section",
@@ -825,6 +827,20 @@
    "fieldtype": "Table",
    "label": "Payroll Accounts",
    "options": "Nepal Payroll Account"
+  },
+  {
+   "description": "An Additional Salary raised against the wrong variant pays the right amount but posts to the wrong expense account. The component picker already hides the opposite variant; this covers records created by import or API.",
+   "fieldname": "component_variant_section",
+   "fieldtype": "Section Break",
+   "label": "Component Variant Check"
+  },
+  {
+   "default": "Block",
+   "description": "What to do when an Additional Salary names a Wages component for an employee on a Salary structure, or the reverse.\n<b>Block</b> - refuse to save, naming the component to use instead.\n<b>Warn</b> - show the message and save anyway.\nComponents with no variant suffix (TDS, CIT, Insurance, SSF and PF) post to liability accounts and are never flagged.",
+   "fieldname": "additional_salary_variant_action",
+   "fieldtype": "Select",
+   "label": "On Variant Mismatch",
+   "options": "Block\nWarn"
   },
   {
    "description": "Creates a Payroll Entry per salary structure on a chosen day of the BS month, for the period that just ended. Runs from the daily scheduler, so the site's scheduler must be enabled.",
