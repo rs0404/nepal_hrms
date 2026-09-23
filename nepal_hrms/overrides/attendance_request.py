@@ -33,23 +33,30 @@ def _prevent_self_attendance_request_approval() -> bool:
 	return True if value is None else bool(cint(value))
 
 
-def _is_own_attendance_request(employee: str) -> bool:
-	emp_user = frappe.db.get_value("Employee", employee, "user_id")
-	return bool(emp_user and emp_user == frappe.session.user)
+def _can_approve_attendance_request(employee: str, on_date=None) -> bool:
+	"""The employee's Leave Approver or anyone above them in Reports To.
+
+	Self-approval needs an Allow Self-Approval policy escape, or the site's
+	prevent-self setting off. See approval_authority.
+	"""
+	from nepal_hrms.custom_code.approval_authority import can_approve
+
+	return can_approve(
+		employee,
+		on_date=on_date,
+		site_allows_self=not _prevent_self_attendance_request_approval(),
+	)
 
 
-def _can_approve_attendance_request(employee: str) -> bool:
-	"""Leave Approver or HR/System Manager; self follows the configured policy."""
-	if _prevent_self_attendance_request_approval() and _is_own_attendance_request(employee):
-		return False
-	user = frappe.session.user
-	roles = set(frappe.get_roles(user))
-	if roles & {"HR Manager", "HR User", "System Manager", "Administrator"}:
-		return True
-	approver = frappe.db.get_value("Employee", employee, "leave_approver")
-	if approver and str(approver).lower() == str(user).lower():
-		return True
-	return _is_own_attendance_request(employee) and not _prevent_self_attendance_request_approval()
+def _assert_can_approve_attendance_request(doc):
+	from nepal_hrms.custom_code.approval_authority import assert_can_approve
+
+	assert_can_approve(
+		doc.employee,
+		_("Attendance Request"),
+		on_date=doc.from_date,
+		site_allows_self=not _prevent_self_attendance_request_approval(),
+	)
 
 
 class CustomAttendanceRequest(AttendanceRequest):
@@ -63,26 +70,22 @@ class CustomAttendanceRequest(AttendanceRequest):
 			frappe.throw(_("Rejection Reason is required when status is Rejected"))
 		if self.status != "Rejected":
 			self.custom_rejection_reason = None
+		# Deciding a request is the approver chain's call. Checked only when the
+		# decision changes, so later system saves of a decided request pass.
 		if (
-			self.status == "Approved"
-			and _prevent_self_attendance_request_approval()
-			and _is_own_attendance_request(self.employee)
+			self.status in ("Approved", "Rejected")
+			and not self.flags.ignore_permissions
+			and (self.is_new() or self.has_value_changed("status"))
 		):
-			frappe.throw(_("Self-approval for Attendance Requests is not allowed"))
+			_assert_can_approve_attendance_request(self)
 
 	def before_submit(self):
+		# Submitting is approving. Covers self-submission too: an employee may
+		# only submit their own with an Allow Self-Approval escape.
+		if not self.flags.ignore_permissions:
+			_assert_can_approve_attendance_request(self)
 		if self.status == "Rejected":
 			frappe.throw(_("Cannot submit a Rejected Attendance Request"))
-		if (
-			_prevent_self_attendance_request_approval()
-			and _is_own_attendance_request(self.employee)
-		):
-			frappe.throw(
-				_(
-					"You cannot submit your own Attendance Request. "
-					"Your Leave Approver (or HR) must approve and submit it."
-				)
-			)
 		# Submitting an Open request implies approval
 		if self.status in (None, "", "Open"):
 			self.status = "Approved"
@@ -219,7 +222,8 @@ def can_approve_attendance_request(employee=None, name=None):
 		employee = frappe.db.get_value("Attendance Request", name, "employee")
 	if not employee:
 		return False
-	return _can_approve_attendance_request(employee)
+	on_date = frappe.db.get_value("Attendance Request", name, "from_date") if name else None
+	return _can_approve_attendance_request(employee, on_date)
 
 
 @frappe.whitelist()
@@ -233,7 +237,7 @@ def set_attendance_request_approval(name, status, rejection_reason=None):
 	if doc.docstatus != 0:
 		frappe.throw(_("Only draft Attendance Requests can be approved or rejected"))
 
-	if not _can_approve_attendance_request(doc.employee):
+	if not _can_approve_attendance_request(doc.employee, doc.from_date):
 		frappe.throw(_("Not permitted to approve or reject this Attendance Request"), frappe.PermissionError)
 
 	if status == "Rejected":

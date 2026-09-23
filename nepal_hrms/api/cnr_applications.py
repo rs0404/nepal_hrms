@@ -14,18 +14,18 @@ CNR_DOCTYPES = (
 
 
 def _team_employee_names(approver_user=None):
-	"""Employees whose leave_approver is the given user (User id / email)."""
+	"""Employees whose approvals reach the given user (User id / email).
+
+	Their Leave Approver, or anyone above that approver in Reports To. HR roles
+	see no one extra: approval follows the org chart (see approval_authority).
+	Returns None only for Administrator, meaning everyone.
+	"""
+	from nepal_hrms.custom_code.approval_authority import approvable_employees
+
 	approver_user = approver_user or frappe.session.user
-	names = frappe.get_all(
-		"Employee",
-		filters={"leave_approver": approver_user, "status": "Active"},
-		pluck="name",
-	)
-	# Also allow HR Manager / HR User to see all draft apps for approval
-	roles = frappe.get_roles(approver_user)
-	if "HR Manager" in roles or "HR User" in roles or "System Manager" in roles:
-		return None  # no employee filter — all drafts
-	return names or ["__none__"]
+	if approver_user == "Administrator":
+		return None
+	return approvable_employees(approver_user) or ["__none__"]
 
 
 @frappe.whitelist()
@@ -52,9 +52,9 @@ def get_cnr_applications(doctype, employee=None, for_approval=0, limit=20):
 		roles = set(frappe.get_roles())
 		is_hr = bool(roles & {"HR Manager", "HR User", "System Manager"})
 		if employee and employee != session_employee and not is_hr:
-			# Check if user is the employee's leave approver
-			leave_approver = frappe.db.get_value("Employee", employee, "leave_approver")
-			if leave_approver != frappe.session.user:
+			# The employee's approver chain may look, as well as HR.
+			team = _team_employee_names()
+			if team is not None and employee not in team:
 				frappe.throw(_("Not permitted"), frappe.PermissionError)
 		filters.update({"employee": employee or session_employee, "docstatus": ["<", 2]})
 
@@ -87,7 +87,11 @@ def get_cnr_applications(doctype, employee=None, for_approval=0, limit=20):
 	if meta.has_field("from_time"):
 		fields.extend(["from_time", "to_time", "total_hours"])
 
-	rows = frappe.get_list(
+	# The approval queue is already narrowed to the user's own team, and someone
+	# higher up the Reports To chain may hold no permission on these documents,
+	# so it reads them directly. Everything else goes through permissions.
+	list_fn = frappe.get_all if for_approval else frappe.get_list
+	rows = list_fn(
 		doctype,
 		filters=filters,
 		fields=fields,
@@ -107,20 +111,20 @@ def _resolve_employee(employee=None):
 
 @frappe.whitelist()
 def get_team_employee_names():
-	"""Employee names the current user approves (leave_approver), or all active for HR.
+	"""Employee names whose approvals reach the current user, or all for Administrator.
 
 	Used by PWA list views to build a correct "Team" filter instead of
 	`employee != me`, which leaks unrelated employees into the approver queue.
 	"""
 	team = _team_employee_names()
 	if team is None:
-		# HR roles: no filter needed; signal with a wildcard the client treats as "all"
+		# Administrator: no filter needed; a wildcard the client treats as "all"
 		return {"all": True, "employees": []}
 	return {"all": False, "employees": [n for n in team if n != "__none__"]}
 
 
 @frappe.whitelist()
-def can_approve_cnr_application(employee=None):
+def can_approve_cnr_application(employee=None, attendance_date=None):
 	"""Whether the current user may Approve / Reject / Submit CNR apps for this employee."""
 	from nepal_hrms.custom_code.application_hooks import (
 		can_approve_cnr_application as _can_approve,
@@ -129,7 +133,7 @@ def can_approve_cnr_application(employee=None):
 	employee = _resolve_employee(employee)
 	if not employee:
 		return False
-	return bool(_can_approve(employee))
+	return bool(_can_approve(employee, attendance_date))
 
 
 TIME_WINDOW_STEP_MINUTES = 15
@@ -378,7 +382,7 @@ def set_cnr_application_approval(doctype, name, status, rejection_reason=None):
 		can_approve_cnr_application as _can_approve,
 	)
 
-	if not _can_approve(doc.employee):
+	if not _can_approve(doc.employee, doc.get("attendance_date")):
 		frappe.throw(
 			_("Not permitted to approve or reject this application"), frappe.PermissionError
 		)
@@ -395,6 +399,9 @@ def set_cnr_application_approval(doctype, name, status, rejection_reason=None):
 		if doc.meta.has_field("custom_rejection_reason"):
 			doc.custom_rejection_reason = None
 
+	# Authority is settled above. Someone higher up the Reports To chain may hold
+	# no document permission on it, so the save runs as the system.
+	doc.flags.ignore_permissions = True
 	doc.save()
 	# Approval and rejection are final — submit so the document leaves Draft.
 	# Rejected submit does not apply attendance excuses.
@@ -403,7 +410,7 @@ def set_cnr_application_approval(doctype, name, status, rejection_reason=None):
 
 
 def _check_cnr_comment_access(doc):
-	"""Applicant, their leave approver, and HR may read/post comments."""
+	"""Applicant, their approver chain, and HR may read/post comments."""
 	user = frappe.session.user
 	roles = set(frappe.get_roles(user))
 	if roles & {"HR Manager", "HR User", "System Manager"} or user == "Administrator":
@@ -411,8 +418,9 @@ def _check_cnr_comment_access(doc):
 	emp_user = frappe.db.get_value("Employee", doc.employee, "user_id")
 	if emp_user == user:
 		return
-	leave_approver = frappe.db.get_value("Employee", doc.employee, "leave_approver")
-	if leave_approver == user:
+	from nepal_hrms.custom_code.approval_authority import can_approve
+
+	if can_approve(doc.employee, on_date=doc.get("attendance_date")):
 		return
 	frappe.throw(_("Not permitted"), frappe.PermissionError)
 

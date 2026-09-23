@@ -14,6 +14,8 @@ ESCAPE_FLAGS = (
 	"escape_absent_gross",
 	"escape_applications",
 	"escape_attendance_deduction",
+	"allow_self_approval",
+	"allow_approve_all",
 )
 
 
@@ -35,6 +37,7 @@ class AttendancePolicyEscape(Document):
 		self._set_defaults_from_employee()
 		self._validate_dates()
 		self._validate_flags()
+		self._validate_approve_all_grant()
 		self._validate_no_overlap()
 
 	def on_update(self):
@@ -63,6 +66,30 @@ class AttendancePolicyEscape(Document):
 	def _validate_flags(self):
 		if not any(cint(self.get(f)) for f in ESCAPE_FLAGS):
 			frappe.throw(_("Select at least one escape rule"))
+
+	# Fields that decide who holds an Allow Approving Everyone grant, and when.
+	GRANT_FIELDS = ("allow_approve_all", "employee", "is_active", "from_date", "to_date")
+
+	def _validate_approve_all_grant(self):
+		"""Allow Approving Everyone is System Manager's to give, move or extend.
+
+		The field is permlevel 1, but an HR Manager can still edit the rest of the
+		row: point it at another employee, stretch its dates, reactivate it. Any
+		of those on a row carrying the grant needs System Manager too.
+		"""
+		before = self.get_doc_before_save()
+		carries_grant = cint(self.get("allow_approve_all")) or (
+			before and cint(before.get("allow_approve_all"))
+		)
+		if not carries_grant or "System Manager" in frappe.get_roles():
+			return
+		if self.is_new() or any(
+			str(self.get(f) or "") != str(before.get(f) or "") for f in self.GRANT_FIELDS
+		):
+			frappe.throw(
+				_("Only a System Manager can set Allow Approving Everyone, or change who holds it and when."),
+				frappe.PermissionError,
+			)
 
 	def _validate_no_overlap(self):
 		if not cint(self.is_active) or not self.employee:

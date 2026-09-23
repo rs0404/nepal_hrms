@@ -377,36 +377,24 @@ def _prevent_self_cnr_application_approval() -> bool:
 	return True if value is None else bool(cint(value))
 
 
-def can_approve_cnr_application(employee: str) -> bool:
+def can_approve_cnr_application(employee: str, on_date=None) -> bool:
 	"""True if current user may Approve / Reject / Submit a CNR application for employee.
 
-	Self-approval follows Nepal HRMS Settings. Leave Approver, HR Manager/User,
-	System Manager, and Administrator may approve other employees.
+	The employee's Leave Approver, or anyone above that approver in Reports To.
+	Self-approval needs an Allow Self-Approval policy escape, or the site's
+	prevent-self setting switched off. See approval_authority.
 	"""
-	user = frappe.session.user
-	if user == "Administrator":
-		return True
-	if not employee:
-		return False
+	from nepal_hrms.custom_code.approval_authority import can_approve
 
-	emp_user = frappe.db.get_value("Employee", employee, "user_id")
-	is_self = bool(emp_user and emp_user == user)
-	if is_self and _prevent_self_cnr_application_approval():
-		return False
-
-	leave_approver = frappe.db.get_value("Employee", employee, "leave_approver")
-	if leave_approver and str(leave_approver).lower() == str(user).lower():
-		return True
-
-	if is_self:
-		return True
-
-	roles = set(frappe.get_roles(user))
-	return bool(roles & {"HR Manager", "HR User", "System Manager"})
+	return can_approve(
+		employee,
+		on_date=on_date,
+		site_allows_self=not _prevent_self_cnr_application_approval(),
+	)
 
 
 def validate_cnr_approval_authority(doc, method=None):
-	"""Block self-approval: only Leave Approver / HR may set Approved/Rejected."""
+	"""Only the approver chain may set Approved/Rejected (see approval_authority)."""
 	if getattr(doc.flags, "ignore_permissions", False):
 		return
 	if doc.doctype not in CNR_APPLICATION_DOCTYPES:
@@ -418,13 +406,13 @@ def validate_cnr_approval_authority(doc, method=None):
 			frappe.throw(_("Rejection Reason is required"))
 	elif doc.meta.has_field("custom_rejection_reason"):
 		doc.custom_rejection_reason = None
-	if can_approve_cnr_application(doc.employee):
+	if can_approve_cnr_application(doc.employee, doc.get("attendance_date")):
 		return
 
 	frappe.throw(
 		_(
-			"Only the Leave Approver (or HR Manager) can set this {0} to {1}. "
-			"You may save it as Draft for approval."
+			"Only the employee's approver, or someone above them in Reports To, can set "
+			"this {0} to {1}. You may save it as Draft for approval."
 		).format(_(doc.doctype), _(doc.status)),
 		frappe.PermissionError,
 		title=_("Approval Required"),
@@ -438,11 +426,11 @@ def before_submit_cnr_application(doc, method=None):
 	if doc.doctype not in CNR_APPLICATION_DOCTYPES:
 		return
 
-	if not can_approve_cnr_application(doc.employee):
+	if not can_approve_cnr_application(doc.employee, doc.get("attendance_date")):
 		frappe.throw(
 			_(
-				"Only the Leave Approver (or HR Manager) can submit this {0}. "
-				"Please keep it as Draft until it is approved."
+				"Only the employee's approver, or someone above them in Reports To, can "
+				"submit this {0}. Please keep it as Draft until it is approved."
 			).format(_(doc.doctype)),
 			frappe.PermissionError,
 			title=_("Submission Not Allowed"),

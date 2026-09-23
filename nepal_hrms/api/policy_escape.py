@@ -41,6 +41,8 @@ def bulk_assign_attendance_policy_escapes(
 	escape_absent_gross=0,
 	escape_applications=0,
 	escape_attendance_deduction=0,
+	allow_self_approval=0,
+	allow_approve_all=0,
 	reason=None,
 	is_active=1,
 ):
@@ -61,7 +63,11 @@ def bulk_assign_attendance_policy_escapes(
 		"escape_absent_gross": cint(escape_absent_gross),
 		"escape_applications": cint(escape_applications),
 		"escape_attendance_deduction": cint(escape_attendance_deduction),
+		"allow_self_approval": cint(allow_self_approval),
+		"allow_approve_all": cint(allow_approve_all),
 	}
+	if flags["allow_approve_all"] and "System Manager" not in frappe.get_roles():
+		frappe.throw(_("Only a System Manager can grant Allow Approving Everyone."), frappe.PermissionError)
 	if not any(flags.values()):
 		frappe.throw(_("Select at least one escape rule"))
 
