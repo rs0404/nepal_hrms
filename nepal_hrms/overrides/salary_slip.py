@@ -1757,6 +1757,11 @@ class CustomSalarySlip(SalarySlip):
             }
         )
 
+from nepal_hrms.custom_code.payroll.accrual_jv import (
+    PARTY_ONLY_DEDUCTION,
+    is_party_tracked_component,
+    partition_advance_entries,
+)
 from hrms.payroll.doctype.payroll_entry.payroll_entry import PayrollEntry
 from hrms.payroll.doctype.payroll_entry.payroll_entry import (
     show_payroll_submission_status
@@ -1855,6 +1860,99 @@ class CustomPayrollEntry(PayrollEntry):
         self.set("employees", filtered)
         self.number_of_employees = len(filtered)
         return result
+
+    @frappe.whitelist()
+    def accrual_jv_status(self):
+        """Whether an accrual JV is live, cancelled, or still owed. Drives the button."""
+        from nepal_hrms.custom_code.payroll.accrual_jv import get_status
+
+        return get_status(self)
+
+    @frappe.whitelist()
+    def create_accrual_journal_entry(self):
+        """Raise the accrual JV after the original was cancelled, or never posted."""
+        from nepal_hrms.custom_code.payroll.accrual_jv import create
+
+        return create(self)
+
+    def get_advance_deduction(self, component_type: str, item: dict) -> str | None:
+        """Send party-tracked deductions down the per-employee path.
+
+        ERPNext refuses a Receivable/Payable journal row without a party, and
+        stock HRMS only sets one for a deduction raised from an Employee
+        Advance. An advance recovered through a hand-made Additional Salary
+        carries no such link, so its amounts get aggregated per account with no
+        employee and the accrual JV will not submit at all -- but only once
+        "Process Payroll Accounting Entry based on Employee" is on, because
+        that is what drops stock's party_not_required escape hatch.
+
+        The salary slip knows whose deduction it is either way, so route those
+        rows through the same per-employee path, just with no document to
+        reference. That also gives the advance account a real subledger.
+        """
+        advance = super().get_advance_deduction(component_type, item)
+        if advance:
+            return advance
+
+        if component_type == "deductions" and is_party_tracked_component(
+            self.company, item.salary_component
+        ):
+            return PARTY_ONLY_DEDUCTION
+
+        return None
+
+    def add_advance_deduction_entry(self, item, amount, cost_center, employee_advance) -> None:
+        super().add_advance_deduction_entry(item, amount, cost_center, employee_advance)
+
+        if employee_advance == PARTY_ONLY_DEDUCTION:
+            # No Employee Advance to point at; the employee is the whole point.
+            self._advance_deduction_entries[-1].update(
+                {"reference_type": None, "reference_name": None}
+            )
+
+    def set_accounting_entries_for_advance_deductions(
+        self,
+        accounts: list,
+        currencies: list,
+        company_currency: str,
+        accounting_dimensions: list,
+        precision: int,
+        payable_amount: float,
+    ):
+        """Stock hard-codes reference_type="Employee Advance" on every row it
+        emits here, so the rows that have no advance to reference are handled
+        separately -- same per-employee credit, no reference."""
+        linked, unlinked = partition_advance_entries(self._advance_deduction_entries)
+
+        self._advance_deduction_entries = linked
+        try:
+            payable_amount = super().set_accounting_entries_for_advance_deductions(
+                accounts,
+                currencies,
+                company_currency,
+                accounting_dimensions,
+                precision,
+                payable_amount,
+            )
+        finally:
+            self._advance_deduction_entries = linked + unlinked
+
+        for entry in unlinked:
+            payable_amount = self.get_accounting_entries_and_payable_amount(
+                entry.get("account"),
+                entry.get("cost_center"),
+                entry.get("amount"),
+                currencies,
+                company_currency,
+                payable_amount,
+                accounting_dimensions,
+                precision,
+                entry_type="credit",
+                accounts=accounts,
+                party=entry.get("employee"),
+            )
+
+        return payable_amount
 
     def should_add_component_to_accrual_jv(self, component_type: str, item: dict) -> bool:
         add_component = super().should_add_component_to_accrual_jv(component_type, item)
