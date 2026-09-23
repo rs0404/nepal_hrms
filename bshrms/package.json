@@ -9,7 +9,7 @@
 		"build": "vite build --base=/assets/nepal_hrms/bshrms/ && yarn copy-html-entry",
 		"ionic:build": "npm run build",
 		"ionic:serve": "vite dev --host",
-		"copy-html-entry": "cp ../nepal_hrms/public/bshrms/index.html ../nepal_hrms/www/bshrms.html"
+		"copy-html-entry": "cp ../nepal_hrms/public/bshrms/index.html ../nepal_hrms/www/hr.html"
 	},
 	"dependencies": {
 		"@ionic/vue": "^7.4.3",

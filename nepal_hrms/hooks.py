@@ -5,7 +5,7 @@ app_description = "Nepali HR and Payroll (Bikram Sambat) for Frappe HR"
 app_email = "support@yarsalabs.com"
 app_license = "GNU General Public License (v3)"
 app_logo_url = "/assets/nepal_hrms/icon/app-icon.svg"
-app_home = "/bshrms"
+app_home = "/hr"
 # Org-qualified on purpose. A bare name that is not yet in the bench's apps.txt
 # sends frappe's installer to GitHub to guess the repo, and an app that lives in
 # neither the frappe nor the erpnext org 404s with InvalidRemoteException instead
@@ -14,7 +14,16 @@ app_home = "/bshrms"
 required_apps = ["frappe/hrms", "yarsa/nepal_compliance"]
 
 website_route_rules = [
-	{"from_route": "/bshrms/<path:app_path>", "to_route": "bshrms"},
+	# A fallback only: hrms declares the same rule for its roster page and is
+	# installed earlier, so its copy is the one werkzeug matches. www/roster.py
+	# shadows that template, which is what actually puts /hr/<path> on this PWA.
+	# This rule takes over if hrms ever drops its own.
+	{"from_route": "/hr/<path:app_path>", "to_route": "hr"},
+]
+
+website_redirects = [
+	{"source": "/bshrms", "target": "/hr"},
+	{"source": r"/bshrms/(.*)", "target": r"/hr/\1"},
 ]
 
 add_to_apps_screen = [
@@ -22,7 +31,7 @@ add_to_apps_screen = [
 		"name": "bshrms",
 		"logo": "/assets/nepal_hrms/icon/app-icon.svg",
 		"title": "BS HRMS",
-		"route": "/bshrms",
+		"route": "/hr",
 		"has_permission": "nepal_hrms.utils.check_app_permission",
 	}
 ]
