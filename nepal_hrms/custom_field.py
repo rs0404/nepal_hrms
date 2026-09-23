@@ -351,6 +351,7 @@ def create_custom_fields():
 	_place_salary_slip_ssf_base_above_fixed_gross()
 	_place_salary_slip_absent_day_details_under_absent_days()
 	_ensure_salary_slip_absent_days_editable()
+	ensure_employee_title_in_links()
 	return created_fields
 
 
@@ -478,3 +479,28 @@ def _ensure_salary_slip_absent_days_editable():
 		is_system_generated=1,
 	)
 	frappe.clear_cache(doctype="Salary Slip")
+
+
+def ensure_employee_title_in_links():
+	"""Show the employee's name, not their ID, wherever Desk links to an Employee.
+
+	Journal Entry party rows, Salary Slip, Attendance and the rest store the ID;
+	with this on they display employee_name (Employee's title field) and still
+	search by either. A site that set its own value in Customize Form keeps it.
+	"""
+	if frappe.db.exists(
+		"Property Setter",
+		{"doc_type": "Employee", "property": "show_title_field_in_link"},
+	):
+		return
+	frappe.make_property_setter(
+		{
+			"doctype": "Employee",
+			"doctype_or_field": "DocType",
+			"property": "show_title_field_in_link",
+			"value": "1",
+			"property_type": "Check",
+		},
+		is_system_generated=1,
+	)
+	frappe.clear_cache(doctype="Employee")
