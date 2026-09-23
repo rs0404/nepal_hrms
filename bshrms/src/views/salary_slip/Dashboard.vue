@@ -74,7 +74,7 @@ import SalaryUnlock from "@/components/SalaryUnlock.vue"
 import { lockSalary, maskedAmount, salaryLocked, salaryPrivacy } from "@/data/salary_lock"
 
 import { formatCurrency } from "@/utils/formatters"
-import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
+import { formatNepaliMonthPeriodNe, formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
 
 let selectedPeriod = ref({})
 let periodsByName = ref({})
@@ -130,7 +130,9 @@ function getPeriodLabel(period) {
 	const ad = `${dayjs(period?.start_date).format("MMM YYYY")} – ${dayjs(
 		period?.end_date
 	).format("MMM YYYY")}`
-	const bs = formatNepaliMonthYearPeriod(period?.start_date, period?.end_date)
+	const bs =
+		formatNepaliMonthPeriodNe(period?.start_date, period?.end_date) ||
+		formatNepaliMonthYearPeriod(period?.start_date, period?.end_date)
 	return bs ? `${bs} · ${ad}` : ad
 }
 
