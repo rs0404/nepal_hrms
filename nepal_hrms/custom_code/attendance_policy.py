@@ -579,9 +579,7 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 		# custom_cnr_pool_penalty is the only signal the period sweep uses to
 		# recognise a status it wrote itself, so clearing it strands any Half Day /
 		# Absent we put here. Undo that in the same pass or nothing ever will.
-		if apply_unexcused_status and attendance_request_excused:
-			apply_attendance_request_status(doc, attendance_request, holiday)
-		elif apply_unexcused_status and (
+		if apply_unexcused_status and (
 			was_cnr_half_day or previous_penalty in ("half", "full")
 		):
 			from nepal_hrms.custom_code.attendance_holiday import has_checkins
