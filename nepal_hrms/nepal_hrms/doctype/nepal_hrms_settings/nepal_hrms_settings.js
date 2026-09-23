@@ -201,6 +201,14 @@ function nh_bind_input_link(input, doctype, filters, on_select) {
 		fetch_options(this.value);
 	});
 
+	// The grid binds its Channel picker on focus, so by the time these handlers
+	// exist that focus has already been and gone and nothing fetched the list --
+	// the field opened empty and only filled in once you typed. Fetch now when
+	// the input is already focused, which is exactly the bind-on-focus case.
+	if (document.activeElement === input) {
+		fetch_options(input.value);
+	}
+
 	// Awesomplete writes the pick straight onto input.value. Frappe's control
 	// only learns of a new value from a native change event, so without this the
 	// model never saw the selection: the field looked filled, saved nothing, and
