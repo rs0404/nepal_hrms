@@ -27,7 +27,7 @@ Desk home is the **Nepal HRMS** workspace. The **BS HRMS** tile on the Apps scre
 
 ### BSHRMS
 
-Employee PWA at `/bshrms`: check-in (Normal or OOO Work), quick links, and request inbox.
+Employee PWA at `/hr` (the route is a Nepal HRMS setting; `/bshrms` redirects to it): a live clock with the Nepali date, check-in (Normal or OOO Work), quick links, and the request panel. Screenshots use made-up employees.
 
 <p align="center">
   <img src="docs/images/bshrms-home.png" width="320" alt="BSHRMS home">
