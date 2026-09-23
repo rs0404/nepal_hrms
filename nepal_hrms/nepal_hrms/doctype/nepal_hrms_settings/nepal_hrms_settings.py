@@ -21,16 +21,31 @@ class NepalHRMSSettings(Document):
 		self.validate_salary_slip_print_settings()
 		self.validate_payroll_accounts()
 		self.validate_scheduled_payroll_runs()
+		self.validate_pwa_route()
 		from nepal_hrms.notifications.raven_sync import seed_notification_rows
 
 		seed_notification_rows(self)
 
 	def on_update(self):
+		if self.has_value_changed("pwa_route"):
+			from frappe.website.utils import clear_website_cache
+
+			# A 404 cached for the new path would outlive the change.
+			clear_website_cache()
 		if self.flags.get("nh_skip_raven_sync"):
 			return
 		from nepal_hrms.notifications.raven_sync import sync_raven_notifications
 
 		sync_raven_notifications(self)
+
+	def validate_pwa_route(self):
+		# Only on change: a save of unrelated settings, often by an HR Manager
+		# who cannot edit this field, must not trip over it.
+		if not self.meta.has_field("pwa_route") or not self.has_value_changed("pwa_route"):
+			return
+		from nepal_hrms.pwa_route import validate_pwa_route
+
+		self.pwa_route = validate_pwa_route(self.pwa_route)
 
 	def validate_salary_slip_print_settings(self):
 		fieldname = self.salary_slip_employee_id_field or "name"
