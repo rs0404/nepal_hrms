@@ -168,7 +168,7 @@ function nh_toggle_notifications_tab(frm, show) {
 	}
 }
 
-function nh_bind_input_link(input, doctype, filters) {
+function nh_bind_input_link(input, doctype, filters, on_select) {
 	if (!input || input._nh_link || typeof Awesomplete === "undefined") return;
 
 	input._nh_link = true;
@@ -200,13 +200,27 @@ function nh_bind_input_link(input, doctype, filters) {
 	$(input).on("focus.nh_link input.nh_link", function () {
 		fetch_options(this.value);
 	});
+
+	// Awesomplete writes the pick straight onto input.value. Frappe's control
+	// only learns of a new value from a native change event, so without this the
+	// model never saw the selection: the field looked filled, saved nothing, and
+	// came back empty on reload. Typing the name in full always worked, because
+	// blurring the field does fire change -- which is why this only bit on click.
+	$(input).on("awesomplete-selectcomplete.nh_link", function () {
+		input.dispatchEvent(new Event("change", { bubbles: true }));
+		if (typeof on_select === "function") on_select(input.value);
+	});
 }
 
 function nh_bind_data_link(frm, fieldname, doctype, filters) {
 	try {
 		const field = frm.get_field(fieldname);
 		if (!field || !field.$input) return;
-		nh_bind_input_link(field.$input.get(0), doctype, filters);
+		nh_bind_input_link(field.$input.get(0), doctype, filters, (value) => {
+			// Belt and braces: the change event above covers the standard control,
+			// this covers any control that reads the model rather than the input.
+			if (frm.doc[fieldname] !== value) frm.set_value(fieldname, value);
+		});
 	} catch (error) {
 		console.warn("Nepal HRMS Raven picker", error);
 	}
