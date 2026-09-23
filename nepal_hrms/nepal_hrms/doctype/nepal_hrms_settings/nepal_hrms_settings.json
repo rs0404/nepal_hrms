@@ -141,6 +141,7 @@
   "new_raven_channel_type",
   "raven_workspace",
   "raven_channel_roles",
+  "pwa_section",
   "enable_pwa_notifications",
   "raven_events_section",
   "raven_notifications"
@@ -1014,6 +1015,12 @@
    "options": "Nepal HRMS Role"
   },
   {
+   "fieldname": "pwa_section",
+   "fieldtype": "Section Break",
+   "label": "BSHRMS PWA",
+   "description": "The mobile app is a separate delivery channel from Raven and needs neither a bot nor a channel. It notifies the employee's own user, so nobody has to be a Raven User to receive one."
+  },
+  {
    "default": "0",
    "fieldname": "enable_pwa_notifications",
    "fieldtype": "Check",
@@ -1021,7 +1028,7 @@
    "description": "Master switch for the BSHRMS PWA. Off until you turn it on, and off stops every PWA notification at once without disturbing the per-event boxes or the Raven side. Each event still needs its own PWA box ticked below."
   },
   {
-   "description": "Enable an event and choose who should be notified. Direct messages are skipped when the person is not a Raven User. All events start disabled.",
+   "description": "One list for both channels: each row picks who is notified, then whether it goes to Raven, the PWA, or both. Raven direct messages are skipped when the person is not a Raven User; PWA notifications are not. All events start disabled.",
    "fieldname": "raven_events_section",
    "fieldtype": "Section Break",
    "label": "Attendance Notifications"
