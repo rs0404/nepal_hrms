@@ -1,7 +1,8 @@
 """One-click Nepal payroll setup, driven from Nepal HRMS Settings.
 
-Creates the salary components, four salary structures, and the income tax slab,
-then applies the account mapping held in settings.
+Creates the salary components, four salary structures, the income tax slab and
+the employee tax exemption categories, then applies the account mapping held in
+settings.
 
 Four structures, because two axes matter:
 
@@ -19,6 +20,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from nepal_hrms.custom_code.payroll.salary_component import create_salary_component
+from nepal_hrms.custom_code.payroll.tax_exemption import ensure_tax_exemption_categories
 
 # Structure naming. Explicit over clever: scheme first, then the accounting split.
 SCHEMES = {
@@ -400,6 +402,8 @@ def setup_nepal_payroll(company=None, effective_from=None):
 		currency = frappe.db.get_value("Company", comp, "default_currency") or "NPR"
 		name, action, provenance = _ensure_tax_slab(comp, currency, effective_from)
 		log["tax_slabs"].append({"name": name, "action": action, "source": provenance})
+
+	log["tax_exemption_categories"] = ensure_tax_exemption_categories()
 
 	frappe.db.commit()
 	return log
