@@ -1,41 +1,25 @@
 <template>
-	<ListItem
+	<RequestRow
+		icon="file-text"
+		tone="blue"
+		:title="claimTitle"
+		:meta="meta"
+		:status="__(status, null, 'Expense Claim')"
+		:statusTheme="statusMap[status] || 'gray'"
 		:isTeamRequest="props.isTeamRequest"
 		:employee="props.doc.employee"
 		:employeeName="props.doc.employee_name"
-	>
-		<template #left>
-			<ExpenseIcon class="h-5 w-5 text-gray-500" />
-			<div class="flex flex-col items-start gap-1.5">
-				<div class="text-base font-normal text-gray-800">
-					{{ claimTitle }}
-				</div>
-				<div class="text-xs font-normal text-gray-500">
-					<span>{{ claimDates }}</span>
-					<span class="whitespace-pre"> &middot; </span>
-					<span class="whitespace-nowrap">
-						{{ formatCurrency(props.doc.total_claimed_amount, currency) }}
-					</span>
-				</div>
-			</div>
-		</template>
-		<template #right>
-			<Badge variant="outline" :theme="statusMap[status]" :label="__(status, null, 'Expense Claim')" size="md" />
-			<FeatherIcon name="chevron-right" class="h-5 w-5 text-gray-500" />
-		</template>
-	</ListItem>
+	/>
 </template>
 
 <script setup>
-import { FeatherIcon, Badge } from "frappe-ui"
 import { computed, inject } from "vue"
 
-import ListItem from "@/components/ListItem.vue"
-import ExpenseIcon from "@/components/icons/ExpenseIcon.vue"
+import RequestRow from "@/components/RequestRow.vue"
 
 import { getCompanyCurrency } from "@/data/currencies"
 import { formatCurrency } from "@/utils/formatters"
-import { formatNepaliDate, formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
+import { formatDualDate, formatDualPeriod } from "@/utils/nepali_date"
 
 const __ = inject("$translate")
 const props = defineProps({
@@ -53,13 +37,13 @@ const props = defineProps({
 })
 
 const statusMap = {
-	Draft: "gray",
+	Draft: "orange",
 	Submitted: "blue",
-	Cancelled: "red",
+	Cancelled: "gray",
 	Paid: "green",
 	Unpaid: "orange",
-	"Approved & Draft": "gray",
-	"Approved & Unpaid": "orange",
+	"Approved & Draft": "green",
+	"Approved & Unpaid": "green",
 	"Approved & Submitted": "blue",
 	Rejected: "red",
 }
@@ -86,13 +70,13 @@ const claimTitle = computed(() => {
 	return title
 })
 
-const claimDates = computed(() => {
+const meta = computed(() => {
 	const from = props.doc.from_date || props.doc.posting_date
 	const to = props.doc.to_date
-	const period =
-		from && to ? formatNepaliPeriod(from, to) : formatNepaliDate(from)
-	const offset = formatDaysFromToday(from)
-	return offset ? `${period} · ${offset}` : period
+	return [
+		from && to ? formatDualPeriod(from, to) : formatDualDate(from),
+		formatCurrency(props.doc.total_claimed_amount, currency.value),
+	]
 })
 
 const currency = computed(() => getCompanyCurrency(props.doc.company))

@@ -38,6 +38,7 @@ def get_attendance_requests(
 		"status",
 		"custom_rejection_reason",
 		"explanation",
+		"owner",
 	]
 
 	if workflow_state_field := get_workflow_state_field("Attendance Request"):

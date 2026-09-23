@@ -1,7 +1,7 @@
 <template>
-	<div class="flex flex-col bg-white rounded mt-5 overflow-auto" v-if="props.items?.length">
+	<div class="flex flex-col bg-white mt-2 overflow-auto" v-if="props.items?.length">
 		<div
-			class="flex flex-row p-3.5 items-center justify-between border-b cursor-pointer"
+			class="flex flex-row px-1 py-3.5 items-center justify-between border-b border-gray-100 last:border-b-0 cursor-pointer active:bg-gray-50"
 			v-for="link in props.items"
 			:key="link.name"
 			@click="openRequestModal(link)"

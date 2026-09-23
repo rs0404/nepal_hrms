@@ -1,5 +1,5 @@
 <template>
-	<div class="w-full bg-white rounded-xl shadow-sm p-4">
+	<div class="w-full bg-white rounded-2xl shadow-sm p-5">
 		<div class="text-lg font-bold text-gray-900 mb-3">{{ __("Request Panel") }}</div>
 		<TabButtons
 			:buttons="TAB_BUTTONS"

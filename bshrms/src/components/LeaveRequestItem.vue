@@ -1,48 +1,37 @@
 <template>
-	<ListItem
+	<RequestRow
+		icon="calendar"
+		tone="green"
+		:title="__(props.doc.leave_type, null, 'Leave Type')"
+		:meta="meta"
+		:status="__(status.label, null, 'Leave Application')"
+		:statusTheme="status.theme"
 		:isTeamRequest="props.isTeamRequest"
 		:employee="props.doc.employee"
 		:employeeName="props.doc.employee_name"
+		:cancellable="status.label === 'Open'"
+		doctype="Leave Application"
+		:name="props.doc.name"
+		:owner="props.doc.owner"
 	>
-		<template #left>
-			<LeaveIcon class="h-5 w-5 text-gray-500" />
-			<div class="flex flex-col items-start gap-1.5">
-				<div class="flex items-center flex-wrap gap-1">
-					<span class="text-base font-normal text-gray-800">
-						{{ __(props.doc.leave_type, null, "Leave Type") }}
-					</span>
-					<span
-						v-for="mark in leaveMarks"
-						:key="mark"
-						class="leave-mark-badge"
-						:class="leaveMarkClass(mark)"
-					>
-						{{ mark }}
-					</span>
-				</div>
-				<div class="text-xs font-normal text-gray-500">
-					<span>{{ formatNepaliPeriod(props.doc.from_date, props.doc.to_date) }}</span>
-					<span class="whitespace-pre"> &middot; </span>
-					<span class="whitespace-nowrap">{{ __("{0}d", [props.doc.total_leave_days]) }}</span>
-					<span class="whitespace-pre"> &middot; </span>
-					<span class="whitespace-nowrap">{{ formatDaysFromToday(props.doc.from_date) }}</span>
-				</div>
-			</div>
+		<template #title-extra>
+			<span
+				v-for="mark in leaveMarks"
+				:key="mark"
+				class="leave-mark-badge"
+				:class="leaveMarkClass(mark)"
+			>
+				{{ mark }}
+			</span>
 		</template>
-		<template #right>
-			<Badge variant="outline" :theme="colorMap[status]" :label="__(status, null, 'Leave Application')" size="md" />
-			<FeatherIcon name="chevron-right" class="h-5 w-5 text-gray-500" />
-		</template>
-	</ListItem>
+	</RequestRow>
 </template>
 
 <script setup>
-import { computed } from "vue"
-import { FeatherIcon, Badge } from "frappe-ui"
+import { computed, inject } from "vue"
 
-import ListItem from "@/components/ListItem.vue"
-import LeaveIcon from "@/components/icons/LeaveIcon.vue"
-import { formatNepaliPeriod, formatDaysFromToday } from "@/utils/nepali_date"
+import RequestRow from "@/components/RequestRow.vue"
+import { formatDualPeriod } from "@/utils/nepali_date"
 import { leaveApplicationMarks, leaveMarkClass } from "@/utils/leave_marks"
 
 const props = defineProps({
@@ -61,15 +50,21 @@ const props = defineProps({
 
 const leaveMarks = computed(() => leaveApplicationMarks(props.doc))
 
-const status = computed(() => {
-	return props.workflowStateField ? props.doc[props.workflowStateField] : props.doc.status
-})
+const __ = inject("$translate")
 
-const colorMap = {
-	Approved: "green",
-	Rejected: "red",
-	Open: "orange",
-}
+const meta = computed(() => [
+	formatDualPeriod(props.doc.from_date, props.doc.to_date),
+	props.doc.total_leave_days ? __("{0}d", [props.doc.total_leave_days]) : "",
+])
+
+// Leave has its own status field (Open / Approved / Rejected / Cancelled).
+const THEMES = { Approved: "green", Rejected: "red", Open: "orange", Cancelled: "gray" }
+
+const status = computed(() => {
+	const label =
+		(props.workflowStateField ? props.doc[props.workflowStateField] : props.doc.status) || "Open"
+	return { label, theme: THEMES[label] || "gray" }
+})
 </script>
 
 <style scoped>

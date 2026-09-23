@@ -108,3 +108,51 @@ export function timeFromDatetime(dt) {
 	const part = s.includes("T") ? s.split("T")[1] : s.split(" ").pop()
 	return (part || "").slice(0, 8) || null
 }
+
+/** BS date with the English month name, e.g. "7 Asoj 2083". Falls back to the AD date. */
+export function formatNepaliDateLong(adDate, { withYear = true } = {}) {
+	if (!adDate || !window.NepaliDateLib) return adDate || ""
+	try {
+		const nd = window.NepaliDateLib.NepaliDate.fromAD(new Date(`${String(adDate).slice(0, 10)}T12:00:00`))
+		const month = window.NepaliDateLib.MONTH_NAMES_EN_BS?.[nd.monthIndex]
+		if (!month) return formatNepaliDate(adDate)
+		return withYear ? `${nd.day} ${month} ${nd.year}` : `${nd.day} ${month}`
+	} catch (e) {
+		console.error("Nepali date conversion error:", e)
+		return adDate
+	}
+}
+
+const AD_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** AD date, e.g. "23 Sep 2026". Months spelled here: some locales print "Sept". */
+export function formatEnglishDate(adDate, { withYear = true } = {}) {
+	if (!adDate) return ""
+	const date = new Date(`${String(adDate).slice(0, 10)}T12:00:00`)
+	if (Number.isNaN(date.getTime())) return String(adDate)
+	const dayMonth = `${date.getDate()} ${AD_MONTHS[date.getMonth()]}`
+	return withYear ? `${dayMonth} ${date.getFullYear()}` : dayMonth
+}
+
+/** Both calendars, BS first: "7 Asoj 2083 · 23 Sep 2026". */
+export function formatDualDate(adDate) {
+	if (!adDate) return ""
+	return `${formatNepaliDateLong(adDate)} · ${formatEnglishDate(adDate)}`
+}
+
+/** A date range in both calendars; a single day collapses to formatDualDate. */
+export function formatDualPeriod(fromDate, toDate) {
+	if (!fromDate) return ""
+	if (!toDate || String(fromDate).slice(0, 10) === String(toDate).slice(0, 10)) {
+		return formatDualDate(fromDate)
+	}
+	const bs = `${formatNepaliDateLong(fromDate, { withYear: false })} – ${formatNepaliDateLong(toDate)}`
+	const ad = `${formatEnglishDate(fromDate, { withYear: false })} – ${formatEnglishDate(toDate)}`
+	return `${bs} · ${ad}`
+}
+
+/** "10:13:36" -> "10:13". */
+export function formatShortTime(value) {
+	const match = String(value || "").match(/(\d{1,2}):(\d{2})/)
+	return match ? `${match[1].padStart(2, "0")}:${match[2]}` : ""
+}

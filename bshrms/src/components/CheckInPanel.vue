@@ -1,12 +1,30 @@
 <template>
-	<div class="flex flex-col bg-white rounded-xl w-full py-5 px-4 shadow-sm">
-		<div class="flex items-start justify-between gap-2">
+	<div class="flex w-full flex-col gap-5 rounded-2xl bg-white p-5 shadow-sm">
+		<div class="flex items-center justify-between gap-3">
 			<h2 class="text-lg font-bold text-gray-900">{{ __("Check-in") }}</h2>
-			<div class="text-sm text-gray-500 whitespace-nowrap" v-if="lastLog?.time">
-				{{ __("Last log:") }}
-				<span class="font-semibold" :class="lastLog.log_type === 'IN' ? 'text-red-600' : 'text-gray-700'">
-					{{ lastLog.log_type }} {{ dayjs(lastLog.time).format("HH:mm") }}
-				</span>
+			<span
+				class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+				:class="isCheckedIn ? TYPE_STYLE[sessionType].badge : 'bg-gray-100 text-gray-600'"
+			>
+				<span
+					class="h-1.5 w-1.5 rounded-full"
+					:class="isCheckedIn ? TYPE_STYLE[sessionType].dot : 'bg-gray-400'"
+				/>
+				{{ isCheckedIn ? __("Checked in · {0}", [__(sessionType)]) : __("Not checked in") }}
+			</span>
+		</div>
+
+		<!-- Live clock: seconds tick so it reads as "now", not as a log time. -->
+		<div class="rounded-xl bg-gray-50 px-4 py-3.5 text-center">
+			<div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+				{{ __("Now") }}
+			</div>
+			<div class="mt-0.5 font-bold tabular-nums text-gray-900">
+				<span class="text-4xl">{{ clockHm }}</span><span class="text-xl text-gray-400">:{{ clockSec }}</span>
+				<span class="ml-1 text-base font-semibold text-gray-500">{{ clockAmPm }}</span>
+			</div>
+			<div class="mt-1 text-sm text-gray-600">
+				{{ todayAd }} <span class="text-gray-300">|</span> {{ todayBs }}
 			</div>
 		</div>
 
@@ -15,17 +33,16 @@
 			     you decide before checking in, and the sheet still owns the OOO
 			     reason. Locked while a session is open -- you leave the way you
 			     arrived, so checking out cannot switch type. -->
-			<div class="mt-4 grid grid-cols-2 rounded-lg border border-gray-200 overflow-hidden">
+			<div class="grid grid-cols-2 gap-1 rounded-full bg-gray-100 p-1">
 				<button
-					v-for="type in ['Normal', 'OOO Work']"
+					v-for="type in ATTENDANCE_TYPES"
 					:key="type"
 					type="button"
-					class="py-2.5 text-sm font-medium transition-colors"
+					class="rounded-full py-2 text-sm font-semibold transition-colors"
 					:class="[
-						selectedAttendanceType === type
-							? 'bg-white text-red-600 ring-1 ring-inset ring-red-500'
-							: 'bg-gray-50 text-gray-600',
+						sessionType === type ? TYPE_STYLE[type].selected : 'text-gray-600',
 						isCheckedIn ? 'cursor-default' : '',
+						isCheckedIn && sessionType !== type ? 'opacity-50' : '',
 					]"
 					:disabled="isCheckedIn"
 					@click="selectedAttendanceType = type"
@@ -34,33 +51,45 @@
 				</button>
 			</div>
 
-			<div class="flex justify-center mt-5 mb-1">
-				<button
-					type="button"
-					id="open-checkin-modal"
-					class="h-24 w-24 rounded-full bg-red-600 text-white text-base font-semibold shadow-md active:bg-red-700"
-					@click="handleEmployeeCheckin"
-				>
-					{{ nextAction.label }}
-				</button>
-			</div>
+			<button
+				type="button"
+				id="open-checkin-modal"
+				class="flex h-14 w-full items-center justify-center gap-2 rounded-xl text-base font-semibold text-white shadow-sm transition-colors"
+				:class="isCheckedIn ? TYPE_STYLE[sessionType].buttonOut : TYPE_STYLE[sessionType].button"
+				@click="handleEmployeeCheckin"
+			>
+				<FeatherIcon :name="isCheckedIn ? 'log-out' : 'log-in'" class="h-5 w-5" />
+				{{ nextAction.label }}
+			</button>
 
 			<router-link
-				:to="{ name: 'EmployeeCheckinListView' }"
-				v-slot="{ navigate }"
 				v-if="lastLog?.time"
+				:to="{ name: 'EmployeeCheckinListView' }"
+				class="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3.5 py-3"
 			>
-				<div @click="navigate" class="text-center text-sm text-gray-500 underline mt-2">
-					{{ __("View List") }}
+				<div class="flex min-w-0 items-center gap-2.5">
+					<span
+						class="rounded-full px-2 py-0.5 text-xs font-bold"
+						:class="lastLog.log_type === 'OUT' ? TYPE_STYLE[lastLogType].badgeOut : TYPE_STYLE[lastLogType].badge"
+					>
+						{{ lastLog.log_type }}
+					</span>
+					<div class="min-w-0">
+						<div class="text-sm font-semibold tabular-nums text-gray-900">
+							{{ dayjs(lastLog.time).format("h:mm A") }}
+							<span class="font-normal text-gray-500">· {{ lastLogBs }}</span>
+						</div>
+						<div class="text-xs text-gray-400">
+							{{ __("Last log") }} · {{ lastLogAd }}
+						</div>
+					</div>
 				</div>
+				<span class="flex shrink-0 items-center gap-0.5 text-sm text-gray-500">
+					{{ __("View List") }}
+					<FeatherIcon name="chevron-right" class="h-4 w-4" />
+				</span>
 			</router-link>
 		</template>
-
-		<div v-else class="font-medium text-sm text-gray-500 mt-1.5">
-			{{ formatNepaliDate(dayjs().format("YYYY-MM-DD")) }}
-			· {{ dayjs().format("ddd, D MMM YYYY") }}
-			· {{ formatDaysFromToday(dayjs().format("YYYY-MM-DD")) }}
-		</div>
 	</div>
 
 	<ion-modal
@@ -76,7 +105,7 @@
 					{{ dayjs(checkinTimestamp).format("hh:mm:ss a") }}
 				</div>
 				<div class="font-medium text-gray-500 text-sm">
-					{{ formatNepaliDate(dayjs().format("YYYY-MM-DD")) }}
+					{{ todayBs }}
 				</div>
 				<div class="text-xs text-gray-400">
 					{{ dayjs().format("D MMM YYYY") }} · {{ formatDaysFromToday(dayjs().format("YYYY-MM-DD")) }}
@@ -104,24 +133,21 @@
 			</template>
 			<div class="flex flex-col gap-2 w-full mt-4">
 				<div class="text-xs font-medium text-gray-500 px-1">{{ __("Attendance Type") }}</div>
-				<div v-if="lastLog && lastLog.log_type === 'IN'" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3.5 text-center text-sm font-semibold text-gray-700">
-					{{ __("Active Session:") }} <span class="text-blue-600 font-bold ml-1">{{ lastLog.custom_attendance_type === 'OOO Work' ? __("OOO Work") : __("Normal") }}</span>
+				<div v-if="isCheckedIn" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3.5 text-center text-sm font-semibold text-gray-700">
+					{{ __("Active Session:") }}
+					<span class="font-bold ml-1" :class="TYPE_STYLE[sessionType].text">{{ __(sessionType) }}</span>
 				</div>
-				<div v-else class="flex gap-2">
-					<Button 
-						class="flex-1" 
-						:variant="selectedAttendanceType === 'Normal' ? 'solid' : 'outline'" 
-						@click="selectedAttendanceType = 'Normal'"
+				<div v-else class="grid grid-cols-2 gap-1 rounded-full bg-gray-100 p-1">
+					<button
+						v-for="type in ATTENDANCE_TYPES"
+						:key="type"
+						type="button"
+						class="rounded-full py-2 text-sm font-semibold transition-colors"
+						:class="sessionType === type ? TYPE_STYLE[type].selected : 'text-gray-600'"
+						@click="selectedAttendanceType = type"
 					>
-						{{ __("Normal") }}
-					</Button>
-					<Button 
-						class="flex-1" 
-						:variant="selectedAttendanceType === 'OOO Work' ? 'solid' : 'outline'" 
-						@click="selectedAttendanceType = 'OOO Work'"
-					>
-						{{ __("OOO Work") }}
-					</Button>
+						{{ __(type) }}
+					</button>
 				</div>
 			</div>
 
@@ -134,11 +160,12 @@
 				></textarea>
 			</div>
 
-			<Button 
-				:loading="checkins.insert.loading" 
+			<Button
+				:loading="checkins.insert.loading"
 				:disabled="selectedAttendanceType === 'OOO Work' && !customReason.trim()"
-				variant="solid" 
-				class="w-full py-5 text-sm disabled:bg-gray-700" 
+				variant="solid"
+				class="w-full py-5 text-sm !text-white disabled:opacity-50"
+				:class="isCheckedIn ? TYPE_STYLE[sessionType].confirmOut : TYPE_STYLE[sessionType].confirm"
 				@click="submitLog(nextAction.action)"
 			>
 				{{ __("Confirm {0}", [nextAction.label]) }}
@@ -152,7 +179,11 @@ import { createResource, createListResource, toast, FeatherIcon } from "frappe-u
 import { computed, inject, ref, onMounted, onBeforeUnmount } from "vue"
 import { IonModal, modalController } from "@ionic/vue"
 
-import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
+import {
+	formatDaysFromToday,
+	formatNepaliDateLong,
+	formatEnglishDate,
+} from "@/utils/nepali_date"
 
 const DOCTYPE = "Employee Checkin"
 
@@ -187,6 +218,59 @@ const lastLog = computed(() => {
 })
 
 const isCheckedIn = computed(() => lastLog?.value?.log_type === "IN")
+
+const ATTENDANCE_TYPES = ["Normal", "OOO Work"]
+// Normal is green, OOO Work red, everywhere the type shows; Check Out is a
+// darker shade of the same colour than Check In. Spelled out so Tailwind keeps
+// the classes.
+const TYPE_STYLE = {
+	Normal: {
+		selected: "bg-green-600 text-white shadow-sm",
+		button: "bg-green-600 active:bg-green-700",
+		buttonOut: "bg-green-800 active:bg-green-900",
+		confirmOut: "!bg-green-800 hover:!bg-green-900",
+		badgeOut: "bg-green-700 text-white",
+		dot: "bg-green-600",
+		confirm: "!bg-green-600 hover:!bg-green-700",
+		badge: "bg-green-100 text-green-700",
+		text: "text-green-700",
+	},
+	"OOO Work": {
+		selected: "bg-red-600 text-white shadow-sm",
+		button: "bg-red-600 active:bg-red-700",
+		buttonOut: "bg-red-800 active:bg-red-900",
+		confirmOut: "!bg-red-800 hover:!bg-red-900",
+		badgeOut: "bg-red-700 text-white",
+		dot: "bg-red-600",
+		confirm: "!bg-red-600 hover:!bg-red-700",
+		badge: "bg-red-100 text-red-700",
+		text: "text-red-700",
+	},
+}
+
+// While checked in, the session's own type; otherwise what the toggle picked.
+const sessionType = computed(() => {
+	const type = isCheckedIn.value
+		? lastLog.value.custom_attendance_type || "Normal"
+		: selectedAttendanceType.value
+	return TYPE_STYLE[type] ? type : "Normal"
+})
+
+const lastLogType = computed(() =>
+	lastLog.value?.custom_attendance_type === "OOO Work" ? "OOO Work" : "Normal"
+)
+const lastLogDate = computed(() => (lastLog.value?.time ? String(lastLog.value.time).slice(0, 10) : ""))
+const lastLogBs = computed(() => formatNepaliDateLong(lastLogDate.value))
+const lastLogAd = computed(() => formatEnglishDate(lastLogDate.value))
+
+const now = ref(new Date())
+let clockTimer = null
+const clockHm = computed(() => dayjs(now.value).format("h:mm"))
+const clockSec = computed(() => dayjs(now.value).format("ss"))
+const clockAmPm = computed(() => dayjs(now.value).format("A"))
+const todayIso = computed(() => dayjs(now.value).format("YYYY-MM-DD"))
+const todayBs = computed(() => formatNepaliDateLong(todayIso.value))
+const todayAd = computed(() => dayjs(now.value).format("ddd, D MMM YYYY"))
 
 const nextAction = computed(() => {
 	return lastLog?.value?.log_type === "IN"
@@ -274,6 +358,7 @@ const submitLog = (logType) => {
 }
 
 onMounted(() => {
+	clockTimer = setInterval(() => (now.value = new Date()), 1000)
 	socket.emit("doctype_subscribe", DOCTYPE)
 	socket.on("list_update", (data) => {
 		if (data.doctype == DOCTYPE) {
@@ -283,6 +368,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+	clearInterval(clockTimer)
 	socket.emit("doctype_unsubscribe", DOCTYPE)
 	socket.off("list_update")
 })

@@ -229,7 +229,9 @@ watch(
 	() => {
 		const warnings = []
 		const s = deadlineSettings.data
+		// Only a new filing is held to the window; an existing one can still be decided.
 		if (
+			!props.id &&
 			s?.enable_late_early_application_deadline &&
 			application.value.attendance_date
 		) {
