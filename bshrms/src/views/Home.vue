@@ -2,6 +2,11 @@
 	<BaseLayout>
 		<template #body>
 			<div class="flex flex-col items-center my-7 p-4 gap-7">
+				<div class="w-full">
+					<div class="text-base text-gray-600">{{ greeting }}</div>
+					<div class="text-2xl font-bold text-gray-900">{{ firstName }}</div>
+				</div>
+
 				<CheckInPanel />
 				<QuickLinks :items="quickLinks" :title="__('Quick Links')" />
 
@@ -62,24 +67,31 @@
 </template>
 
 <script setup>
-import { inject, markRaw, ref } from "vue"
+import { computed, inject, ref } from "vue"
 import { createListResource, Badge, FeatherIcon } from "frappe-ui"
 
 import CheckInPanel from "@/components/CheckInPanel.vue"
 import QuickLinks from "@/components/QuickLinks.vue"
 import BaseLayout from "@/components/BaseLayout.vue"
 import RequestPanel from "@/components/RequestPanel.vue"
-import AttendanceIcon from "@/components/icons/AttendanceIcon.vue"
-import ShiftIcon from "@/components/icons/ShiftIcon.vue"
-import LeaveIcon from "@/components/icons/LeaveIcon.vue"
-import ExpenseIcon from "@/components/icons/ExpenseIcon.vue"
-import EmployeeAdvanceIcon from "@/components/icons/EmployeeAdvanceIcon.vue"
-import SalaryIcon from "@/components/icons/SalaryIcon.vue"
 import { formatTimestamp } from "@/utils/formatters"
+
+import { userResource } from "@/data/user"
 
 const __ = inject("$translate")
 const employee = inject("$employee")
 const oooExpanded = ref(false)
+
+const firstName = computed(() => userResource.data?.first_name || "")
+
+// Server time would be the employee's shift timezone, not theirs; the greeting is
+// a pleasantry, so the device clock is the right thing to read.
+const greeting = computed(() => {
+	const hour = new Date().getHours()
+	if (hour < 12) return __("Good morning")
+	if (hour < 17) return __("Good afternoon")
+	return __("Good evening")
+})
 
 const oooCheckins = createListResource({
 	doctype: "Employee Checkin",
@@ -94,50 +106,13 @@ const oooCheckins = createListResource({
 })
 
 const quickLinks = [
-	{
-		icon: markRaw(AttendanceIcon),
-		title: __("Request Attendance"),
-		route: "AttendanceRequestFormView",
-	},
-	{
-		icon: markRaw(AttendanceIcon),
-		title: __("Late Entry"),
-		route: "LateEntryApplicationFormView",
-	},
-	{
-		icon: markRaw(AttendanceIcon),
-		title: __("Early Exit"),
-		route: "EarlyExitApplicationFormView",
-	},
-	{
-		icon: markRaw(AttendanceIcon),
-		title: __("Out of Office"),
-		route: "OutOfOfficeApplicationFormView",
-	},
-	{
-		icon: markRaw(ShiftIcon),
-		title: __("Request a Shift"),
-		route: "ShiftRequestFormView",
-	},
-	{
-		icon: markRaw(LeaveIcon),
-		title: __("Request Leave"),
-		route: "LeaveApplicationFormView",
-	},
-	{
-		icon: markRaw(ExpenseIcon),
-		title: __("Claim an Expense"),
-		route: "ExpenseClaimFormView",
-	},
-	{
-		icon: markRaw(EmployeeAdvanceIcon),
-		title: __("Request an Advance"),
-		route: "EmployeeAdvanceFormView",
-	},
-	{
-		icon: markRaw(SalaryIcon),
-		title: __("View Salary Slips"),
-		route: "SalarySlipsDashboard",
-	},
+	{ feather: "calendar", tone: "red", title: __("Request Attendance"), route: "AttendanceRequestFormView" },
+	{ feather: "clock", tone: "red", title: __("Late Entry"), route: "LateEntryApplicationFormView" },
+	{ feather: "log-out", tone: "red", title: __("Early Exit"), route: "EarlyExitApplicationFormView" },
+	{ feather: "briefcase", tone: "red", title: __("Out of Office"), route: "OutOfOfficeApplicationFormView" },
+	{ feather: "watch", tone: "red", title: __("Shift"), route: "ShiftRequestFormView" },
+	{ feather: "calendar", tone: "green", title: __("Leave"), route: "LeaveApplicationFormView" },
+	{ feather: "file-text", tone: "blue", title: __("Expense"), route: "ExpenseClaimFormView" },
+	{ feather: "credit-card", tone: "orange", title: __("Advance"), route: "EmployeeAdvanceFormView" },
 ]
 </script>

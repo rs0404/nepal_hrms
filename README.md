@@ -41,13 +41,13 @@ Single DocType that drives attendance penalties, sandwich leave, PWA board roles
 
 ### Live Attendance
 
-Kanban of Pending / Active / Checked Out / On Leave / Upcoming, grouped by department, with BS date and punch chips.
+Kanban of Pending / Active / Checked Out / On Leave / Pending Approvals / Upcoming, grouped by department, with BS date and punch chips.
 
 ![Live Attendance Board](docs/images/live-attendance-board.png)
 
 ### Report BS
 
-**Monthly Attendance Sheet BS** — BS-month grid with P / HD / WO / Hol / Lv / Ab / WFH pills and worked vs target hours.
+**Monthly Attendance Sheet BS** — BS-month grid with P / HD / WO / Hol / Lv / Ab / WFH pills and worked vs target hours. Buttons: Time Bar Legend, Recalculate C&R, Download Spreadsheet.
 
 ![Monthly Attendance Sheet BS](docs/images/monthly-attendance-sheet-bs.png)
 
