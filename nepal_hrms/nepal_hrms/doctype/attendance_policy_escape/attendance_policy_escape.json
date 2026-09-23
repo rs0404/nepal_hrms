@@ -23,6 +23,8 @@
   "escape_absent_gross",
   "escape_applications",
   "escape_attendance_deduction",
+  "allow_self_approval",
+  "allow_approve_all",
   "section_reason",
   "reason"
  ],
@@ -140,7 +142,7 @@
   },
   {
    "default": "0",
-   "description": "Pay is driven by leave alone. Absent days, \u00bdP / 1P penalties and late/early/OOO half-days are not charged, and payment days are not reduced by attendance. Only LWP leave applications deduct.",
+   "description": "Pay is driven by leave alone. Absent days, ½P / 1P penalties and late/early/OOO half-days are not charged, and payment days are not reduced by attendance. Only LWP leave applications deduct.",
    "fieldname": "escape_attendance_deduction",
    "fieldtype": "Check",
    "label": "Escape Attendance-Based Deduction"
@@ -154,11 +156,26 @@
    "fieldname": "reason",
    "fieldtype": "Small Text",
    "label": "Reason"
+  },
+  {
+   "default": "0",
+   "description": "Let this employee approve their own Late Entry, Early Exit, Out of Office, OOO check-ins, Attendance Requests, Leave and Shift Requests. Without it only their approver, or someone above the approver in Reports To, can.",
+   "fieldname": "allow_self_approval",
+   "fieldtype": "Check",
+   "label": "Allow Self-Approval"
+  },
+  {
+   "default": "0",
+   "description": "Let this employee approve anyone's Late Entry, Early Exit, Out of Office, OOO check-ins, Attendance Requests, Leave, Compensatory Leave and Shift Requests while the escape is active. Their own still need Allow Self-Approval. Only a System Manager can set this, or change an escape that has it.",
+   "fieldname": "allow_approve_all",
+   "fieldtype": "Check",
+   "label": "Allow Approving Everyone",
+   "permlevel": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-11 00:00:00.000000",
+ "modified": "2026-09-24 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Attendance Policy Escape",
@@ -185,6 +202,17 @@
    "role": "HR Manager",
    "share": 1,
    "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "HR Manager"
   }
  ],
  "sort_field": "modified",

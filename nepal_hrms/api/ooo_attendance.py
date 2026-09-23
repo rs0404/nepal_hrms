@@ -130,7 +130,7 @@ def approve_ooo_checkins(employee, attendance_date):
 	Marks OOO check-ins approved, recalculates working hours (Normal + OOO),
 	clears OOO hold, and submits/updates Attendance.
 	"""
-	_assert_is_leave_approver(employee)
+	_assert_is_leave_approver(employee, attendance_date)
 
 	attendance_date = getdate(attendance_date)
 	checkin_meta = frappe.get_meta("Employee Checkin")
@@ -302,7 +302,7 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 	if not reason or not str(reason).strip():
 		frappe.throw(_("A rejection reason is required."))
 
-	_assert_is_leave_approver(employee)
+	_assert_is_leave_approver(employee, attendance_date)
 
 	attendance_date = getdate(attendance_date)
 	reason = str(reason).strip()
@@ -459,32 +459,27 @@ def get_ooo_status(employee):
 def get_pending_ooo_approvals():
 	"""OOO board for PWA: pending + approved reportees, plus own OOO.
 
-	Pending/approved lists only include employees where the current user is
-	set as Leave Approver. Approve/Reject is leave-approver-only.
+	Pending/approved lists include the employees whose approvals reach the
+	current user: their Leave Approver or anyone above that approver in Reports
+	To (see approval_authority). Not all employees for HR.
 	"""
 	from frappe.utils import add_days
+
+	from nepal_hrms.custom_code.approval_authority import approvable_employees
 
 	user = frappe.session.user
 	my_emp = frappe.db.get_value("Employee", {"user_id": user}, ["name", "employee_name"], as_dict=True)
 
-	# Only reportees of this leave approver (not all HR employees)
-	reportees = frappe.get_all(
-		"Employee",
-		filters={"leave_approver": user, "status": "Active"},
-		fields=["name", "employee_name"],
-	)
-	# Case-insensitive fallback if leave_approver stored with different casing
-	if not reportees and user:
-		all_active = frappe.get_all(
+	team = approvable_employees(user)
+	reportees = (
+		frappe.get_all(
 			"Employee",
-			filters={"status": "Active", "leave_approver": ["is", "set"]},
-			fields=["name", "employee_name", "leave_approver"],
+			filters={"name": ["in", team]},
+			fields=["name", "employee_name"],
 		)
-		reportees = [
-			{"name": e.name, "employee_name": e.employee_name}
-			for e in all_active
-			if str(e.leave_approver or "").lower() == user.lower()
-		]
+		if team
+		else []
+	)
 
 	employee_map = {e["name"]: e["employee_name"] for e in reportees}
 	reportee_ids = list(employee_map.keys())
@@ -646,7 +641,7 @@ def update_pending_ooo_checkin_times(employee, attendance_date, checkins):
 	if not employee or not attendance_date:
 		frappe.throw(_("Employee and attendance date are required."))
 
-	_assert_is_leave_approver(employee)
+	_assert_is_leave_approver(employee, attendance_date)
 	attendance_date = getdate(attendance_date)
 	if isinstance(checkins, str):
 		checkins = frappe.parse_json(checkins)
@@ -920,7 +915,7 @@ def get_ooo_approval_details(employee, attendance_date):
 	last_out = next((c for c in reversed(checkins) if c["log_type"] == "OUT"), None)
 
 	pending_count = len([c for c in ooo_checkins if not c["is_approved"]])
-	can_approve = _is_leave_approver_for(employee) and pending_count > 0
+	can_approve = _is_leave_approver_for(employee, attendance_date) and pending_count > 0
 	emp_user = frappe.db.get_value("Employee", employee, "user_id")
 	is_own = bool(emp_user and emp_user == frappe.session.user)
 
@@ -1075,41 +1070,29 @@ def _is_own_employee(employee: str) -> bool:
 	return bool(emp_user and emp_user == frappe.session.user)
 
 
-def _is_leave_approver_for(employee: str) -> bool:
-	"""True if current user may approve OOO check-ins for this employee."""
-	user = frappe.session.user
-	if user == "Administrator":
-		return True
+def _is_leave_approver_for(employee: str, on_date=None) -> bool:
+	"""True if current user may approve OOO check-ins for this employee.
 
-	is_self = _is_own_employee(employee)
-	if is_self and _prevent_self_ooo_checkin_approval():
-		return False
+	The Leave Approver or anyone above them in Reports To. Self-approval needs
+	an Allow Self-Approval policy escape, or the site's prevent-self setting off.
+	"""
+	from nepal_hrms.custom_code.approval_authority import can_approve
 
-	leave_approver = frappe.db.get_value("Employee", employee, "leave_approver")
-	if leave_approver and str(leave_approver).lower() == str(user).lower():
-		return True
-
-	if is_self:
-		# prevent-self is off — allow the employee to approve their own OOO
-		return True
-
-	return False
+	return can_approve(
+		employee,
+		on_date=on_date,
+		site_allows_self=not _prevent_self_ooo_checkin_approval(),
+	)
 
 
-def _assert_is_leave_approver(employee: str):
-	if _is_leave_approver_for(employee):
-		return
-	if _is_own_employee(employee) and _prevent_self_ooo_checkin_approval():
-		frappe.throw(
-			_(
-				"You cannot approve or reject your own OOO check-ins. "
-				"Your Leave Approver must do it."
-			),
-			frappe.PermissionError,
-		)
-	frappe.throw(
-		_("Only the Leave Approver set on this Employee can approve or reject OOO check-ins."),
-		frappe.PermissionError,
+def _assert_is_leave_approver(employee: str, on_date=None):
+	from nepal_hrms.custom_code.approval_authority import assert_can_approve
+
+	assert_can_approve(
+		employee,
+		_("OOO check-ins"),
+		on_date=on_date,
+		site_allows_self=not _prevent_self_ooo_checkin_approval(),
 	)
 
 

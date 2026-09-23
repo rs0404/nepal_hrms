@@ -98,6 +98,7 @@ override_doctype_class = {
 	"Employee Checkin": "nepal_hrms.overrides.employee_checkin.CustomEmployeeCheckin",
 	"Shift Type": "nepal_hrms.overrides.shift_type.NepalShiftType",
 	"Attendance Request": "nepal_hrms.overrides.attendance_request.CustomAttendanceRequest",
+	"Leave Application": "nepal_hrms.overrides.leave_application.CustomLeaveApplication",
 }
 
 doc_events = {
@@ -160,6 +161,15 @@ doc_events = {
 	},
 	"Additional Salary": {
 		"validate": "nepal_hrms.custom_code.payroll.component_variant.validate_component_variant",
+	},
+	# Approval follows the org chart (custom_code/approval_authority.py). Leave
+	# Application's check lives in its class override, ahead of Frappe HR's.
+	"Shift Request": {
+		"validate": "nepal_hrms.custom_code.approval_hooks.validate_shift_request_approval",
+		"before_submit": "nepal_hrms.custom_code.approval_hooks.before_submit_shift_request",
+	},
+	"Compensatory Leave Request": {
+		"before_submit": "nepal_hrms.custom_code.approval_hooks.before_submit_compensatory_leave_request",
 	},
 	"Leave Application": {
 		"validate": [

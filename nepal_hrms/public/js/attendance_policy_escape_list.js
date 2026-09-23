@@ -100,6 +100,21 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 				description: __("Only LWP leave deducts; attendance does not affect pay"),
 			},
 			{
+				fieldname: "allow_self_approval",
+				label: __("Allow Self-Approval"),
+				fieldtype: "Check",
+				default: 0,
+				description: __("They may approve their own applications and requests"),
+			},
+			{
+				fieldname: "allow_approve_all",
+				label: __("Allow Approving Everyone"),
+				fieldtype: "Check",
+				default: 0,
+				description: __("They may approve anyone's applications and requests. System Manager only."),
+				hidden: !frappe.user.has_role("System Manager"),
+			},
+			{
 				fieldname: "section_reason",
 				fieldtype: "Section Break",
 			},
@@ -129,6 +144,8 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 				values.escape_absent_gross,
 				values.escape_applications,
 				values.escape_attendance_deduction,
+				values.allow_self_approval,
+				values.allow_approve_all,
 			];
 			if (!flags.some((v) => cint(v))) {
 				frappe.msgprint(__("Select at least one escape rule"));
@@ -147,6 +164,8 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 					escape_absent_gross: cint(values.escape_absent_gross),
 					escape_applications: cint(values.escape_applications),
 					escape_attendance_deduction: cint(values.escape_attendance_deduction),
+					allow_self_approval: cint(values.allow_self_approval),
+					allow_approve_all: cint(values.allow_approve_all),
 					reason: values.reason || "",
 					is_active: 1,
 				},
