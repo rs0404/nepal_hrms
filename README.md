@@ -35,7 +35,7 @@ Employee PWA at `/bshrms`: check-in (Normal or OOO Work), quick links, and reque
 
 ### Nepal HRMS Settings
 
-Single DocType that drives attendance penalties, sandwich leave, PWA board roles, and Nepal payroll.
+Single DocType that drives attendance penalties, sandwich leave, PWA board roles, Nepal payroll, and where notifications go.
 
 ![Nepal HRMS Settings](docs/images/nepal-hrms-settings.png)
 
@@ -151,7 +151,7 @@ Route: `/bshrms`. Installable as a PWA (manifest + service worker). App permissi
 
 ### Nepal HRMS Settings
 
-Single DocType. Two tabs.
+Single DocType. Three tabs.
 
 **HR & Attendance**
 
@@ -193,10 +193,31 @@ Single DocType. Two tabs.
 | Payroll period start day | BS start day for custom range (1–29) |
 | Minimum wage | Monthly basic / DA / total, daily, hourly floors |
 | Payroll accounts | Per-company GL mapping by purpose |
+| On variant mismatch | Additional Salary naming the opposite Wages/Salary component: Block or Warn |
 | Scheduled payroll | Daily job creates Payroll Entries on a BS day; entry only / +slips / +submit slips; notify role |
 | Run payroll setup | Create components, four salary structures, tax slab |
 
 Deduction base options: Basic only · +Grade · +DA · +Grade+DA · Basic remuneration (SSF/PF) · Total fixed remuneration (gross).
+
+**Notifications**
+
+One event list, two delivery channels. Each row picks who is notified, then whether it
+goes to Raven, the BSHRMS PWA, or both. Every event starts disabled.
+
+| Setting | Purpose |
+| --- | --- |
+| Bot source / Raven bot | Reuse an existing Raven Bot or create one; required before any channel is made |
+| Channel source / Raven channel | Reuse a channel or create one for events with Channel ticked |
+| Channel type / workspace | Public or Private, and which Raven Workspace to create it in |
+| Channel member roles | Roles whose Raven Users are added to the channel on each save |
+| Enable PWA notifications | Master switch for the PWA channel; off until switched on |
+| Attendance notifications | Per-event: Enabled, Channel, Employee, Reports To, Approver, PWA, message override |
+
+The Raven channel is created lazily: it appears only once a row is enabled with Channel
+ticked and its own Channel field left empty, and only when a bot resolves. Raven direct
+messages are skipped for anyone who is not a Raven User; PWA notifications are not, since
+they go to the employee's own user. Leave Application is excluded from the PWA channel —
+HRMS notifies its approver and applicant already.
 
 ---
 
@@ -288,6 +309,8 @@ See [docs/attendance.md](docs/attendance.md) and [docs/ooo_attendance_flow.md](d
 | Nepal HRMS Settings | Single config |
 | Nepal HRMS Role | Child: PWA ACL role rows |
 | Nepal HRMS Frequent Leave Type | Child: leave-type shortcuts |
+| Nepal HRMS Raven Notification | Child: one row per notification event |
+| Nepal Salary Slip Earning Component | Child: extra earning components on the slip print |
 | Late Entry Application | Excuse late arrival |
 | Early Exit Application | Excuse early exit |
 | Out of Office Application | Declare OOO window |
