@@ -127,6 +127,10 @@
   "scheduled_payroll_runs",
   "payroll_setup_section",
   "run_payroll_setup",
+  "salary_privacy_section",
+  "mask_salary_in_pwa",
+  "column_break_salary_privacy",
+  "salary_unlock_fields",
   "notification_tab",
   "raven_bot_section",
   "raven_bot_source",
@@ -1063,12 +1067,36 @@
    "fieldtype": "Data",
    "label": "App Route",
    "permlevel": 1
+  },
+  {
+   "description": "Salary figures in the BS HRMS app show as xxxxx until the employee types the value of an Employee field they chose. A screen lock against someone holding their phone, not a change to who may read the data.",
+   "fieldname": "salary_privacy_section",
+   "fieldtype": "Section Break",
+   "label": "PWA Salary Privacy"
+  },
+  {
+   "default": "1",
+   "fieldname": "mask_salary_in_pwa",
+   "fieldtype": "Check",
+   "label": "Hide Salary Amounts in the App"
+  },
+  {
+   "fieldname": "column_break_salary_privacy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "employee_name\ndesignation",
+   "depends_on": "mask_salary_in_pwa",
+   "description": "Employee fields an employee may pick as their unlock answer, one fieldname per line (for example employee_name, designation, date_of_birth, cell_number). Each employee chooses one in the app's Settings.",
+   "fieldname": "salary_unlock_fields",
+   "fieldtype": "Small Text",
+   "label": "Unlock Fields"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-23 12:00:00.000000",
+ "modified": "2026-09-23 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Settings",

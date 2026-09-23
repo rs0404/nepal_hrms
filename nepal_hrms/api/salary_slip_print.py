@@ -6,6 +6,8 @@ opening their salary saw Details, Earnings, Net Pay Info and had to download a
 PDF to see the slip itself.
 """
 
+import re
+
 import frappe
 from frappe import _
 
@@ -48,4 +50,14 @@ def get_salary_slip_html(name, print_format=None):
 		html = frappe.get_print("Salary Slip", name)
 		chosen = "Standard"
 
-	return {"name": name, "print_format": chosen, "html": html}
+	return {"name": name, "print_format": chosen, "html": _strip_action_banner(html)}
+
+
+# printview.html opens with a Print / Get PDF bar. The app shows the slip to read,
+# not to print or download, so the bar goes. The banner holds only two links,
+# so the first </div> after it closes it.
+ACTION_BANNER = re.compile(r'<div class="action-banner[^"]*">.*?</div>', re.DOTALL)
+
+
+def _strip_action_banner(html):
+	return ACTION_BANNER.sub("", html or "", count=1)

@@ -13,7 +13,7 @@
 						{{
 							__("{0}: {1}", [
 								__("Gross Pay"),
-								formatCurrency(doc.gross_pay, doc.currency),
+								maskedAmount(formatCurrency(doc.gross_pay, doc.currency)),
 							])
 						}}
 					</span>
@@ -22,7 +22,7 @@
 		</template>
 		<template #right>
 			<span v-if="doc?.net_pay" class="text-gray-700 font-normal rounded text-base">
-				{{ formatCurrency(doc.net_pay, doc.currency) }}
+				{{ maskedAmount(formatCurrency(doc.net_pay, doc.currency)) }}
 			</span>
 			<FeatherIcon name="chevron-right" class="h-5 w-5 text-gray-500" />
 		</template>
@@ -37,6 +37,7 @@ import ListItem from "@/components/ListItem.vue"
 import SalaryIcon from "@/components/icons/SalaryIcon.vue"
 
 import { formatCurrency } from "@/utils/formatters"
+import { maskedAmount } from "@/data/salary_lock"
 import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
 
 const dayjs = inject("$dayjs")

@@ -22,6 +22,7 @@ class NepalHRMSSettings(Document):
 		self.validate_payroll_accounts()
 		self.validate_scheduled_payroll_runs()
 		self.validate_pwa_route()
+		self.validate_salary_unlock_fields()
 		from nepal_hrms.notifications.raven_sync import seed_notification_rows
 
 		seed_notification_rows(self)
@@ -37,6 +38,21 @@ class NepalHRMSSettings(Document):
 		from nepal_hrms.notifications.raven_sync import sync_raven_notifications
 
 		sync_raven_notifications(self)
+
+	def validate_salary_unlock_fields(self):
+		if not self.meta.has_field("salary_unlock_fields") or not self.salary_unlock_fields:
+			return
+		from nepal_hrms.api.salary_privacy import BLOCKED_FIELDTYPES
+
+		meta = frappe.get_meta("Employee")
+		names = [n.strip() for n in self.salary_unlock_fields.replace(",", "\n").splitlines() if n.strip()]
+		bad = [n for n in names if not meta.get_field(n) or meta.get_field(n).fieldtype in BLOCKED_FIELDTYPES]
+		if bad:
+			frappe.throw(
+				_("Unlock Fields: {0} is not a usable Employee field.").format(", ".join(bad)),
+				title=_("PWA Salary Privacy"),
+			)
+		self.salary_unlock_fields = "\n".join(dict.fromkeys(names))
 
 	def validate_pwa_route(self):
 		# Only on change: a save of unrelated settings, often by an HR Manager

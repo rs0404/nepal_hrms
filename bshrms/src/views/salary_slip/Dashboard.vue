@@ -2,6 +2,16 @@
 	<BaseLayout :pageTitle="__('Salary Slips')">
 		<template #body>
 			<div class="flex flex-col items-center my-7 p-4">
+				<SalaryUnlock v-if="salaryLocked" class="mb-4" />
+				<button
+					v-else-if="salaryPrivacy.data?.enabled"
+					type="button"
+					class="mb-3 flex items-center gap-1.5 self-end text-xs font-semibold text-gray-500"
+					@click="lockSalary"
+				>
+					<FeatherIcon name="lock" class="h-3.5 w-3.5" />
+					{{ __("Hide amounts") }}
+				</button>
 				<div class="flex flex-col w-full bg-white rounded py-5 px-3.5 gap-5">
 					<div v-if="lastSalarySlip && lastSalarySlip.year_to_date" class="flex flex-col w-full gap-1.5">
 						<span class="text-gray-600 text-sm font-medium leading-5">
@@ -9,9 +19,8 @@
 						</span>
 						<span class="text-gray-800 text-xl font-bold leading-6">
 							{{
-								formatCurrency(
-									lastSalarySlip.year_to_date,
-									lastSalarySlip.currency
+								maskedAmount(
+									formatCurrency(lastSalarySlip.year_to_date, lastSalarySlip.currency)
 								)
 							}}
 						</span>
@@ -56,11 +65,13 @@
 
 <script setup>
 import { inject, ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
-import { Autocomplete, createListResource } from "frappe-ui"
+import { Autocomplete, FeatherIcon, createListResource } from "frappe-ui"
 
 import BaseLayout from "@/components/BaseLayout.vue"
 import EmptyState from "@/components/EmptyState.vue"
 import SalarySlipItem from "@/components/SalarySlipItem.vue"
+import SalaryUnlock from "@/components/SalaryUnlock.vue"
+import { lockSalary, maskedAmount, salaryLocked, salaryPrivacy } from "@/data/salary_lock"
 
 import { formatCurrency } from "@/utils/formatters"
 import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"

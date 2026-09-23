@@ -68,6 +68,8 @@
 							</div>
 						</div>
 
+						<SalaryUnlockFieldPicker class="w-full" />
+
 						<!-- Settings -->
 						<div
 							class="flex flex-col gap-5 my-4 w-full"
@@ -124,7 +126,10 @@
 							const [label, fieldtype] = getFieldInfo(field)
 							return {
 								fieldname: field,
-								value: employeeDoc.doc[field],
+								value:
+									field === 'ctc' && salaryLocked
+										? SALARY_MASK
+										: employeeDoc.doc[field],
 								label: label,
 								fieldtype: fieldtype,
 							}
@@ -146,6 +151,8 @@ import { showErrorAlert } from "@/utils/dialogs"
 import { formatCurrency } from "@/utils/formatters"
 
 import ProfileInfoModal from "@/components/ProfileInfoModal.vue"
+import SalaryUnlockFieldPicker from "@/components/SalaryUnlockFieldPicker.vue"
+import { SALARY_MASK, salaryLocked } from "@/data/salary_lock"
 
 import { arePushNotificationsEnabled } from "@/data/notifications"
 
