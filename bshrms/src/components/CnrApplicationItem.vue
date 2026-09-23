@@ -31,7 +31,13 @@
 			</div>
 		</template>
 		<template #right>
-			<Badge variant="outline" :theme="colorMap[status] || 'gray'" :label="__(status)" size="md" />
+			<Badge
+				variant="outline"
+				:theme="colorMap[status] || 'gray'"
+				:label="__(statusLabel)"
+				size="md"
+				class="shrink-0 whitespace-nowrap"
+			/>
 			<FeatherIcon name="chevron-right" class="h-5 w-5 text-gray-500" />
 		</template>
 	</ListItem>
@@ -86,6 +92,12 @@ const status = computed(() => {
 	if ((props.doc.status || "Draft") === "Draft") return "Waiting for Approval"
 	return props.doc.status
 })
+
+// "Waiting for Approval" is what the form says; on this row there is no room
+// for it, and it wrapped mid-phrase. The board wording is Pending.
+const statusLabel = computed(() =>
+	status.value === "Waiting for Approval" ? "Pending" : status.value
+)
 
 const colorMap = {
 	Draft: "orange",
