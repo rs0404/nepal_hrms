@@ -1,4 +1,4 @@
-__version__ = "0.1.0"
+__version__ = "1.0.1"
 
 # Monkey patch Frappe HR's get_period_factor for Nepali calendar months
 try:
