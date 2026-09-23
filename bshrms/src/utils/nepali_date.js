@@ -156,3 +156,27 @@ export function formatShortTime(value) {
 	const match = String(value || "").match(/(\d{1,2}):(\d{2})/)
 	return match ? `${match[1].padStart(2, "0")}:${match[2]}` : ""
 }
+
+const NE_DIGITS = "०१२३४५६७८९"
+
+/** "2083" -> "२०८३". */
+export function toNepaliDigits(value) {
+	return String(value ?? "").replace(/[0-9]/g, (d) => NE_DIGITS[Number(d)])
+}
+
+/** BS date in Nepali script, e.g. "७ आश्विन २०८३", with the weekday when asked. */
+export function formatNepaliDateNe(adDate, { withWeekday = false } = {}) {
+	if (!adDate || !window.NepaliDateLib) return ""
+	try {
+		const ad = new Date(`${String(adDate).slice(0, 10)}T12:00:00`)
+		const nd = window.NepaliDateLib.NepaliDate.fromAD(ad)
+		const month = window.NepaliDateLib.MONTH_NAMES_NE_BS?.[nd.monthIndex]
+		if (!month) return ""
+		const date = `${toNepaliDigits(nd.day)} ${month} ${toNepaliDigits(nd.year)}`
+		const weekday = window.NepaliDateLib.WEEKDAY_NAMES_NE?.[ad.getDay()]
+		return withWeekday && weekday ? `${date}, ${weekday}` : date
+	} catch (e) {
+		console.error("Nepali date conversion error:", e)
+		return ""
+	}
+}

@@ -1559,3 +1559,29 @@ def check_leave_sandwich(from_date: str, to_date: str) -> dict:
 		"message": message,
 		"warning_message": result.get("warning_message"),
 	}
+
+
+@frappe.whitelist()
+def get_day_holiday(date: str = None, employee: str = None) -> dict:
+	"""Whether a day (default today) is a holiday or weekly off for an employee.
+
+	For the PWA's check-in card. Weekly offs count: Frappe HR's
+	get_holidays_for_employee leaves them out.
+	"""
+	from frappe.utils import today
+
+	from nepal_hrms.api.pwa_access import can_read_employee_attendance
+	from nepal_hrms.custom_code.attendance_holiday import holiday_info
+
+	employee = employee or frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+	if not employee:
+		return {"is_holiday": 0, "weekly_off": 0, "description": ""}
+	if not can_read_employee_attendance(employee):
+		frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
+
+	info = holiday_info(employee, date or today())
+	return {
+		"is_holiday": 1 if info.is_holiday else 0,
+		"weekly_off": 1 if info.weekly_off else 0,
+		"description": info.description or "",
+	}

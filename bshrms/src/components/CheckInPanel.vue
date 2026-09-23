@@ -23,8 +23,23 @@
 				<span class="text-4xl">{{ clockHm }}</span><span class="text-xl text-gray-400">:{{ clockSec }}</span>
 				<span class="ml-1 text-base font-semibold text-gray-500">{{ clockAmPm }}</span>
 			</div>
-			<div class="mt-1 text-sm text-gray-600">
-				{{ todayAd }} <span class="text-gray-300">|</span> {{ todayBs }}
+			<!-- Nepali date leads, in Nepali; the English date follows, quieter. -->
+			<div class="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+				<span
+					class="rounded-md px-2 py-0.5 text-[15px] font-semibold"
+					:class="isHolidayToday ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'"
+					lang="ne"
+				>
+					{{ todayNe || todayBs }}
+				</span>
+				<span class="text-xs text-gray-500">{{ todayAd }}</span>
+			</div>
+			<!-- A named holiday says which; a weekly off is already plain from the weekday. -->
+			<div
+				v-if="isHolidayToday && !todayHoliday.data?.weekly_off && todayHoliday.data?.description"
+				class="mt-1 text-xs font-medium text-red-600"
+			>
+				{{ todayHoliday.data.description }}
 			</div>
 		</div>
 
@@ -176,12 +191,13 @@
 
 <script setup>
 import { createResource, createListResource, toast, FeatherIcon } from "frappe-ui"
-import { computed, inject, ref, onMounted, onBeforeUnmount } from "vue"
+import { computed, inject, ref, watch, onMounted, onBeforeUnmount } from "vue"
 import { IonModal, modalController } from "@ionic/vue"
 
 import {
 	formatDaysFromToday,
 	formatNepaliDateLong,
+	formatNepaliDateNe,
 	formatEnglishDate,
 } from "@/utils/nepali_date"
 
@@ -270,6 +286,17 @@ const clockSec = computed(() => dayjs(now.value).format("ss"))
 const clockAmPm = computed(() => dayjs(now.value).format("A"))
 const todayIso = computed(() => dayjs(now.value).format("YYYY-MM-DD"))
 const todayBs = computed(() => formatNepaliDateLong(todayIso.value))
+const todayNe = computed(() => formatNepaliDateNe(todayIso.value, { withWeekday: true }))
+
+// Red on a holiday or weekly off, green on a working day. Green until it loads.
+const todayHoliday = createResource({
+	url: "nepal_hrms.api.attendance_calendar.get_day_holiday",
+	makeParams: () => ({ date: todayIso.value, employee: employee.data?.name }),
+	auto: true,
+})
+const isHolidayToday = computed(() => Boolean(todayHoliday.data?.is_holiday))
+// The card stays open past midnight; ask again for the new day.
+watch(todayIso, () => todayHoliday.reload())
 const todayAd = computed(() => dayjs(now.value).format("ddd, D MMM YYYY"))
 
 const nextAction = computed(() => {
