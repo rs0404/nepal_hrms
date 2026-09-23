@@ -24,6 +24,12 @@ def exempt_leave_types(settings):
 	return names
 
 
+def _is_new(doc):
+	"""Document.is_new(), or for a plain dict, whether it has no name yet."""
+	is_new = getattr(doc, "is_new", None)
+	return is_new() if callable(is_new) else not doc.get("name")
+
+
 def validate_leave_application_deadline(doc, method=None):
 	"""Block back-dated leave once the window has passed, bar the exempt types.
 
@@ -33,6 +39,10 @@ def validate_leave_application_deadline(doc, method=None):
 	from nepal_hrms.custom_code.attendance_policy import get_hr_settings
 
 	if doc.docstatus == 2 or (doc.status or "") == "Cancelled":
+		return
+	# Filing is what the window limits. An approver deciding an application that
+	# already exists is not held to it.
+	if not _is_new(doc):
 		return
 	if not doc.to_date:
 		return

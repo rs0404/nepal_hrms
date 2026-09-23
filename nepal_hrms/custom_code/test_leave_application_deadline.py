@@ -90,3 +90,7 @@ class TestLeaveDeadline(TestCase):
 
 	def test_a_leave_with_no_end_date_is_left_alone(self):
 		self.assertFalse(self._run(_leave(to_date=None)))
+
+	def test_an_existing_leave_can_still_be_approved(self):
+		"""The window limits filing; the approver's later save is not held to it."""
+		self.assertFalse(self._run(frappe._dict(_leave(), name="HR-LAP-0001")))

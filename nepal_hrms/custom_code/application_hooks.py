@@ -456,9 +456,19 @@ def before_submit_cnr_application(doc, method=None):
 		)
 
 
+def _is_new(doc):
+	"""Document.is_new(), or for a plain dict, whether it has no name yet."""
+	is_new = getattr(doc, "is_new", None)
+	return is_new() if callable(is_new) else not doc.get("name")
+
+
 def _validate_cnr_application_deadline(doc):
 	"""Block Late/Early/OOO apps filed after the configured attendance-date window."""
 	if doc.doctype not in CNR_APPLICATION_DOCTYPES:
+		return
+	# The window limits when an employee may file, not when an approver may
+	# decide: once the application exists, saving and submitting it stay open.
+	if not _is_new(doc):
 		return
 	# Rejection is not a new filing — do not block it after the deadline.
 	if _is_rejected_application(doc):

@@ -249,6 +249,25 @@ class TestApplicationLimits(TestCase):
 	@patch(
 		"nepal_hrms.custom_code.application_hooks.get_hr_settings"
 	)
+	def test_deadline_does_not_block_an_existing_application(self, get_settings, today):
+		get_settings.return_value = _dict(
+			enable_late_early_application_deadline=1,
+			late_early_application_max_days=2,
+		)
+		today.return_value = "2026-09-14"
+		doc = _dict(
+			doctype="Out of Office Application",
+			name="OOO-0001",
+			employee="EMP-1",
+			attendance_date="2026-09-11",
+		)
+
+		_validate_cnr_application_deadline(doc)
+
+	@patch("nepal_hrms.custom_code.application_hooks.today")
+	@patch(
+		"nepal_hrms.custom_code.application_hooks.get_hr_settings"
+	)
 	def test_deadline_does_not_block_rejection(self, get_settings, today):
 		get_settings.return_value = _dict(
 			enable_late_early_application_deadline=1,
