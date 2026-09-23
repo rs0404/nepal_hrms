@@ -1,8 +1,12 @@
 <template>
 	<ion-page>
 		<ion-content :fullscreen="true">
+			<!-- Nothing about the slip is fetched or drawn until it is unlocked. -->
+			<div v-if="salaryLocked" class="flex flex-col gap-4 p-4 pt-8">
+				<SalaryUnlock :title="__('This salary slip is locked')" />
+			</div>
 			<FormView
-				v-if="formFields.data"
+				v-else-if="formFields.data"
 				doctype="Salary Slip"
 				v-model="salarySlip"
 				:fields="formFields.data"
@@ -51,17 +55,6 @@
 					/>
 				</template>
 
-				<template #formButton>
-					<ErrorMessage :message="downloadError" class="mt-2" />
-					<Button
-						class="w-full rounded py-5 text-base disabled:bg-gray-700 disabled:text-white"
-						@click="downloadPDF"
-						variant="solid"
-						:loading="loading"
-					>
-						{{ __("Download PDF") }}
-					</Button>
-				</template>
 			</FormView>
 		</ion-content>
 	</ion-page>
@@ -75,6 +68,8 @@ import { createResource, ErrorMessage } from "frappe-ui"
 
 import FormView from "@/components/FormView.vue"
 import SalaryDetailTable from "@/components/SalaryDetailTable.vue"
+import SalaryUnlock from "@/components/SalaryUnlock.vue"
+import { salaryLocked } from "@/data/salary_lock"
 
 import { getCompanyCurrency } from "@/data/currencies"
 
@@ -85,8 +80,6 @@ const props = defineProps({
 	},
 })
 
-const downloadError = ref("")
-const loading = ref(false)
 
 // reactive object to store form data
 const salarySlip = ref({})
@@ -104,8 +97,20 @@ formFields.reload()
 const printHTML = createResource({
 	url: "nepal_hrms.api.salary_slip_print.get_salary_slip_html",
 	params: { name: props.id },
-	auto: true,
 })
+
+watch(
+	salaryLocked,
+	(locked) => {
+		if (locked) {
+			// Dropping the rendered slip too, so it is not kept behind the lock screen.
+			printHTML.reset()
+		} else if (!printHTML.data && !printHTML.loading) {
+			printHTML.fetch()
+		}
+	},
+	{ immediate: true }
+)
 
 const tabs = [
 	// First, because it is what the employee came to see. The field tabs stay
@@ -154,47 +159,5 @@ function getFilteredFields(fields) {
 		"earning_deduction_sb",
 	]
 	return fields.filter((field) => !excludeFields.includes(field.fieldname))
-}
-
-function downloadPDF() {
-	const salarySlipName = salarySlip.value.name
-	loading.value = true
-
-	let headers = { "X-Frappe-Site-Name": window.location.hostname }
-	if (window.csrf_token) {
-		headers["X-Frappe-CSRF-Token"] = window.csrf_token
-	}
-
-	fetch("/api/method/hrms.api.download_salary_slip", {
-		method: "POST",
-		headers,
-		body: new URLSearchParams({ name: salarySlipName }),
-		responseType: "blob",
-	})
-		.then((response) => {
-			if (response.ok) {
-				return response.blob()
-			} else {
-				downloadError.value = "Failed to download PDF"
-			}
-		})
-		.then((blob) => {
-			if (!blob) return
-			const blobUrl = window.URL.createObjectURL(blob)
-			const link = document.createElement("a")
-			link.href = blobUrl
-			link.download = `${salarySlipName}.pdf`
-			link.click()
-
-			setTimeout(() => {
-				window.URL.revokeObjectURL(blobUrl)
-			}, 3000)
-		})
-		.catch((error) => {
-			downloadError.value = `Failed to download PDF: ${error.message}`
-		})
-		.finally(() => {
-			loading.value = false
-		})
 }
 </script>
