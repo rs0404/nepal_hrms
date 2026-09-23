@@ -472,6 +472,11 @@ const ACTION_STYLES = {
 		button: "border-red-200 bg-red-50 text-red-800 active:bg-red-100",
 		icon: "bg-red-600 text-white",
 	},
+	"Compensatory Leave Request": {
+		feather: "gift",
+		button: "border-cyan-200 bg-cyan-50 text-cyan-800 active:bg-cyan-100",
+		icon: "bg-cyan-600 text-white",
+	},
 	"Shift Request": {
 		feather: "repeat",
 		button: "border-gray-200 bg-gray-50 text-gray-800 active:bg-gray-100",
