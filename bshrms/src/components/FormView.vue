@@ -123,6 +123,8 @@
 									:placeholder="field.placeholder"
 									:highlight="Boolean(field.highlight)"
 									:hint="field.hint"
+									:timeWindow="field.timeWindow"
+									:noSeconds="Boolean(field.noSeconds)"
 								/>
 							</template>
 
@@ -169,6 +171,8 @@
 						:placeholder="field.placeholder"
 						:highlight="Boolean(field.highlight)"
 						:hint="field.hint"
+						:timeWindow="field.timeWindow"
+						:noSeconds="Boolean(field.noSeconds)"
 					/>
 
 					<!-- Attachment upload -->
