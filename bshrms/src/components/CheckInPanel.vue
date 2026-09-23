@@ -1,30 +1,59 @@
 <template>
-	<div class="flex flex-col bg-white rounded w-full py-6 px-4 border-none">
-		<h2 class="text-lg font-bold text-gray-900">
-			{{ __("Hey, {0} 👋", [employee?.data?.first_name]) }}
-		</h2>
+	<div class="flex flex-col bg-white rounded-xl w-full py-5 px-4 shadow-sm">
+		<div class="flex items-start justify-between gap-2">
+			<h2 class="text-lg font-bold text-gray-900">{{ __("Check-in") }}</h2>
+			<div class="text-sm text-gray-500 whitespace-nowrap" v-if="lastLog?.time">
+				{{ __("Last log:") }}
+				<span class="font-semibold" :class="lastLog.log_type === 'IN' ? 'text-red-600' : 'text-gray-700'">
+					{{ lastLog.log_type }} {{ dayjs(lastLog.time).format("HH:mm") }}
+				</span>
+			</div>
+		</div>
 
 		<template v-if="settings.data?.allow_employee_checkin_from_mobile_app">
-			<div class="font-medium text-sm text-gray-500 mt-1.5" v-if="lastLog">
-				<span>{{ __("Last {0} was at {1}", [__(lastLogType), formatTimestamp(lastLog.time)]) }}</span>
-				<span class="whitespace-pre"> &middot; </span>
-				<router-link :to="{ name: 'EmployeeCheckinListView' }" v-slot="{ navigate }">
-					<span @click="navigate" class="underline">View List</span>
-				</router-link>
+			<!-- Choosing the type here rather than in the sheet: it is the one thing
+			     you decide before checking in, and the sheet still owns the OOO
+			     reason. Locked while a session is open -- you leave the way you
+			     arrived, so checking out cannot switch type. -->
+			<div class="mt-4 grid grid-cols-2 rounded-lg border border-gray-200 overflow-hidden">
+				<button
+					v-for="type in ['Normal', 'OOO Work']"
+					:key="type"
+					type="button"
+					class="py-2.5 text-sm font-medium transition-colors"
+					:class="[
+						selectedAttendanceType === type
+							? 'bg-white text-red-600 ring-1 ring-inset ring-red-500'
+							: 'bg-gray-50 text-gray-600',
+						isCheckedIn ? 'cursor-default' : '',
+					]"
+					:disabled="isCheckedIn"
+					@click="selectedAttendanceType = type"
+				>
+					{{ __(type) }}
+				</button>
 			</div>
-			<Button
-				class="mt-4 mb-1 drop-shadow-sm py-5 text-base"
-				id="open-checkin-modal"
-				@click="handleEmployeeCheckin"
+
+			<div class="flex justify-center mt-5 mb-1">
+				<button
+					type="button"
+					id="open-checkin-modal"
+					class="h-24 w-24 rounded-full bg-red-600 text-white text-base font-semibold shadow-md active:bg-red-700"
+					@click="handleEmployeeCheckin"
+				>
+					{{ nextAction.label }}
+				</button>
+			</div>
+
+			<router-link
+				:to="{ name: 'EmployeeCheckinListView' }"
+				v-slot="{ navigate }"
+				v-if="lastLog?.time"
 			>
-				<template #prefix>
-					<FeatherIcon
-						:name="nextAction.action === 'IN' ? 'arrow-right-circle' : 'arrow-left-circle'"
-						class="w-4"
-					/>
-				</template>
-				{{ nextAction.label }}
-			</Button>
+				<div @click="navigate" class="text-center text-sm text-gray-500 underline mt-2">
+					{{ __("View List") }}
+				</div>
+			</router-link>
 		</template>
 
 		<div v-else class="font-medium text-sm text-gray-500 mt-1.5">
@@ -123,7 +152,6 @@ import { createResource, createListResource, toast, FeatherIcon } from "frappe-u
 import { computed, inject, ref, onMounted, onBeforeUnmount } from "vue"
 import { IonModal, modalController } from "@ionic/vue"
 
-import { formatTimestamp } from "@/utils/formatters"
 import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 
 const DOCTYPE = "Employee Checkin"
@@ -158,10 +186,7 @@ const lastLog = computed(() => {
 	return checkins.data[0]
 })
 
-const lastLogType = computed(() => {
-	const type = lastLog?.value?.log_type === "IN" ? "check-in" : "check-out"
-	return lastLog?.value?.custom_attendance_type === "OOO Work" ? "OOO " + type : type
-})
+const isCheckedIn = computed(() => lastLog?.value?.log_type === "IN")
 
 const nextAction = computed(() => {
 	return lastLog?.value?.log_type === "IN"
@@ -196,10 +221,10 @@ const fetchLocation = () => {
 const handleEmployeeCheckin = () => {
 	checkinTimestamp.value = dayjs().format("YYYY-MM-DD HH:mm:ss")
 
-	if (lastLog.value && lastLog.value.log_type === "IN") {
+	// Checking out is locked to how the session started. Checking in keeps what
+	// the card toggle chose -- resetting here would silently discard it.
+	if (isCheckedIn.value) {
 		selectedAttendanceType.value = lastLog.value.custom_attendance_type || "Normal"
-	} else {
-		selectedAttendanceType.value = "Normal"
 	}
 
 	if (settings.data?.allow_geolocation_tracking) {

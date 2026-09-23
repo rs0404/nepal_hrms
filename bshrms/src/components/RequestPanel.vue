@@ -1,8 +1,10 @@
 <template>
-	<div class="w-full">
+	<div class="w-full bg-white rounded-xl shadow-sm p-4">
+		<div class="text-lg font-bold text-gray-900 mb-3">{{ __("Request Panel") }}</div>
 		<TabButtons
 			:buttons="TAB_BUTTONS"
 			v-model="activeTab"
+			variant="underline"
 		/>
 		<div v-if="activeTab == 'My Requests'" class="flex flex-col gap-5">
 			<details open class="request-section mt-4">
