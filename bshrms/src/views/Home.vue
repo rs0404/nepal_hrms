@@ -106,14 +106,15 @@ const oooCheckins = createListResource({
 	auto: true,
 })
 
+// One colour per request type, the same on the request rows and the day sheet.
 const quickLinks = [
-	{ feather: "calendar", tone: "red", title: __("Request Attendance"), route: "AttendanceRequestFormView" },
-	{ feather: "clock", tone: "red", title: __("Late Entry"), route: "LateEntryApplicationFormView" },
-	{ feather: "log-out", tone: "red", title: __("Early Exit"), route: "EarlyExitApplicationFormView" },
-	{ feather: "briefcase", tone: "red", title: __("Out of Office"), route: "OutOfOfficeApplicationFormView" },
-	{ feather: "watch", tone: "red", title: __("Shift"), route: "ShiftRequestFormView" },
-	{ feather: "calendar", tone: "green", title: __("Leave"), route: "LeaveApplicationFormView" },
-	{ feather: "file-text", tone: "blue", title: __("Expense"), route: "ExpenseClaimFormView" },
-	{ feather: "credit-card", tone: "orange", title: __("Advance"), route: "EmployeeAdvanceFormView" },
+	{ feather: "user-check", tone: "red", title: __("Request Attendance"), route: "AttendanceRequestFormView" },
+	{ feather: "clock", tone: "orange", title: __("Late Entry"), route: "LateEntryApplicationFormView" },
+	{ feather: "log-out", tone: "purple", title: __("Early Exit"), route: "EarlyExitApplicationFormView" },
+	{ feather: "briefcase", tone: "teal", title: __("Out of Office"), route: "OutOfOfficeApplicationFormView" },
+	{ feather: "repeat", tone: "gray", title: __("Shift"), route: "ShiftRequestFormView" },
+	{ feather: "calendar", tone: "blue", title: __("Leave"), route: "LeaveApplicationFormView" },
+	{ feather: "file-text", tone: "pink", title: __("Expense"), route: "ExpenseClaimFormView" },
+	{ feather: "credit-card", tone: "amber", title: __("Advance"), route: "EmployeeAdvanceFormView" },
 ]
 </script>

@@ -67,7 +67,7 @@ const myEmployee = inject("$employee")
 
 const props = defineProps({
 	icon: { type: String, required: true },
-	// red | green | blue | orange | purple | gray
+	// red | green | blue | orange | purple | teal | pink | gray
 	tone: { type: String, default: "gray" },
 	title: { type: String, default: "" },
 	subtitle: { type: String, default: "" },
@@ -142,6 +142,8 @@ const TONES = {
 	blue: { bg: "bg-blue-50", fg: "text-blue-600" },
 	orange: { bg: "bg-orange-50", fg: "text-orange-600" },
 	purple: { bg: "bg-purple-50", fg: "text-purple-600" },
+	teal: { bg: "bg-teal-50", fg: "text-teal-600" },
+	pink: { bg: "bg-pink-50", fg: "text-pink-600" },
 	gray: { bg: "bg-gray-100", fg: "text-gray-600" },
 }
 

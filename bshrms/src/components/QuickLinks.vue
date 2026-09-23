@@ -45,6 +45,10 @@ const TONES = {
 	green: "text-green-600",
 	blue: "text-blue-600",
 	orange: "text-orange-500",
+	purple: "text-purple-600",
+	teal: "text-teal-600",
+	pink: "text-pink-600",
+	amber: "text-amber-600",
 	gray: "text-gray-500",
 }
 
@@ -65,6 +69,10 @@ const TONE_BG = {
 	green: "bg-green-50",
 	blue: "bg-blue-50",
 	orange: "bg-orange-50",
+	purple: "bg-purple-50",
+	teal: "bg-teal-50",
+	pink: "bg-pink-50",
+	amber: "bg-amber-50",
 	gray: "bg-gray-100",
 }
 

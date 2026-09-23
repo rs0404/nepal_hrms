@@ -1166,7 +1166,11 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 			}
 		)
 
-	if is_self and status == "Absent" and "Attendance Request" not in existing_doctypes:
+	# A past working day with no attendance at all is an absence too: the
+	# calendar paints it Absent, but there is no record to say so, so status is
+	# still None here.
+	shows_absent = status == "Absent" or (status is None and day < today_date)
+	if is_self and shows_absent and "Attendance Request" not in existing_doctypes:
 		actions.append(
 			{
 				"doctype": "Attendance Request",
@@ -1203,6 +1207,15 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 					"route_name": "LeaveApplicationFormView",
 				}
 			)
+
+	if is_self and "Shift Request" not in existing_doctypes:
+		actions.append(
+			{
+				"doctype": "Shift Request",
+				"label": _("Request Shift"),
+				"route_name": "ShiftRequestFormView",
+			}
+		)
 
 	return {
 		"employee": employee,

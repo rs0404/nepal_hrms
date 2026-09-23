@@ -37,7 +37,7 @@ const props = defineProps({
 const KINDS = {
 	"Late Entry Application": { icon: "clock", tone: "orange", title: "Late Entry" },
 	"Early Exit Application": { icon: "log-out", tone: "purple", title: "Early Exit" },
-	"Out of Office Application": { icon: "briefcase", tone: "blue", title: "Out of Office" },
+	"Out of Office Application": { icon: "briefcase", tone: "teal", title: "Out of Office" },
 }
 
 const kind = computed(() => KINDS[props.doc.doctype] || KINDS["Out of Office Application"])

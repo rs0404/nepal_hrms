@@ -18,10 +18,13 @@
 import { IonPage, IonContent } from "@ionic/vue"
 import { createResource } from "frappe-ui"
 import { ref, watch, inject } from "vue"
+import { useRoute } from "vue-router"
 
 import FormView from "@/components/FormView.vue"
 
 const employee = inject("$employee")
+const __ = inject("$translate")
+const route = useRoute()
 
 const props = defineProps({
 	id: {
@@ -30,8 +33,21 @@ const props = defineProps({
 	},
 })
 
-// reactive object to store form data
-const shiftRequest = ref({})
+// reactive object to store form data. Opened from a calendar day, the day,
+// employee and company are already known.
+const prefill = !props.id && route.query?.prefill === "1" ? route.query : {}
+const shiftRequest = ref({
+	...(props.id
+		? {}
+		: {
+				employee: employee.data?.name,
+				employee_name: employee.data?.employee_name,
+				company: employee.data?.company,
+				status: "Draft",
+			}),
+	...(prefill.from_date ? { from_date: String(prefill.from_date) } : {}),
+	...(prefill.to_date ? { to_date: String(prefill.to_date) } : {}),
+})
 
 // get form fields
 const formFields = createResource({
@@ -40,9 +56,15 @@ const formFields = createResource({
 	auto: true,
 	transform(data) {
 		if (props.id) return data
-		return data.filter(
-			(field) => !["employee", "employee_name", "status", "company"].includes(field.fieldname)
-		)
+		return data
+			.filter(
+				(field) => !["employee", "employee_name", "status", "company"].includes(field.fieldname)
+			)
+			.map((field) =>
+				// The approver is whoever HR set for this employee (or the department's
+				// first shift approver). It is not the employee's choice.
+				field.fieldname === "approver" ? { ...field, read_only: 1 } : field
+			)
 	},
 })
 
@@ -51,12 +73,18 @@ createResource({
 	params: { employee: employee.data.name },
 	auto: !props.id,
 	onSuccess(data) {
-		const approver = formFields.data?.find((field) => field.fieldname === "approver")
-		approver.documentList = data?.map((approver) => ({
-			label: approver.full_name ? `${approver.name} : ${approver.full_name}` : approver.name,
-			value: approver.name,
-		}))
-		shiftRequest.value.approver = data[0]?.name
+		// hrms lists the employee's own approver first, then the department's.
+		const approver = data?.[0]
+		shiftRequest.value.approver = approver?.name || ""
+		const field = formFields.data?.find((f) => f.fieldname === "approver")
+		if (field) {
+			field.documentList = approver
+				? [{ label: approver.full_name || approver.name, value: approver.name }]
+				: []
+			field.error_message = approver
+				? ""
+				: __("No shift approver is set for you. Ask HR to set one.")
+		}
 	},
 })
 
