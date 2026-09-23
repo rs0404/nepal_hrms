@@ -82,7 +82,8 @@ const routes = [
 ]
 
 const router = createRouter({
-	history: createWebHistory("/hr"),
+	// The route is a Nepal HRMS setting; the server puts it in the boot.
+	history: createWebHistory(window.frappe?.boot?.default_route || "/hr"),
 	routes,
 })
 

@@ -22,42 +22,9 @@ export default defineConfig({
 			devOptions: {
 				enabled: true,
 			},
-			manifest: {
-				display: "standalone",
-				name: "Nepal Hrms",
-				short_name: "Nepal Hrms",
-				start_url: "/hr",
-				scope: "/hr",
-				description: "Everyday HR & Payroll operations at your fingertips (BS)",
-				theme_color: "#ffffff",
-				background_color: "#ffffff",
-				icons: [
-					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-192.png?v=3",
-						sizes: "192x192",
-						type: "image/png",
-						purpose: "any",
-					},
-					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-192-maskable.png?v=3",
-						sizes: "192x192",
-						type: "image/png",
-						purpose: "maskable",
-					},
-					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-512.png?v=3",
-						sizes: "512x512",
-						type: "image/png",
-						purpose: "any",
-					},
-					{
-						src: "/assets/nepal_hrms/icon/nepal-hrms-512-maskable.png?v=3",
-						sizes: "512x512",
-						type: "image/png",
-						purpose: "maskable",
-					},
-				],
-			},
+			// Served by nepal_hrms.pwa_route.manifest instead, so start_url and
+			// scope follow the App Route setting.
+			manifest: false,
 		}),
 	],
 	resolve: {
