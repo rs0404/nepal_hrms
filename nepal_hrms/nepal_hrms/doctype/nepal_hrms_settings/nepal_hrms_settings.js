@@ -507,6 +507,13 @@ frappe.ui.form.on("Nepal HRMS Settings", {
 			<th>${__("Slab")}</th><th>${__("Result")}</th><th>${__("Source")}</th></tr></thead>
 			<tbody>${rows(log.tax_slabs, ["name", "action", "source"])}</tbody></table>`;
 
+		if (log.tax_exemption_categories?.length) {
+			html += `<h5>${__("Tax Exemption Categories")}</h5>
+				<table class="table table-bordered"><thead><tr>
+				<th>${__("Category / Sub Category")}</th><th>${__("Result")}</th></tr></thead>
+				<tbody>${rows(log.tax_exemption_categories, ["name", "action"])}</tbody></table>`;
+		}
+
 		frappe.msgprint({ title: __("Nepal Payroll Setup"), message: html, wide: true });
 	},
 });
