@@ -44,11 +44,25 @@ ATTENDANCE_EVENT_BY_STATUS = {
 }
 
 
+def _pwa_enabled(settings):
+	"""Master switch, off until switched on.
+
+	A field default only applies to documents created afterwards, and every site
+	already has this Singleton -- so a default of 1 would still read 0 here and
+	look broken. Opt-in avoids that entirely: absent and unticked mean the same
+	thing, and there is one box to turn the feature on.
+	"""
+	return bool(cint(settings.get("enable_pwa_notifications") or 0))
+
+
 def _settings_row(event_key):
 	"""The Nepal HRMS Settings row for this event, or None when it is off."""
 	try:
 		settings = frappe.get_cached_doc("Nepal HRMS Settings")
 	except Exception:
+		return None
+
+	if not _pwa_enabled(settings):
 		return None
 
 	for row in settings.get("raven_notifications") or []:
