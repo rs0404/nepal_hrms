@@ -1,10 +1,11 @@
 <template>
 	<BaseLayout>
 		<template #body>
-			<div class="flex flex-col items-center my-7 p-4 gap-7">
-				<div class="w-full">
-					<div class="text-base text-gray-600">{{ greeting }}</div>
-					<div class="text-2xl font-bold text-gray-900">{{ firstName }}</div>
+			<div class="flex flex-col items-center px-4 pt-5 pb-8 gap-6">
+				<div class="w-full px-1">
+					<div class="truncate text-xl text-gray-500">
+						{{ greeting }}, <span class="font-bold text-gray-900">{{ firstName }}</span>
+					</div>
 				</div>
 
 				<CheckInPanel />

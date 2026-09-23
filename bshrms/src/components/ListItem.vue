@@ -8,7 +8,12 @@
 				<slot name="right" />
 			</div>
 		</div>
-		<div v-if="props.isTeamRequest" class="flex flex-row items-center gap-2 pl-8">
+		<!-- Indented to line up with the row's text, past its icon. -->
+		<div
+			v-if="props.isTeamRequest"
+			class="flex flex-row items-center gap-2"
+			:class="props.wideIcon ? 'pl-[52px]' : 'pl-8'"
+		>
 			<EmployeeAvatar :employeeID="props.employee" />
 			<div class="text-sm text-gray-600 grow">
 				{{ props.employeeName }}
@@ -32,6 +37,11 @@ const props = defineProps({
 	employeeName: {
 		type: String,
 		required: false,
+	},
+	// RequestRow's 40px icon circle rather than a bare 20px icon.
+	wideIcon: {
+		type: Boolean,
+		default: false,
 	},
 })
 </script>

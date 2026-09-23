@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.utils import cint
 
 from nepal_hrms.api.cnr_applications import CNR_DOCTYPES, _team_employee_names
@@ -171,3 +172,37 @@ def get_recently_approved_team_requests(limit=20):
 		reverse=True,
 	)
 	return requests[:limit]
+
+
+# What an employee may withdraw from the PWA: their own requests nobody has
+# decided yet. Expense claims and shift requests are not on the list.
+WITHDRAWABLE_DOCTYPES = (
+	"Late Entry Application",
+	"Early Exit Application",
+	"Out of Office Application",
+	"Attendance Request",
+	"Leave Application",
+)
+UNDECIDED_STATUSES = ("", "Draft", "Open")
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_my_draft_request(doctype, name):
+	"""Delete a draft request the current user created and nobody has decided.
+
+	Employees usually hold no delete permission on these doctypes, so the check
+	is done here and the delete runs with permissions ignored.
+	"""
+	if doctype not in WITHDRAWABLE_DOCTYPES:
+		frappe.throw(_("{0} cannot be deleted from here.").format(_(doctype)))
+
+	doc = frappe.get_doc(doctype, name)
+	if doc.owner != frappe.session.user:
+		frappe.throw(_("Only the person who created this request can delete it."), frappe.PermissionError)
+	if doc.docstatus != 0:
+		frappe.throw(_("Only a draft can be deleted. This one is already submitted."))
+	if (doc.get("status") or "").strip() not in UNDECIDED_STATUSES:
+		frappe.throw(_("This request is already {0}, so it can no longer be deleted.").format(_(doc.status)))
+
+	frappe.delete_doc(doctype, name, ignore_permissions=True)
+	return {"deleted": name}

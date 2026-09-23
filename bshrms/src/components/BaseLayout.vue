@@ -5,8 +5,14 @@
 				<div class="flex flex-col bg-white shadow-sm p-4">
 					<div class="flex flex-row justify-between items-center">
 						<div class="flex flex-row items-center gap-2 min-w-0">
-							<h2 class="text-xl font-bold text-gray-900 truncate">
-								{{ props.pageTitle || __("Nepal Hrms") }}
+							<img
+								v-if="!props.pageTitle"
+								:src="APP_ICON"
+								alt=""
+								class="h-8 w-8 shrink-0 rounded-lg ring-1 ring-gray-200"
+							/>
+							<h2 class="text-xl font-bold tracking-wide text-gray-900 truncate">
+								{{ props.pageTitle || __("NEPAL HRMS") }}
 							</h2>
 							<slot name="header-extra"></slot>
 						</div>
@@ -54,6 +60,9 @@
 </template>
 
 <script setup>
+// Bound, not a literal src: Vite would try to bundle a literal /assets path.
+const APP_ICON = "/assets/nepal_hrms/icon/app-icon.svg"
+
 import { IonHeader, IonContent, IonPage, onIonViewWillEnter } from "@ionic/vue"
 import { FeatherIcon, Avatar } from "frappe-ui"
 

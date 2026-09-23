@@ -70,6 +70,7 @@ def get_cnr_applications(doctype, employee=None, for_approval=0, limit=20):
 		"creation",
 		"modified",
 		"attendance",
+		"owner",
 	]
 	meta = frappe.get_meta(doctype)
 	for fieldname in (
