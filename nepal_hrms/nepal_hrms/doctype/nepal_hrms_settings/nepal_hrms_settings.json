@@ -141,6 +141,7 @@
   "new_raven_channel_type",
   "raven_workspace",
   "raven_channel_roles",
+  "enable_pwa_notifications",
   "raven_events_section",
   "raven_notifications"
  ],
@@ -1011,6 +1012,13 @@
    "fieldtype": "Table",
    "label": "Channel Member Roles",
    "options": "Nepal HRMS Role"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_pwa_notifications",
+   "fieldtype": "Check",
+   "label": "Enable PWA Notifications",
+   "description": "Master switch for the BSHRMS PWA. Off until you turn it on, and off stops every PWA notification at once without disturbing the per-event boxes or the Raven side. Each event still needs its own PWA box ticked below."
   },
   {
    "description": "Enable an event and choose who should be notified. Direct messages are skipped when the person is not a Raven User. All events start disabled.",

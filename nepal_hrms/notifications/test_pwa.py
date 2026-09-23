@@ -115,15 +115,45 @@ class TestGating(_Base):
 
 	def test_send_to_pwa_off_is_respected(self):
 		"""_settings_row is the gate; a row without the box returns None."""
-		settings = frappe._dict(raven_notifications=[_row(send_to_pwa=0)])
+		settings = frappe._dict(enable_pwa_notifications=1, raven_notifications=[_row(send_to_pwa=0)])
 		with patch.object(frappe, "get_cached_doc", return_value=settings):
 			self.assertIsNone(pwa._settings_row("late_entry_app_new"))
+
+	def test_master_switch_off_stops_every_event(self):
+		settings = frappe._dict(
+			enable_pwa_notifications=0, raven_notifications=[_row(send_to_pwa=1)]
+		)
+		with patch.object(frappe, "get_cached_doc", return_value=settings):
+			self.assertIsNone(pwa._settings_row("late_entry_app_new"))
+
+	def test_master_switch_on_lets_a_ticked_event_through(self):
+		settings = frappe._dict(
+			enable_pwa_notifications=1, raven_notifications=[_row(send_to_pwa=1)]
+		)
+		with patch.object(frappe, "get_cached_doc", return_value=settings):
+			self.assertIsNotNone(pwa._settings_row("late_entry_app_new"))
+
+	def test_master_switch_does_not_tick_events_for_you(self):
+		"""On is not enough on its own; the per-event box still governs."""
+		settings = frappe._dict(
+			enable_pwa_notifications=1, raven_notifications=[_row(send_to_pwa=0)]
+		)
+		with patch.object(frappe, "get_cached_doc", return_value=settings):
+			self.assertIsNone(pwa._settings_row("late_entry_app_new"))
+
+	def test_master_switch_is_opt_in(self):
+		"""Absent and unticked mean the same: a field default never reaches an
+		existing Singleton, so anything else would read as broken on every site."""
+		self.assertFalse(pwa._pwa_enabled(frappe._dict()))
+		self.assertFalse(pwa._pwa_enabled(frappe._dict(enable_pwa_notifications=0)))
+		self.assertFalse(pwa._pwa_enabled(frappe._dict(enable_pwa_notifications=None)))
+		self.assertTrue(pwa._pwa_enabled(frappe._dict(enable_pwa_notifications=1)))
 
 	def test_missing_send_to_pwa_column_is_treated_as_off(self):
 		"""A site that has not synced the field must not error."""
 		row = _row()
 		row.pop("send_to_pwa")
-		settings = frappe._dict(raven_notifications=[row])
+		settings = frappe._dict(enable_pwa_notifications=1, raven_notifications=[row])
 		with patch.object(frappe, "get_cached_doc", return_value=settings):
 			self.assertIsNone(pwa._settings_row("late_entry_app_new"))
 
