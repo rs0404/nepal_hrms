@@ -897,6 +897,36 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 	return events
 
 
+COMPENSATORY_ATTENDANCE_STATUSES = ("Present", "Work From Home", "Half Day")
+
+
+def _compensatory_leave_action(employee, day, attendance_status):
+	"""The day sheet's Apply Compensatory Leave offer, or None when it does not apply."""
+	from frappe import _
+
+	if attendance_status not in COMPENSATORY_ATTENDANCE_STATUSES:
+		return None
+	if not frappe.db.exists("Leave Type", {"is_compensatory": 1}):
+		return None
+	if frappe.db.exists(
+		"Compensatory Leave Request",
+		{
+			"employee": employee,
+			"docstatus": ["<", 2],
+			"work_from_date": ["<=", day],
+			"work_end_date": [">=", day],
+		},
+	):
+		return None
+	return {
+		"doctype": "Compensatory Leave Request",
+		"label": _("Apply Compensatory Leave"),
+		"route_name": "CompensatoryLeaveRequestFormView",
+		# Half a day worked earns half a day; Frappe HR refuses a full-day claim.
+		"half_day": 1 if attendance_status == "Half Day" else 0,
+	}
+
+
 @frappe.whitelist()
 def get_attendance_day_details(date: str, employee: str = None) -> dict:
 	"""
@@ -1207,6 +1237,14 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 					"route_name": "LeaveApplicationFormView",
 				}
 			)
+
+	# Worked a holiday or weekly off: the day earns compensatory leave. Offered
+	# only where Frappe HR will accept it -- a holiday with submitted attendance
+	# of Present, Work From Home or Half Day -- and once per day.
+	if is_self and holiday_detail.get("is_holiday") and attendance:
+		comp_action = _compensatory_leave_action(employee, day, attendance.status)
+		if comp_action:
+			actions.append(comp_action)
 
 	if is_self and "Shift Request" not in existing_doctypes:
 		actions.append(
