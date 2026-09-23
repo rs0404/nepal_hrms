@@ -12,7 +12,7 @@
 				:doctype="doctype"
 				v-model="application"
 				:isSubmittable="true"
-				:fields="formFields.data"
+				:fields="displayFields"
 				:id="props.id"
 				@validateForm="validateForm"
 			/>
@@ -100,6 +100,44 @@ const formFields = createResource({
 })
 
 watch(doctype, () => formFields.reload())
+
+// The estimated time is picked on a 15-minute slider bounded by the shift and
+// the max delay. Without a shift the plain time input stays.
+const SLIDER_FIELD = {
+	"Late Entry Application": "estimated_late_entry_time",
+	"Early Exit Application": "early_exit_time",
+}
+
+const timeWindow = createResource({
+	url: "nepal_hrms.api.cnr_applications.get_cnr_time_window",
+	makeParams: () => ({
+		doctype: doctype.value,
+		employee: employee.data?.name,
+		attendance_date: application.value.attendance_date || dayjs().format("YYYY-MM-DD"),
+	}),
+	auto: true,
+})
+
+watch(
+	() => [doctype.value, application.value.attendance_date],
+	() => timeWindow.reload()
+)
+
+// Estimated times are to the minute; nobody plans an absence to the second.
+const MINUTE_ONLY_FIELDS = ["estimated_from_time", "estimated_to_time"]
+
+const displayFields = computed(() => {
+	const fields = formFields.data
+	if (!fields) return fields
+	const target = SLIDER_FIELD[doctype.value]
+	return fields.map((field) => {
+		if (target && field.fieldname === target && timeWindow.data) {
+			return { ...field, timeWindow: timeWindow.data }
+		}
+		if (MINUTE_ONLY_FIELDS.includes(field.fieldname)) return { ...field, noSeconds: true }
+		return field
+	})
+})
 
 watch(
 	() => application.value.employee,

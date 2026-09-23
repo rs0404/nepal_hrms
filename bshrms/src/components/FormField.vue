@@ -186,11 +186,20 @@
 			/>
 		</div>
 
+		<!-- Time with known bounds: 15-minute slider plus typed entry -->
+		<ShiftTimeSlider
+			v-else-if="props.fieldtype === 'Time' && props.timeWindow"
+			:modelValue="props.modelValue"
+			:window="props.timeWindow"
+			:readOnly="Boolean(isReadOnly)"
+			@update:modelValue="(val) => emit('update:modelValue', val)"
+		/>
+
 		<!-- Time (Frappe Time is HH:MM:SS; native input uses HH:MM or HH:MM:SS) -->
 		<input
 			v-else-if="props.fieldtype === 'Time'"
 			type="time"
-			step="1"
+			:step="props.noSeconds ? 60 : 1"
 			class="form-input block w-full border-gray-400 rounded disabled:bg-gray-50 disabled:text-gray-700"
 			:value="timeInputValue"
 			:disabled="isReadOnly"
@@ -215,6 +224,7 @@
 
 <script setup>
 import { Autocomplete, DateTimePicker, ErrorMessage, Input, Button } from "frappe-ui"
+import ShiftTimeSlider from "@/components/ShiftTimeSlider.vue"
 import { computed, onMounted, inject, ref } from "vue"
 
 import Link from "@/components/Link.vue"
@@ -258,6 +268,10 @@ const props = defineProps({
 		default: false,
 	},
 	hint: String,
+	// { min, span, step } turns a Time field into a ShiftTimeSlider
+	timeWindow: Object,
+	// Time picked to the minute; seconds are saved as 00.
+	noSeconds: Boolean,
 })
 
 const emit = defineEmits(["change", "update:modelValue"])
@@ -305,7 +319,11 @@ const showSelectControl = computed(() => {
 	return true
 })
 
-const timeInputValue = computed(() => toTimeInputValue(props.modelValue))
+const timeInputValue = computed(() => {
+	const value = toTimeInputValue(props.modelValue)
+	// Browsers draw a seconds box whenever the value carries seconds.
+	return props.noSeconds ? value.slice(0, 5) : value
+})
 
 function toTimeInputValue(val) {
 	if (val === null || val === undefined || val === "") return ""

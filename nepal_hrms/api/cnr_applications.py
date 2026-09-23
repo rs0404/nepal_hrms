@@ -131,6 +131,58 @@ def can_approve_cnr_application(employee=None):
 	return bool(_can_approve(employee))
 
 
+TIME_WINDOW_STEP_MINUTES = 15
+
+
+@frappe.whitelist()
+def get_cnr_time_window(doctype, attendance_date, employee=None):
+	"""Bounds for the PWA's estimated-time slider on a Late Entry / Early Exit form.
+
+	Late entry runs from shift start to shift start + max delay; early exit from
+	shift end - max delay to shift end. Past max delay the server refuses the
+	application anyway, so the slider stops there. None when there is no shift.
+	"""
+	if doctype not in ("Late Entry Application", "Early Exit Application") or not attendance_date:
+		return None
+	employee = _resolve_employee(employee)
+	if not employee:
+		return None
+	if not frappe.has_permission("Employee", "read", employee):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	from datetime import timedelta
+
+	from nepal_hrms.custom_code.attendance_policy import get_hr_settings, get_shift_bounds
+
+	shift_start, shift_end = get_shift_bounds(employee, attendance_date)
+	if not shift_start or not shift_end:
+		return None
+
+	settings = get_hr_settings()
+	max_minutes = cint(getattr(settings, "late_early_max_delay_mins", None) or 60)
+	grace = cint(getattr(settings, "late_early_grace_mins", None) or 0)
+	if max_minutes <= 0:
+		# No limit configured: offer the whole shift.
+		max_minutes = int((shift_end - shift_start).total_seconds() // 60)
+
+	if doctype == "Late Entry Application":
+		start = shift_start
+	else:
+		start = shift_end - timedelta(minutes=max_minutes)
+
+	return {
+		"min": start.strftime("%H:%M"),
+		"span": max_minutes,
+		"step": TIME_WINDOW_STEP_MINUTES,
+		# Grace sits at the shift-edge end of the window: the start for a late
+		# entry, the end for an early exit.
+		"grace": min(max(grace, 0), max_minutes),
+		"kind": "late" if doctype == "Late Entry Application" else "early",
+		"shift_start": shift_start.strftime("%H:%M"),
+		"shift_end": shift_end.strftime("%H:%M"),
+	}
+
+
 @frappe.whitelist()
 def get_late_early_application_deadline_settings():
 	"""Application deadline and duration limits for PWA/Desk form hints."""
