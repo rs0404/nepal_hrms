@@ -180,3 +180,36 @@ export function formatNepaliDateNe(adDate, { withWeekday = false } = {}) {
 		return ""
 	}
 }
+
+function _bsParts(adDate) {
+	if (!adDate || !window.NepaliDateLib) return null
+	try {
+		const nd = window.NepaliDateLib.NepaliDate.fromAD(new Date(`${String(adDate).slice(0, 10)}T12:00:00`))
+		const month = window.NepaliDateLib.MONTH_NAMES_NE_BS?.[nd.monthIndex]
+		return month ? { day: nd.day, month, monthIndex: nd.monthIndex, year: nd.year } : null
+	} catch (e) {
+		console.error("Nepali date conversion error:", e)
+		return null
+	}
+}
+
+/** BS month span in Nepali script: "श्रावण २०८३", "श्रावण – भाद्र २०८३", "चैत्र २०८३ – बैशाख २०८४". */
+export function formatNepaliMonthPeriodNe(fromDate, toDate) {
+	const a = _bsParts(fromDate)
+	if (!a) return ""
+	const b = _bsParts(toDate) || a
+	const y = (n) => toNepaliDigits(n)
+	if (a.year === b.year && a.monthIndex === b.monthIndex) return `${a.month} ${y(a.year)}`
+	if (a.year === b.year) return `${a.month} – ${b.month} ${y(a.year)}`
+	return `${a.month} ${y(a.year)} – ${b.month} ${y(b.year)}`
+}
+
+/** Exact BS dates in Nepali script: "१७ श्रावण – १६ भाद्र २०८३". */
+export function formatNepaliDatePeriodNe(fromDate, toDate) {
+	const a = _bsParts(fromDate)
+	if (!a) return ""
+	const b = _bsParts(toDate) || a
+	const d = (p, withYear) => `${toNepaliDigits(p.day)} ${p.month}${withYear ? ` ${toNepaliDigits(p.year)}` : ""}`
+	if (a.year === b.year) return `${d(a, false)} – ${d(b, true)}`
+	return `${d(a, true)} – ${d(b, true)}`
+}

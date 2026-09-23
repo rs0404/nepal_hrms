@@ -3,8 +3,11 @@
 		<template #left>
 			<SalaryIcon class="h-5 w-5 text-gray-500" />
 			<div class="flex flex-col items-start gap-1.5">
-				<div class="text-base font-normal text-gray-800">
+				<div class="text-base font-normal text-gray-800" :lang="bsTitle ? 'ne' : undefined">
 					{{ title }}
+				</div>
+				<div v-if="bsDates" class="text-xs font-medium text-gray-700" lang="ne">
+					{{ bsDates }}
 				</div>
 				<div class="text-xs font-normal text-gray-500">
 					<span v-if="adPeriod">{{ adPeriod }}</span>
@@ -38,7 +41,11 @@ import SalaryIcon from "@/components/icons/SalaryIcon.vue"
 
 import { formatCurrency } from "@/utils/formatters"
 import { maskedAmount } from "@/data/salary_lock"
-import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
+import {
+	formatNepaliDatePeriodNe,
+	formatNepaliMonthPeriodNe,
+	formatNepaliMonthYearPeriod,
+} from "@/utils/nepali_date"
 
 const dayjs = inject("$dayjs")
 
@@ -48,7 +55,12 @@ const props = defineProps({
 	},
 })
 
+// The BS months in Nepali lead; the exact BS dates follow, then the AD months.
+const bsTitle = computed(() => formatNepaliMonthPeriodNe(props.doc.start_date, props.doc.end_date))
+const bsDates = computed(() => formatNepaliDatePeriodNe(props.doc.start_date, props.doc.end_date))
+
 const title = computed(() => {
+	if (bsTitle.value) return bsTitle.value
 	const bs = formatNepaliMonthYearPeriod(props.doc.start_date, props.doc.end_date)
 	if (bs) return bs
 	return adPeriod.value

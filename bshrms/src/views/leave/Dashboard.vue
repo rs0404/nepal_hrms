@@ -17,6 +17,7 @@
 							{{ __("Request a Leave") }}
 						</Button>
 					</router-link>
+					<ShiftRoster />
 					<div>
 						<div class="text-lg text-gray-800 font-bold">{{ __('Recent Leaves') }} </div>
 						<RequestList
@@ -41,6 +42,7 @@ import LeaveBalance from "@/components/LeaveBalance.vue"
 import RequestList from "@/components/RequestList.vue"
 import LeaveRequestItem from "@/components/LeaveRequestItem.vue"
 import Holidays from "@/components/Holidays.vue"
+import ShiftRoster from "@/components/ShiftRoster.vue"
 
 import { myLeaves } from "@/data/leaves"
 </script>
