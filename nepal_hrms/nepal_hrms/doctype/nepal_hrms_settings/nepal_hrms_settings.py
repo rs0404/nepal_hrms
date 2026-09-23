@@ -16,6 +16,7 @@ SALARY_SLIP_ID_FIELD_TYPES = {"Data", "Link", "Dynamic Link", "Int"}
 
 class NepalHRMSSettings(Document):
 	def validate(self):
+		self.apply_defaults_to_never_saved_fields()
 		self.validate_payroll_period_start_day()
 		self.validate_period_leave_gross_lwp()
 		self.validate_salary_slip_print_settings()
@@ -38,6 +39,28 @@ class NepalHRMSSettings(Document):
 		from nepal_hrms.notifications.raven_sync import sync_raven_notifications
 
 		sync_raven_notifications(self)
+
+	def apply_defaults_to_never_saved_fields(self):
+		"""Give a field added after the first save its declared default.
+
+		A Single only gets defaults when it is first created. A field added later
+		has no stored value, so the form loads it empty, and the next save of
+		anything else writes that empty value: a checkbox meant to default on
+		(Hide Salary Amounts in the App) silently lands off. A field with no
+		stored row has never been saved, so its default is the right value.
+		"""
+		stored = set(
+			frappe.db.sql_list("select field from `tabSingles` where doctype = %s", self.doctype)
+		)
+		if not stored:
+			return  # first save ever: Frappe applied defaults already
+		for df in self.meta.fields:
+			if df.default in (None, "") or df.fieldname in stored:
+				continue
+			if df.fieldtype in ("Section Break", "Column Break", "Tab Break", "Table", "HTML", "Button"):
+				continue
+			if self.get(df.fieldname) in (None, "", 0, "0"):
+				self.set(df.fieldname, df.default)
 
 	def validate_salary_unlock_fields(self):
 		if not self.meta.has_field("salary_unlock_fields") or not self.salary_unlock_fields:
