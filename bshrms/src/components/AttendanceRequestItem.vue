@@ -1,6 +1,6 @@
 <template>
 	<RequestRow
-		icon="calendar"
+		icon="user-check"
 		tone="red"
 		:title="__(props.doc.reason || 'Attendance Request')"
 		:subtitle="props.doc.explanation || ''"

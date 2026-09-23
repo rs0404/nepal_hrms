@@ -1,7 +1,7 @@
 <template>
 	<RequestRow
 		icon="file-text"
-		tone="blue"
+		tone="pink"
 		:title="claimTitle"
 		:meta="meta"
 		:status="__(status, null, 'Expense Claim')"

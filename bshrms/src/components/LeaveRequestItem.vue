@@ -1,7 +1,7 @@
 <template>
 	<RequestRow
 		icon="calendar"
-		tone="green"
+		tone="blue"
 		:title="__(props.doc.leave_type, null, 'Leave Type')"
 		:meta="meta"
 		:status="__(status.label, null, 'Leave Application')"

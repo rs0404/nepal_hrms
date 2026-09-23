@@ -1,7 +1,7 @@
 <template>
 	<RequestRow
-		icon="watch"
-		tone="red"
+		icon="repeat"
+		tone="gray"
 		:title="props.doc.shift_type || __('Shift Request')"
 		:meta="meta"
 		:status="__(status.label)"

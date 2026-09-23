@@ -248,22 +248,31 @@
 			<div class="text-xs font-medium text-gray-500">
 				{{ __("Forms available for this day") }}
 			</div>
-			<Button
-				v-for="action in details.actions"
-				:key="action.doctype"
-				variant="solid"
-				class="w-full py-4 text-sm"
-				@click="openForm(action)"
-			>
-				{{ action.label }}
-			</Button>
+			<div class="grid grid-cols-2 gap-2">
+				<button
+					v-for="action in details.actions"
+					:key="`${action.doctype}-${action.half_day || 0}`"
+					type="button"
+					class="flex min-h-[4.5rem] flex-col items-start justify-between gap-2 rounded-xl border p-3 text-left text-sm font-semibold leading-tight transition-colors"
+					:class="actionStyle(action).button"
+					@click="openForm(action)"
+				>
+					<span
+						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+						:class="actionStyle(action).icon"
+					>
+						<FeatherIcon :name="actionStyle(action).feather" class="h-4 w-4" />
+					</span>
+					<span>{{ action.label }}</span>
+				</button>
+			</div>
 		</div>
 	</div>
 </template>
 
 <script setup>
 import { computed, inject, watch } from "vue"
-import { createResource, Badge, Button } from "frappe-ui"
+import { createResource, Badge, FeatherIcon } from "frappe-ui"
 import { modalController } from "@ionic/vue"
 import { useRouter } from "vue-router"
 
@@ -432,6 +441,46 @@ const hasFlags = computed(
 const formatTime = (time) => {
 	if (!time) return "—"
 	return dayjs(time).isValid() ? dayjs(time).format("hh:mm a") : String(time).slice(0, 5)
+}
+
+// Same icon and colour per request type as the request rows and Quick Links.
+// Spelled out so Tailwind keeps the classes; frappe-ui's palette has no slate
+// or indigo, so those would render colourless.
+const ACTION_STYLES = {
+	"Leave Application": {
+		feather: "calendar",
+		button: "border-blue-200 bg-blue-50 text-blue-800 active:bg-blue-100",
+		icon: "bg-blue-600 text-white",
+	},
+	"Late Entry Application": {
+		feather: "clock",
+		button: "border-orange-200 bg-orange-50 text-orange-800 active:bg-orange-100",
+		icon: "bg-orange-500 text-white",
+	},
+	"Early Exit Application": {
+		feather: "log-out",
+		button: "border-purple-200 bg-purple-50 text-purple-800 active:bg-purple-100",
+		icon: "bg-purple-600 text-white",
+	},
+	"Out of Office Application": {
+		feather: "briefcase",
+		button: "border-teal-200 bg-teal-50 text-teal-800 active:bg-teal-100",
+		icon: "bg-teal-600 text-white",
+	},
+	"Attendance Request": {
+		feather: "user-check",
+		button: "border-red-200 bg-red-50 text-red-800 active:bg-red-100",
+		icon: "bg-red-600 text-white",
+	},
+	"Shift Request": {
+		feather: "repeat",
+		button: "border-gray-200 bg-gray-50 text-gray-800 active:bg-gray-100",
+		icon: "bg-gray-600 text-white",
+	},
+}
+
+function actionStyle(action) {
+	return ACTION_STYLES[action.doctype] || ACTION_STYLES["Shift Request"]
 }
 
 function openForm(action) {
