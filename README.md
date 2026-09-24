@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/images/logo.png" width="96" alt="Nepal HRMS">
-</p>
-
 <h1 align="center">Nepal HRMS</h1>
 
 <p align="center">
