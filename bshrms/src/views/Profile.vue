@@ -70,11 +70,13 @@
 
 						<SalaryUnlockFieldPicker class="w-full" />
 
-						<!-- Settings -->
+						<!-- Notifications + Settings -->
 						<div
 							class="flex flex-col gap-5 my-4 w-full"
 							v-if="allowPushNotifications"
 						>
+							<PushNotificationToggle />
+
 							<div class="flex flex-col bg-white rounded">
 								<router-link
 									:to="{ name: 'Settings' }"
@@ -151,6 +153,7 @@ import { showErrorAlert } from "@/utils/dialogs"
 import { formatCurrency } from "@/utils/formatters"
 
 import ProfileInfoModal from "@/components/ProfileInfoModal.vue"
+import PushNotificationToggle from "@/components/PushNotificationToggle.vue"
 import SalaryUnlockFieldPicker from "@/components/SalaryUnlockFieldPicker.vue"
 import { SALARY_MASK, salaryLocked } from "@/data/salary_lock"
 
