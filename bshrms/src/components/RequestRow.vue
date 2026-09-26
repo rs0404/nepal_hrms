@@ -31,12 +31,29 @@
 		</template>
 		<template #right>
 			<div class="flex flex-col items-end gap-1.5">
+				<!--
+					Share actions sit at the top, furthest from Cancel: they are
+					the safe taps and Cancel is destructive, so a slip should not
+					land on it. Every item component funnels through this row, so
+					these reach both the dashboard panel and the History lists.
+					Notifying only makes sense while nobody has decided yet.
+				-->
+				<div v-if="canShare" class="flex items-center">
+					<CopyLinkButton :doctype="props.doctype" :name="props.name" />
+					<NotifyApproverButton
+						v-if="props.cancellable"
+						:doctype="props.doctype"
+						:name="props.name"
+					/>
+				</div>
+
 				<span
 					class="whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold"
 					:class="statusClasses"
 				>
 					{{ props.status }}
 				</span>
+
 				<!-- .stop: the row itself opens the request sheet. -->
 				<button
 					v-if="canCancel"
@@ -60,6 +77,9 @@ import { FeatherIcon, call, toast } from "frappe-ui"
 import { alertController } from "@ionic/vue"
 
 import ListItem from "@/components/ListItem.vue"
+import CopyLinkButton from "@/components/CopyLinkButton.vue"
+import NotifyApproverButton from "@/components/NotifyApproverButton.vue"
+import { isShareable } from "@/utils/application_share"
 
 const __ = inject("$translate")
 const session = inject("$session")
@@ -89,12 +109,18 @@ const props = defineProps({
 
 const deleting = ref(false)
 
-const canCancel = computed(() => {
-	if (!props.cancellable || props.isTeamRequest || !props.doctype || !props.name) return false
+const isMine = computed(() => {
+	if (props.isTeamRequest || !props.doctype || !props.name) return false
 	// Leave lists come from stock HRMS without an owner; fall back to "it is mine".
 	if (props.owner) return props.owner === session.user
 	return Boolean(props.employee) && props.employee === myEmployee.data?.name
 })
+
+const canCancel = computed(() => props.cancellable && isMine.value)
+
+// Sharing someone else's request link is not the employee's to do, and only
+// the types that go to an approver have anything to share.
+const canShare = computed(() => isMine.value && isShareable(props.doctype))
 
 async function confirmCancel() {
 	const alert = await alertController.create({

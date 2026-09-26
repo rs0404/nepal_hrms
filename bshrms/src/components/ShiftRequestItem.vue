@@ -9,6 +9,9 @@
 		:isTeamRequest="props.isTeamRequest"
 		:employee="props.doc.employee"
 		:employeeName="props.doc.employee_name"
+		doctype="Shift Request"
+		:name="props.doc.name"
+		:owner="props.doc.owner"
 	/>
 </template>
 

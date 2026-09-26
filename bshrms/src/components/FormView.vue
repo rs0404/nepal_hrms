@@ -22,37 +22,56 @@
 					</h2>
 					<Badge
 						:label="id"
-						class="whitespace-nowrap text-[8px]"
+						class="whitespace-nowrap text-[8px] overflow-hidden"
 						variant="outline"
 					/>
 					<Badge
 						v-if="status"
 						:label="__(displayStatus, null, doctype)"
 						:theme="statusColor"
-						class="whitespace-nowrap text-[8px]"
+						class="whitespace-nowrap text-[8px] overflow-hidden"
 					/>
 
-					<Dropdown
-						class="ml-auto"
-						:options="[
-							{
-								label: __('Delete'),
-								condition: showDeleteButton,
-								onClick: () => (showDeleteDialog = true),
-							},
-							{
-								label: __('Cancel Application'),
-								condition: () => canCancelOwnLeave.value,
-								onClick: () => (showCancelOwnLeaveDialog = true),
-							},
-							{ label: __('Reload'), onClick: () => reloadDoc() },
-						]"
-						:button="{
-							label: __('Menu'),
-							icon: 'more-horizontal',
-							variant: 'ghost',
-						}"
-					/>
+					<!--
+						The header clips its overflow, so the actions are grouped and
+						pinned shrink-0: on a narrow phone the title and badges give up
+						width instead of pushing these off the edge.
+						Share actions appear only once saved -- there is no link to an
+						unnamed document.
+					-->
+					<div class="ml-auto flex items-center shrink-0">
+						<CopyLinkButton
+							v-if="canShare"
+							:doctype="props.doctype"
+							:name="id"
+						/>
+						<NotifyApproverButton
+							v-if="canShare"
+							:doctype="props.doctype"
+							:name="id"
+						/>
+
+						<Dropdown
+							:options="[
+								{
+									label: __('Delete'),
+									condition: showDeleteButton,
+									onClick: () => (showDeleteDialog = true),
+								},
+								{
+									label: __('Cancel Application'),
+									condition: () => canCancelOwnLeave.value,
+									onClick: () => (showCancelOwnLeaveDialog = true),
+								},
+								{ label: __('Reload'), onClick: () => reloadDoc() },
+							]"
+							:button="{
+								label: __('Menu'),
+								icon: 'more-horizontal',
+								variant: 'ghost',
+							}"
+						/>
+					</div>
 				</div>
 				<h2 v-else class="text-2xl font-semibold text-gray-900">
 					{{ __('New {0}', [__(doctype)], props.doctype) }}
@@ -438,6 +457,9 @@ import { getCompanyCurrency } from "@/data/currencies"
 import { myLeaves, leaveBalance } from "@/data/leaves"
 import { formatCurrency } from "@/utils/formatters"
 import { markAttendanceRefresh } from "@/utils/attendance_refresh"
+import CopyLinkButton from "@/components/CopyLinkButton.vue"
+import NotifyApproverButton from "@/components/NotifyApproverButton.vue"
+import { isShareable } from "@/utils/application_share"
 
 const props = defineProps({
 	doctype: {
@@ -502,6 +524,10 @@ const CNR_DOCTYPES = [
 
 const __ = inject("$translate")
 const employee = inject("$employee")
+
+// Share actions need a saved document to point at, and only make sense on the
+// application types someone else has to approve.
+const canShare = computed(() => Boolean(props.id && isShareable(props.doctype)))
 
 let activeTab = ref(props.tabs?.[0].name)
 let fileAttachments = ref([])

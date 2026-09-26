@@ -224,6 +224,17 @@ NOTIFICATION_EVENTS = [
 		"message": "**Leave Application Cancelled:** {{ doc.employee_name }} ({{ doc.leave_type }}) from {{ doc.from_date }} to {{ doc.to_date }}",
 	},
 	{
+		# No automatic hook fires this one. It exists so the PWA's "remind the
+		# approver" button has a row to read recipients and wording from, the
+		# same as every other application type.
+		"key": "shift_request_new",
+		"label": "Shift Request Created",
+		"document_type": "Shift Request",
+		"send_alert_on": "New Document",
+		"condition": "",
+		"message": "**Shift Request:** {{ doc.employee_name }} ({{ doc.shift_type }}) from {{ doc.from_date }}{% if doc.to_date %} to {{ doc.to_date }}{% endif %}",
+	},
+	{
 		"key": "policy_escape_new",
 		"label": "Attendance Policy Escape Created",
 		"document_type": "Attendance Policy Escape",
@@ -242,6 +253,40 @@ DESTINATIONS = (
 	("reports-to", "send_to_reports_to", "reports_to"),
 	("approver", "send_to_approver", "approver"),
 )
+
+
+# Events a new site starts with switched on. An application sitting unseen is
+# the problem these notifications exist to solve, so the ones that reach an
+# approver are on by default; everything else stays opt-in, because a site that
+# has not asked for check-in or attendance traffic should not suddenly get it.
+# The master switch in Nepal HRMS Settings still gates the lot.
+DEFAULT_ON_EVENTS = frozenset(
+	{
+		"late_entry_app_new",
+		"early_exit_app_new",
+		"ooo_app_new",
+		"attendance_request_new",
+		"leave_app_new",
+		"shift_request_new",
+	}
+)
+
+
+def seeded_row_defaults(event_key):
+	"""Checkbox state a freshly seeded settings row starts with.
+
+	Approver and PWA together, because either alone sends nothing: the row needs
+	a channel and a recipient before it delivers anything at all.
+	"""
+	on = event_key in DEFAULT_ON_EVENTS
+	return {
+		"enabled": 1 if on else 0,
+		"send_to_channel": 0,
+		"send_to_employee": 0,
+		"send_to_reports_to": 0,
+		"send_to_approver": 1 if on else 0,
+		"send_to_pwa": 1 if on else 0,
+	}
 
 
 def notification_name(event_key, dest_slug):

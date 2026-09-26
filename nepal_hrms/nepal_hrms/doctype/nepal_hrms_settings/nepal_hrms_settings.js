@@ -293,6 +293,90 @@ function nh_apply_notifications_tab(frm, show) {
 	nh_bind_data_link(frm, "raven_channel", "Raven Channel", { is_direct_message: 0 });
 	nh_bind_data_link(frm, "raven_workspace", "Raven Workspace");
 	nh_bind_event_channel_pickers(frm);
+	nh_bind_notification_bulk_toggles(frm);
+}
+
+// Twenty-nine events times six checkboxes is a lot of tapping to turn one
+// channel on everywhere, and Enabled and PWA always move together in practice.
+const NH_NOTIFICATION_FLAGS = [
+	["enabled", "Enabled"],
+	["send_to_channel", "Channel"],
+	["send_to_employee", "Employee"],
+	["send_to_reports_to", "Reports To"],
+	["send_to_approver", "Approver"],
+	["send_to_pwa", "PWA"],
+];
+
+function nh_notification_target_rows(frm) {
+	const grid = frm.fields_dict.raven_notifications?.grid;
+	const rows = frm.doc.raven_notifications || [];
+	if (!grid) return rows;
+
+	// Selecting nothing means "all of them", so there is no separate select-all
+	// step for the common case of switching a whole column on.
+	const selected = new Set(grid.get_selected() || []);
+	return selected.size ? rows.filter((row) => selected.has(row.name)) : rows;
+}
+
+function nh_set_notification_flag(frm, fieldname, label, value) {
+	const rows = nh_notification_target_rows(frm);
+	if (!rows.length) {
+		frappe.show_alert({ message: __("No notification rows to change"), indicator: "orange" });
+		return;
+	}
+
+	for (const row of rows) {
+		frappe.model.set_value(row.doctype, row.name, fieldname, value);
+	}
+	frm.refresh_field("raven_notifications");
+
+	frappe.show_alert({
+		message: __("{0} {1} on {2} row(s) — save to apply", [
+			__(label),
+			value ? __("checked") : __("unchecked"),
+			rows.length,
+		]),
+		indicator: "blue",
+	});
+}
+
+function nh_bind_notification_bulk_toggles(frm) {
+	const grid_field = frm.fields_dict.raven_notifications;
+	if (!grid_field || !grid_field.$wrapper) return;
+
+	// refresh() runs more than once; keep exactly one toolbar.
+	grid_field.$wrapper.find(".nh-bulk-toggles").remove();
+
+	const $bar = $('<div class="nh-bulk-toggles"></div>').css({
+		display: "flex",
+		"flex-wrap": "wrap",
+		"align-items": "center",
+		gap: "8px",
+		margin: "0 0 10px",
+	});
+
+	$bar.append(
+		$("<span class='text-muted small'></span>").text(
+			__("Set on selected rows, or on all rows when none are selected:")
+		)
+	);
+
+	for (const [fieldname, label] of NH_NOTIFICATION_FLAGS) {
+		const $group = $("<span class='btn-group btn-group-sm'></span>");
+		const $on = $("<button type='button' class='btn btn-default btn-sm'></button>").text(
+			`${__(label)}: ${__("All")}`
+		);
+		const $off = $("<button type='button' class='btn btn-default btn-sm'></button>").text(
+			__("None")
+		);
+
+		$on.on("click", () => nh_set_notification_flag(frm, fieldname, label, 1));
+		$off.on("click", () => nh_set_notification_flag(frm, fieldname, label, 0));
+
+		$bar.append($group.append($on).append($off));
+	}
+
+	grid_field.$wrapper.prepend($bar);
 }
 
 function nh_setup_notifications_tab(frm) {

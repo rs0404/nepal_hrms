@@ -9,6 +9,7 @@ from nepal_hrms.notifications.events import (
 	NOTIFICATION_EVENTS,
 	catalog_for_client,
 	notification_name,
+	seeded_row_defaults,
 )
 from nepal_hrms.notifications.raven_guard import raven_available
 
@@ -68,11 +69,7 @@ def seed_notification_rows_on_migrate():
 					"idx": idx,
 					"event_key": event["key"],
 					"event_label": event["label"],
-					"enabled": 0,
-					"send_to_channel": 0,
-					"send_to_employee": 0,
-					"send_to_reports_to": 0,
-					"send_to_approver": 0,
+					**seeded_row_defaults(event["key"]),
 				}
 			).insert(ignore_permissions=True)
 	except Exception:
@@ -96,11 +93,7 @@ def seed_notification_rows(settings):
 			{
 				"event_key": event["key"],
 				"event_label": event["label"],
-				"enabled": 0,
-				"send_to_channel": 0,
-				"send_to_employee": 0,
-				"send_to_reports_to": 0,
-				"send_to_approver": 0,
+				**seeded_row_defaults(event["key"]),
 			},
 		)
 
