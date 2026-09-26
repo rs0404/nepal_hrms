@@ -261,11 +261,20 @@ function nh_seed_notification_rows(frm) {
 				const row = frm.add_child("raven_notifications");
 				row.event_key = event.key;
 				row.event_label = event.label;
-				row.enabled = 0;
-				row.send_to_channel = 0;
-				row.send_to_employee = 0;
-				row.send_to_reports_to = 0;
-				row.send_to_approver = 0;
+				// The catalog carries the same defaults the server seeders use, so
+				// a row created here is not quietly different from one created by
+				// a migrate. Falls back to all-off on an older server.
+				Object.assign(
+					row,
+					event.defaults || {
+						enabled: 0,
+						send_to_channel: 0,
+						send_to_employee: 0,
+						send_to_reports_to: 0,
+						send_to_approver: 0,
+						send_to_pwa: 0,
+					}
+				);
 				added = true;
 			});
 			if (added) {

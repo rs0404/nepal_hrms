@@ -294,4 +294,13 @@ def notification_name(event_key, dest_slug):
 
 
 def catalog_for_client():
-	return [{"key": event["key"], "label": event["label"]} for event in NOTIFICATION_EVENTS]
+	"""The settings form seeds any missing row itself, before a migrate ever runs,
+	so it needs the same defaults the server seeders use rather than a third copy."""
+	return [
+		{
+			"key": event["key"],
+			"label": event["label"],
+			"defaults": seeded_row_defaults(event["key"]),
+		}
+		for event in NOTIFICATION_EVENTS
+	]
