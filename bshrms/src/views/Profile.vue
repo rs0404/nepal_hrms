@@ -70,13 +70,15 @@
 
 						<SalaryUnlockFieldPicker class="w-full" />
 
-						<!-- Notifications + Settings -->
+						<!-- Always rendered: the toggle explains a site without push
+						     configured, which is more use than silently vanishing. -->
+						<PushNotificationToggle class="w-full" />
+
+						<!-- Settings -->
 						<div
 							class="flex flex-col gap-5 my-4 w-full"
 							v-if="allowPushNotifications"
 						>
-							<PushNotificationToggle />
-
 							<div class="flex flex-col bg-white rounded">
 								<router-link
 									:to="{ name: 'Settings' }"
