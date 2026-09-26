@@ -186,7 +186,7 @@
 				['Open', 'Draft'].includes(document?.doc?.[approvalField]) &&
 				hasPermission('approval')
 			"
-			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4"
+			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4 bg-white"
 		>
 			<Button
 				@click="updateDocumentStatus({ status: 'Rejected' })"
@@ -215,7 +215,7 @@
 
 		<div
 			v-else-if="canSubmitRequest"
-			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4"
+			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4 bg-white"
 		>
 			<Button
 				@click="updateDocumentStatus({ docstatus: 1 })"
@@ -228,7 +228,7 @@
 
 		<div
 			v-else-if="document?.doc?.docstatus === 1 && hasPermission('cancel')"
-			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4"
+			class="flex w-full flex-row items-center justify-between gap-3 sticky bottom-0 border-t z-[100] p-4 bg-white"
 		>
 			<Button
 				@click="updateDocumentStatus({ docstatus: 2 })"
