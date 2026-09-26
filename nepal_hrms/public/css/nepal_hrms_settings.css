@@ -63,6 +63,14 @@
 	align-items: center;
 }
 
+/* Not inside a child-table row: when a row turns editable Frappe centres its
+   checkboxes with text-align, which display:flex above would defeat -- the
+   box jumped to the left edge on click. */
+.nh-settings-form .grid-row .checkbox,
+.nh-help-form .grid-row .checkbox {
+	display: block;
+}
+
 .nh-settings-form .checkbox .nh-check-help,
 .nh-help-form .checkbox .nh-check-help {
 	margin-left: 0.15rem;

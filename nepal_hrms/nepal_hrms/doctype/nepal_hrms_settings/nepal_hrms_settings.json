@@ -37,6 +37,8 @@
   "block_sandwich_leave_application",
   "pwa_leave_form_section",
   "frequent_leave_types",
+  "pwa_shift_form_section",
+  "frequent_shift_types",
   "ooo_section",
   "max_paid_out_of_office_hours",
   "lwp_section",
@@ -1091,12 +1093,24 @@
    "fieldname": "salary_unlock_fields",
    "fieldtype": "Small Text",
    "label": "Unlock Fields"
+  },
+  {
+   "description": "Shown as quick choices when requesting a shift in the BSHRMS app, on the Shift Request form and from the Shift Roster. An employee may pick two of them for the same day.",
+   "fieldname": "pwa_shift_form_section",
+   "fieldtype": "Section Break",
+   "label": "PWA Frequent Shift Types"
+  },
+  {
+   "fieldname": "frequent_shift_types",
+   "fieldtype": "Table MultiSelect",
+   "label": "Frequent Shift Types",
+   "options": "Nepal HRMS Frequent Shift Type"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-23 18:00:00.000000",
+ "modified": "2026-09-24 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Settings",

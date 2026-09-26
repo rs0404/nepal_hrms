@@ -24,7 +24,8 @@
 				</button>
 				<div class="text-center">
 					<div class="text-base font-semibold text-gray-900" lang="ne">{{ monthLabel }}</div>
-					<div class="text-xs text-gray-500">{{ adRangeLabel }}</div>
+					<div class="text-xs text-gray-600" lang="ne">{{ bsRangeLabel }}</div>
+					<div class="text-[11px] text-gray-400">{{ adRangeLabel }}</div>
 				</div>
 				<button type="button" class="rounded-full p-1.5 active:bg-gray-100" @click="shiftMonth(1)">
 					<FeatherIcon name="chevron-right" class="h-5 w-5 text-gray-600" />
@@ -55,7 +56,7 @@
 							selectedDay === day ? 'ring-2 ring-gray-900' : '',
 							day === todayIso ? 'border-gray-900' : '',
 						]"
-						@click="selectedDay = selectedDay === day ? '' : day"
+						@click="selectDay(day)"
 					>
 						<span
 							class="text-sm font-semibold leading-none"
@@ -70,6 +71,14 @@
 							:key="shift"
 							class="mt-0.5 w-full truncate rounded px-0.5 text-center text-[9px] font-semibold leading-tight text-white"
 							:style="chipStyle(shift, myRow.cells[day])"
+						>
+							{{ shiftShort(shift) }}
+						</span>
+						<span
+							v-for="shift in myRow.cells[day]?.requested || []"
+							:key="`r-${shift}`"
+							class="mt-0.5 w-full truncate rounded border border-dashed px-0.5 text-center text-[9px] font-semibold leading-tight"
+							:style="requestedStyle(shift)"
 						>
 							{{ shiftShort(shift) }}
 						</span>
@@ -111,6 +120,97 @@
 						{{ myRow.cells[selectedDay].leave.leave_type }}
 						· {{ __(myRow.cells[selectedDay].leave.status) }}
 						<span v-if="myRow.cells[selectedDay].leave.half_day">· {{ __("Half Day") }}</span>
+					</div>
+					<div
+						v-for="shift in myRow.cells[selectedDay].requested || []"
+						:key="`req-${shift}`"
+						class="mt-1.5 flex items-center gap-2 text-xs"
+					>
+						<span class="h-2.5 w-2.5 shrink-0 rounded-full border border-dashed" :style="{ borderColor: shiftColor(shift) }" />
+						<span class="text-gray-700">{{ shift }}</span>
+						<span class="text-gray-500">{{ shiftTimes(shift) }}</span>
+						<span class="rounded bg-amber-50 px-1.5 text-[10px] font-semibold text-amber-700">{{ __("Requested") }}</span>
+					</div>
+
+					<button
+						v-if="!requesting"
+						type="button"
+						class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-gray-900 py-2 text-sm font-semibold text-white"
+						@click="openRequest"
+					>
+						<FeatherIcon name="repeat" class="h-4 w-4" />
+						{{ __("Request Shift") }}
+					</button>
+
+					<!-- Request one or two shifts for this day (or a run of days) -->
+					<div v-else class="mt-3 flex flex-col gap-2.5 border-t border-gray-200 pt-3">
+						<div class="text-xs font-semibold text-gray-700">
+							{{ __("Pick up to two shifts") }}
+						</div>
+						<div v-if="frequentShifts.data?.length" class="flex flex-wrap gap-1.5">
+							<button
+								v-for="option in frequentShifts.data"
+								:key="option.shift_type"
+								type="button"
+								class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold"
+								:class="chosen.includes(option.shift_type) ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-800'"
+								@click="toggleShift(option.shift_type)"
+							>
+								<span class="h-2 w-2 rounded-full" :style="{ background: COLORS[option.color] || FALLBACK_COLOR }" />
+								{{ option.shift_type }}
+								<span class="font-normal opacity-70">{{ option.start }}–{{ option.end }}</span>
+							</button>
+						</div>
+						<select
+							class="form-select w-full rounded border-gray-300 text-sm"
+							:value="''"
+							@change="toggleShift($event.target.value); $event.target.value = ''"
+						>
+							<option value="">
+								{{ frequentShifts.data?.length ? __("Other shift…") : __("Choose a shift…") }}
+							</option>
+							<option
+								v-for="name in otherShiftTypes"
+								:key="name"
+								:value="name"
+							>
+								{{ name }}
+							</option>
+						</select>
+						<div v-if="chosen.length" class="flex flex-wrap gap-1.5">
+							<span
+								v-for="name in chosen"
+								:key="name"
+								class="flex items-center gap-1 rounded-full bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white"
+							>
+								{{ name }}
+								<button type="button" class="opacity-70" @click="toggleShift(name)">
+									<FeatherIcon name="x" class="h-3 w-3" />
+								</button>
+							</span>
+						</div>
+						<label class="flex items-center justify-between gap-2 text-xs text-gray-600">
+							{{ __("Until") }}
+							<input v-model="untilDate" type="date" :min="selectedDay" class="form-input rounded border-gray-300 text-sm" />
+						</label>
+						<p v-if="requestError" class="text-xs text-red-600">{{ requestError }}</p>
+						<div class="flex gap-2">
+							<button
+								type="button"
+								class="flex-1 rounded-lg border border-gray-300 py-2 text-sm font-semibold text-gray-700"
+								@click="requesting = false"
+							>
+								{{ __("Cancel") }}
+							</button>
+							<button
+								type="button"
+								class="flex-1 rounded-lg bg-gray-900 py-2 text-sm font-semibold text-white disabled:opacity-50"
+								:disabled="!chosen.length || sending"
+								@click="sendRequest"
+							>
+								{{ sending ? __("Sending…") : __("Send request") }}
+							</button>
+						</div>
 					</div>
 				</div>
 			</template>
@@ -157,6 +257,15 @@
 										{{ shiftShort(shift) }}
 									</span>
 									<span
+										v-for="shift in row.cells[day]?.requested || []"
+										:key="`r-${shift}`"
+										class="truncate rounded border border-dashed px-0.5 text-center font-semibold leading-tight"
+										:style="requestedStyle(shift)"
+										:title="`${__('Requested')}: ${shift} ${shiftTimes(shift)}`"
+									>
+										{{ shiftShort(shift) }}
+									</span>
+									<span
 										v-if="row.cells[day]?.leave"
 										class="truncate rounded px-0.5 text-center font-semibold leading-tight"
 										:class="leaveClass(row.cells[day].leave)"
@@ -196,6 +305,10 @@
 					<span class="h-2.5 w-2.5 rounded-sm opacity-50" style="background: #6b7280" />
 					{{ __("Default shift") }}
 				</span>
+				<span class="flex items-center gap-1.5">
+					<span class="h-2.5 w-2.5 rounded-sm border border-dashed border-gray-500" />
+					{{ __("Requested") }}
+				</span>
 			</div>
 		</div>
 	</div>
@@ -203,9 +316,14 @@
 
 <script setup>
 import { computed, inject, ref, watch } from "vue"
-import { createResource, FeatherIcon } from "frappe-ui"
+import { call, createListResource, createResource, FeatherIcon, toast } from "frappe-ui"
 
-import { formatNepaliDateNe, toNepaliDigits } from "@/utils/nepali_date"
+import {
+	formatNepaliDateNe,
+	formatNepaliDatePeriodNe,
+	formatNepaliMonthPeriodNe,
+	toNepaliDigits,
+} from "@/utils/nepali_date"
 
 const __ = inject("$translate")
 const dayjs = inject("$dayjs")
@@ -231,74 +349,47 @@ const FALLBACK_COLOR = "#6b7280"
 
 const scope = ref("self")
 const selectedDay = ref("")
+const requesting = ref(false)
+const chosen = ref([])
+const untilDate = ref("")
+const sending = ref(false)
+const requestError = ref("")
+const MAX_SHIFTS = 2
 const todayIso = dayjs().format("YYYY-MM-DD")
 
 const lib = () => window.NepaliDateLib
 
-// Current BS month; months are 0-based in NepaliDateLib.
-function currentBsMonth() {
-	try {
-		const nd = lib().NepaliDate.fromAD(new Date(`${todayIso}T12:00:00`))
-		return { year: nd.year, month: nd.monthIndex }
-	} catch (e) {
-		return null
-	}
-}
-const bsMonth = ref(currentBsMonth())
-
-function bsFirstAd(year, month) {
-	const y = year + Math.floor(month / 12)
-	const m = ((month % 12) + 12) % 12
-	const { NepaliDate } = lib()
-	return new NepaliDate(y, m, 1).toAD().toISOString().slice(0, 10)
-}
-
-function adMonthRange() {
-	return {
-		from: dayjs().startOf("month").format("YYYY-MM-DD"),
-		to: dayjs().endOf("month").format("YYYY-MM-DD"),
-	}
-}
-
-const range = computed(() => {
-	// Without the Nepali calendar, or if it cannot place the month, the AD
-	// month still gives a roster rather than an empty card.
-	if (!bsMonth.value) return adMonthRange()
-	try {
-		const { year, month } = bsMonth.value
-		const from = bsFirstAd(year, month)
-		const to = dayjs(bsFirstAd(year, month + 1)).subtract(1, "day").format("YYYY-MM-DD")
-		return { from, to }
-	} catch (e) {
-		console.error("Shift roster: could not work out the BS month", e)
-		return adMonthRange()
-	}
-})
+// Paged by payroll period (Nepal HRMS Settings decides the window); 0 = current.
+const periodOffset = ref(0)
 
 function shiftMonth(step) {
 	selectedDay.value = ""
-	if (!bsMonth.value) return
-	const total = bsMonth.value.year * 12 + bsMonth.value.month + step
-	bsMonth.value = { year: Math.floor(total / 12), month: total % 12 }
+	requesting.value = false
+	periodOffset.value += step
 }
 
-const monthLabel = computed(() => {
-	if (!bsMonth.value) return dayjs(range.value.from).format("MMMM YYYY")
-	const name = lib().MONTH_NAMES_NE_BS?.[bsMonth.value.month] || ""
-	return `${name} ${toNepaliDigits(bsMonth.value.year)}`
-})
-const adRangeLabel = computed(
-	() => `${dayjs(range.value.from).format("D MMM")} – ${dayjs(range.value.to).format("D MMM YYYY")}`
+const periodFrom = computed(() => roster.data?.from_date)
+const periodTo = computed(() => roster.data?.to_date)
+const monthLabel = computed(() =>
+	periodFrom.value ? formatNepaliMonthPeriodNe(periodFrom.value, periodTo.value) : " "
+)
+const bsRangeLabel = computed(() =>
+	periodFrom.value ? formatNepaliDatePeriodNe(periodFrom.value, periodTo.value) : ""
+)
+const adRangeLabel = computed(() =>
+	periodFrom.value
+		? `${dayjs(periodFrom.value).format("D MMM")} – ${dayjs(periodTo.value).format("D MMM YYYY")}`
+		: ""
 )
 
 const hasTeam = createResource({ url: "nepal_hrms.api.shift_roster.has_team_roster", auto: true })
 
 const roster = createResource({
 	url: "nepal_hrms.api.shift_roster.get_shift_roster",
-	makeParams: () => ({ from_date: range.value.from, to_date: range.value.to, scope: scope.value }),
+	makeParams: () => ({ period_offset: periodOffset.value, scope: scope.value }),
 	auto: true,
 })
-watch([range, scope], () => roster.reload())
+watch([periodOffset, scope], () => roster.reload())
 
 const myRow = computed(() => roster.data?.employees?.[0])
 
@@ -345,6 +436,74 @@ function chipStyle(shift, cell) {
 	// A default shift is only a fallback, so it is drawn fainter than a planned one.
 	return { background: shiftColor(shift), opacity: cell?.default ? 0.5 : 1 }
 }
+function requestedStyle(shift) {
+	// Asked for, not yet approved: the shift's colour as an outline only.
+	const color = shiftColor(shift)
+	return { borderColor: color, color }
+}
+
+const frequentShifts = createResource({ url: "nepal_hrms.api.shift_roster.get_frequent_shift_types", auto: true })
+const allShiftTypes = createListResource({
+	doctype: "Shift Type",
+	fields: ["name"],
+	orderBy: "name asc",
+	pageLength: 200,
+	auto: true,
+})
+const otherShiftTypes = computed(() => {
+	const frequent = new Set((frequentShifts.data || []).map((row) => row.shift_type))
+	return (allShiftTypes.data || []).map((row) => row.name).filter((name) => !frequent.has(name))
+})
+
+function selectDay(day) {
+	selectedDay.value = selectedDay.value === day ? "" : day
+	requesting.value = false
+}
+
+function openRequest() {
+	chosen.value = []
+	untilDate.value = selectedDay.value
+	requestError.value = ""
+	requesting.value = true
+}
+
+function toggleShift(name) {
+	if (!name) return
+	requestError.value = ""
+	if (chosen.value.includes(name)) {
+		chosen.value = chosen.value.filter((n) => n !== name)
+	} else if (chosen.value.length >= MAX_SHIFTS) {
+		requestError.value = __("Pick at most {0} shifts for a day.", [MAX_SHIFTS])
+	} else {
+		chosen.value = [...chosen.value, name]
+	}
+}
+
+async function sendRequest() {
+	sending.value = true
+	requestError.value = ""
+	try {
+		const result = await call("nepal_hrms.api.shift_roster.request_shifts", {
+			shift_types: JSON.stringify(chosen.value),
+			from_date: selectedDay.value,
+			to_date: untilDate.value || selectedDay.value,
+		})
+		toast({
+			title: __("Requested"),
+			text: __("{0} shift request(s) sent for approval.", [result?.created?.length || chosen.value.length]),
+			icon: "check-circle",
+			position: "bottom-center",
+			iconClasses: "text-green-500",
+		})
+		requesting.value = false
+		roster.reload()
+	} catch (e) {
+		requestError.value = e?.messages?.[0]?.replace(/<[^>]+>/g, "") || e?.message || __("Could not send the request.")
+	} finally {
+		sending.value = false
+	}
+}
+
 function leaveClass(leave) {
 	return leave.status === "Approved"
 		? "bg-blue-100 text-blue-800"

@@ -68,6 +68,26 @@ const formFields = createResource({
 	},
 })
 
+// Nepal HRMS Settings' frequent shifts as one-tap choices, like the leave form's
+// frequent leave types; the dropdown keeps every other shift.
+const frequentShifts = createResource({
+	url: "nepal_hrms.api.shift_roster.get_frequent_shift_types",
+	auto: !props.id,
+})
+
+watch(
+	() => [formFields.data, frequentShifts.data],
+	([fields, frequent]) => {
+		const shiftField = fields?.find((field) => field.fieldname === "shift_type")
+		if (!shiftField || !frequent?.length) return
+		shiftField.quickOptions = frequent.map((row) => ({
+			label: `${row.shift_type} · ${row.start}–${row.end}`,
+			value: row.shift_type,
+		}))
+		shiftField.placeholder = __("Other shifts")
+	}
+)
+
 createResource({
 	url: "hrms.api.get_shift_request_approvers",
 	params: { employee: employee.data.name },

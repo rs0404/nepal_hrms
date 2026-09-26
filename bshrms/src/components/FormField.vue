@@ -42,7 +42,9 @@
 				@click="selectQuickOption(opt)"
 			>
 				<span class="text-xs font-semibold truncate">{{ opt.label }}</span>
+				<!-- Leave chips carry a balance; shift chips do not. -->
 				<span
+					v-if="'remaining' in opt || opt.is_lwp"
 					class="text-[11px] tabular-nums shrink-0 inline-flex items-center gap-0.5"
 					:class="chipRemainingClass(opt)"
 				>
