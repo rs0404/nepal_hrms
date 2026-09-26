@@ -13,7 +13,7 @@
   <img alt="HRMS" src="https://img.shields.io/badge/Frappe%20HR-v15-2490ef">
 </p>
 
-**Nepal HRMS** (`nepal_hrms`) is a Frappe app from [Yarsa Labs](https://yarsalabs.com) that localizes Frappe HR for Nepal: BS calendars, late/early/OOO policy, sandwich leave, SSF/PF payroll, and a mobile PWA at `/bshrms`.
+**Nepal HRMS** (`nepal_hrms`) is a Frappe app that localizes Frappe HR for Nepal: BS calendars, late/early/OOO policy, sandwich leave, SSF/PF payroll, and a mobile PWA at `/hr`.
 
 Desk home is the **Nepal HRMS** workspace. The **BS HRMS** tile on the Apps screen opens the employee PWA.
 
@@ -360,15 +360,11 @@ Install / migrate: custom fields on every migrate; salary structures, default le
 
 ## License
 
-Copyright © 2026 **Yarsa Labs Pvt. Ltd.**
-
 Nepal HRMS is free software under the **GNU General Public License v3 or later**. You may redistribute and modify it under the terms of the GPL. There is **no warranty**.
 
 - Full license text: [LICENSE](LICENSE)
-- Short copyright notice: [NOTICE](NOTICE)
+- Copyright holder and short notice: [NOTICE](NOTICE)
 - SPDX: `GPL-3.0-or-later`
-
-Contact: [support@yarsalabs.com](mailto:support@yarsalabs.com)
 
 ---
 
