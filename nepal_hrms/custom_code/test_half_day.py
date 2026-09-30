@@ -15,6 +15,8 @@ from nepal_hrms.custom_code import half_day
 from nepal_hrms.overrides import attendance_override
 
 SHIFT = "A - 09:30-17:30"
+# An approved leave row. Not frappe._dict(): an empty dict is falsy, and "no leave".
+LEAVE = frappe._dict(name="LA-0001", leave_type="Sick Leave")
 # (start, midpoint, end) in seconds: 09:30, 13:30, 17:30
 WINDOW = (9.5 * 3600, 13.5 * 3600, 17.5 * 3600)
 ABSENT_TH, HALF_TH = 3.99, 7.0
@@ -283,3 +285,75 @@ class TestSheetHalfBounds(TestCase):
 	def test_unrecorded_keeps_the_old_fixed_halves(self):
 		self.assertEqual(self._bounds("HD/P"), (540, 780))
 		self.assertEqual(self._bounds("HD/A"), (780, 1020))
+
+
+class TestWorkedHalfTiming(_Base):
+	"""Scaling on: late/early are judged inside the worked half, at half the grace."""
+
+	def _ctx(self, session, scaling=True, **over):
+		doc = _attendance(**over)
+		doc[half_day.SESSION_FIELD] = session
+		with patch.object(half_day, "scaling_enabled", return_value=scaling), patch.object(
+			half_day, "half_day_leave_on", return_value=LEAVE
+		):
+			return half_day.late_early_context(doc)
+
+	def test_off_keeps_todays_rule(self):
+		self.assertIsNone(self._ctx(half_day.FIRST_HALF, scaling=False))
+
+	def test_unknown_half_keeps_todays_rule(self):
+		self.assertIsNone(self._ctx(None))
+
+	def test_not_a_leave_row_keeps_todays_rule(self):
+		self.assertIsNone(self._ctx(half_day.FIRST_HALF, leave_type=None))
+
+	def test_first_half_leave_works_the_afternoon(self):
+		ctx = self._ctx(half_day.FIRST_HALF)
+		self.assertEqual((ctx.start.strftime("%H:%M"), ctx.end.strftime("%H:%M")), ("13:30", "17:30"))
+		self.assertEqual(ctx.factor, 0.5)
+
+	def test_second_half_leave_works_the_morning(self):
+		ctx = self._ctx(half_day.SECOND_HALF)
+		self.assertEqual((ctx.start.strftime("%H:%M"), ctx.end.strftime("%H:%M")), ("09:30", "13:30"))
+
+	def test_late_is_measured_from_the_midpoint_not_the_shift_start(self):
+		ctx = self._ctx(half_day.FIRST_HALF)
+		late, early = half_day.minutes_against(ctx, "2026-09-01 13:50:00", "2026-09-01 17:30:00")
+		self.assertEqual((late, early), (20, 0))  # not 260 from 09:30
+
+	def test_early_is_measured_to_the_midpoint(self):
+		ctx = self._ctx(half_day.SECOND_HALF)
+		late, early = half_day.minutes_against(ctx, "2026-09-01 09:30:00", "2026-09-01 12:45:00")
+		self.assertEqual((late, early), (0, 45))
+
+
+class TestHalvedLimits(TestCase):
+	def test_half_a_15_minute_grace_is_seven_and_a_half(self):
+		from nepal_hrms.custom_code.attendance_policy import classify_delay
+
+		# cint would round 7.5 down to 7 and charge the eighth minute a minute early.
+		self.assertIsNone(classify_delay(7, 7.5, 30))
+		self.assertEqual(classify_delay(8, 7.5, 30), "minor")
+		self.assertEqual(classify_delay(31, 7.5, 30), "major")
+
+	def test_a_delay_inside_the_worked_half_is_not_excused_by_the_leave(self):
+		from nepal_hrms.custom_code import attendance_policy
+
+		with patch.object(attendance_policy, "_has_half_day_leave", return_value=True):
+			args = (45, None, "EMP-1", "2026-09-01", 7.5, 30)
+			self.assertTrue(attendance_policy.delay_excused_for_attendance_status(*args))
+			self.assertFalse(
+				attendance_policy.delay_excused_for_attendance_status(*args, excuse_half_day_leave=False)
+			)
+
+	def test_ooo_allowance_halves_only_on_a_scaled_half_day(self):
+		with patch.object(half_day, "scaling_enabled", return_value=True), patch.object(
+			half_day, "half_day_leave_on", return_value=LEAVE
+		):
+			self.assertEqual(half_day.scaled_max_paid_ooo_hours(2.0, "EMP-1", "2026-09-01"), 1.0)
+		with patch.object(half_day, "scaling_enabled", return_value=False):
+			self.assertEqual(half_day.scaled_max_paid_ooo_hours(2.0, "EMP-1", "2026-09-01"), 2.0)
+		with patch.object(half_day, "scaling_enabled", return_value=True), patch.object(
+			half_day, "half_day_leave_on", return_value=None
+		):
+			self.assertEqual(half_day.scaled_max_paid_ooo_hours(2.0, "EMP-1", "2026-09-01"), 2.0)

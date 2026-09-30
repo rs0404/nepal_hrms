@@ -17,6 +17,8 @@
   "late_early_grace_mins",
   "column_break_penalty_windows",
   "late_early_max_delay_mins",
+  "half_day_leave_section",
+  "scale_rules_on_half_day_leave",
   "occurrence_pool_section",
   "initial_grace_occurrences",
   "combine_late_and_early_pool",
@@ -233,6 +235,19 @@
    "fieldname": "late_early_max_delay_mins",
    "fieldtype": "Int",
    "label": "Max Delay Minutes"
+  },
+  {
+   "fieldname": "half_day_leave_section",
+   "fieldtype": "Section Break",
+   "label": "Half-Day Leave",
+   "description": "How the half that is worked is judged on a half-day leave day. HRMS alone judges it by the whole-day rules, so a normal half's work can still read as absent."
+  },
+  {
+   "default": "1",
+   "fieldname": "scale_rules_on_half_day_leave",
+   "fieldtype": "Check",
+   "label": "Scale Rules on Half-Day Leave Days",
+   "description": "Judge the worked half as a half-length day: the shift's hour thresholds, late/early grace, max delay and max paid Out of Office hours are all halved (e.g. 15 min grace becomes 7.5, 60 min max delay becomes 30), and late/early are measured against the worked half, not the whole shift. Needs the leave's Half Day Session. Untick for HRMS behaviour: whole-day thresholds, and the leave excuses the day's late/early."
   },
   {
    "depends_on": "eval: doc.enable_late_early_penalty === 1",

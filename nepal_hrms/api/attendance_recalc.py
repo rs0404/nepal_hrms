@@ -524,14 +524,25 @@ def _dry_run_one(name):
 	# recalculated here -- this is how rows the old check-in sync swept to
 	# Absent get repaired, a month at a time, from the Recalculate dialog.
 	if reason is None and prior_status == "Half Day" and prior_leave:
-		from nepal_hrms.custom_code.half_day import compute_half_day_other_half
+		from nepal_hrms.custom_code.half_day import (
+			SESSION_FIELD,
+			compute_half_day_other_half,
+			judge_worked_half_delays,
+		)
 
 		plan = compute_half_day_other_half(doc)
-		settled = (plan.writes or {}).get("half_day_status") if plan else None
-		if settled and settled != (doc.half_day_status or None):
-			doc.half_day_status = settled
-			doc.flags.nepal_half_day_values = plan.writes
-			return doc, before, _bulk_snapshot(doc), False, "half_day_leave"
+		writes = (plan.writes if plan else None) or {}
+		prior_session = doc.get(SESSION_FIELD)
+		for field in ("half_day_status", "in_time", "out_time", "working_hours", SESSION_FIELD):
+			if field in writes:
+				doc.set(field, writes[field])
+		# Scaled half-day rows also get their worked half's delays judged; the
+		# snapshot compares those C&R fields, so a change shows in the preview.
+		judge_worked_half_delays(doc)
+		after = _bulk_snapshot(doc)
+		if _bulk_changed(before, after) or writes.get(SESSION_FIELD, prior_session) != prior_session:
+			doc.flags.nepal_half_day_values = writes
+			return doc, before, after, False, "half_day_leave"
 		return doc, before, before, True, None
 
 	# Pre-existing protected rows with no holiday/sandwich/working conversion

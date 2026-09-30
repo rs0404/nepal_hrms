@@ -524,9 +524,16 @@ def compute_nepal_hr_variables(doc, data):
             employee, "escape_applications", ooo.attendance_date
         ):
             continue
-        if ooo.type_of_work == "Personal Work" and flt(ooo.total_hours) > max_paid_ooo:
-            if not _has_half_day_leave(employee, ooo.attendance_date):
-                out_of_office_half_days += 1.0
+        if ooo.type_of_work != "Personal Work":
+            continue
+        from nepal_hrms.custom_code.half_day import scaled_max_paid_ooo_hours, scaling_enabled
+
+        # Half-day leave: with scaling on, the worked half gets half the allowance
+        # and is charged like any day; off, the leave excuses the day as before.
+        half_leave = _has_half_day_leave(employee, ooo.attendance_date)
+        allowance = scaled_max_paid_ooo_hours(max_paid_ooo, employee, ooo.attendance_date)
+        if flt(ooo.total_hours) > allowance and (not half_leave or scaling_enabled()):
+            out_of_office_half_days += 1.0
 
     # PWA OOO Work is Office Work: manager-approved check-ins do not add personal overage.
     # Personal Work must use Out of Office Application (handled above).

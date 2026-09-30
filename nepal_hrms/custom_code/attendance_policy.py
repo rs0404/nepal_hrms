@@ -190,7 +190,9 @@ def _has_half_day_leave(employee, attendance_date):
 	return bool(half_day_leave_on(employee, attendance_date))
 
 
-def delay_excused_for_attendance_status(mins, app, employee, attendance_date, grace, max_delay):
+def delay_excused_for_attendance_status(
+	mins, app, employee, attendance_date, grace, max_delay, excuse_half_day_leave=True
+):
 	"""
 	Whether Attendance should stay/restore Present for this late/early delay.
 
@@ -207,7 +209,9 @@ def delay_excused_for_attendance_status(mins, app, employee, attendance_date, gr
 		return True
 	if app and (app.type_of_work or "") == "Office Work":
 		return True
-	return _has_half_day_leave(employee, attendance_date)
+	# A half-day leave excuses a major delay -- it covered the missing time. Not
+	# when the delay was measured inside the worked half: then nothing covers it.
+	return excuse_half_day_leave and _has_half_day_leave(employee, attendance_date)
 
 
 def delay_in_occurrence_pool(mins, app, grace, max_delay, settings=None):
@@ -531,13 +535,26 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 		)
 	)
 
-	late_mins, early_mins = compute_late_early_minutes(
-		doc.employee,
-		doc.attendance_date,
-		in_time=earliest_arrival(doc),
-		out_time=getattr(doc, "out_time", None),
-		shift=getattr(doc, "shift", None),
-	)
+	# Half-day leave with scaling on: the worked half is judged as a half-length
+	# day -- halved grace and max delay, measured against that half, not the
+	# whole shift. None keeps today's rule, where the leave excuses the day.
+	from nepal_hrms.custom_code.half_day import late_early_context, minutes_against
+
+	half_ctx = late_early_context(doc)
+	if half_ctx:
+		grace = flt(grace) * half_ctx.factor
+		max_delay = flt(max_delay) * half_ctx.factor
+		late_mins, early_mins = minutes_against(
+			half_ctx, earliest_arrival(doc), getattr(doc, "out_time", None)
+		)
+	else:
+		late_mins, early_mins = compute_late_early_minutes(
+			doc.employee,
+			doc.attendance_date,
+			in_time=earliest_arrival(doc),
+			out_time=getattr(doc, "out_time", None),
+			shift=getattr(doc, "shift", None),
+		)
 
 	if hasattr(doc, "custom_late_mins"):
 		doc.custom_late_mins = late_mins
@@ -632,7 +649,12 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 				doc.half_day_status = None
 		return
 
-	if penalty_on and not getattr(doc, "leave_type", None) and (doc.status or "") not in (
+	# A leave row is skipped -- unless it is a scaled half-day, whose worked half
+	# is judged here. Its status stays out of reach either way: _protected_status
+	# keeps penalties off leave rows, so this only sets flags and pool counts.
+	if penalty_on and (not getattr(doc, "leave_type", None) or half_ctx) and (
+		doc.status or ""
+	) not in (
 		"On Leave",
 		"Work From Home",
 	):
@@ -641,7 +663,8 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 				"Late Entry Application", doc.employee, doc.attendance_date
 			)
 			if not delay_excused_for_attendance_status(
-				late_mins, lea, doc.employee, doc.attendance_date, grace, max_delay
+				late_mins, lea, doc.employee, doc.attendance_date, grace, max_delay,
+				excuse_half_day_leave=not half_ctx,
 			):
 				unexcused_late = 1
 			if delay_in_occurrence_pool(late_mins, lea, grace, max_delay, settings):
@@ -651,7 +674,8 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 				"Early Exit Application", doc.employee, doc.attendance_date
 			)
 			if not delay_excused_for_attendance_status(
-				early_mins, eea, doc.employee, doc.attendance_date, grace, max_delay
+				early_mins, eea, doc.employee, doc.attendance_date, grace, max_delay,
+				excuse_half_day_leave=not half_ctx,
 			):
 				unexcused_early = 1
 			if delay_in_occurrence_pool(early_mins, eea, grace, max_delay, settings):
@@ -1159,8 +1183,10 @@ def classify_delay(mins, grace, max_delay):
 	mins must already be raw minutes from shift start/end.
 	"""
 	mins = cint(mins)
-	grace = cint(grace)
-	max_delay = cint(max_delay)
+	# flt, not cint: a half-day's grace is half the setting, and 15 → 7.5 must not
+	# round to 7 and start charging a minute early.
+	grace = flt(grace)
+	max_delay = flt(max_delay)
 	if mins <= grace:
 		return None
 	if mins > max_delay:

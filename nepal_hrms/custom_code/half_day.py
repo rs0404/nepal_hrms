@@ -18,6 +18,8 @@ develop). custom_half_day_session carries it on Leave Application and
 Attendance; the custom_ prefix keeps it clear of any future upstream field.
 """
 
+from datetime import timedelta
+
 import frappe
 from frappe import _
 from frappe.utils import cint, get_datetime, getdate
@@ -200,6 +202,92 @@ def get_half_day_windows(employee=None, date=None):
 	}
 
 
+# -- late / early on the worked half ------------------------------------------------
+
+
+def late_early_context(doc):
+	"""How late/early is judged on this row, when it is a half-day leave day.
+
+	None unless scaling is on and the row is the half day of an approved leave
+	whose half is known. Then the worked half is a half-length day: grace and
+	max delay are halved, and lateness is measured against *that* half -- a
+	first-half leave starts the day at the midpoint, a second-half leave ends it
+	there. Off, or with the half unknown, the day keeps today's rule: the leave
+	excuses it.
+	"""
+	if not scaling_enabled():
+		return None
+	if (doc.get("status") or "").strip() != "Half Day" or not doc.get("leave_type"):
+		return None
+	leave = half_day_leave_on(doc.get("employee"), doc.get("attendance_date"))
+	if not leave:
+		return None
+	session = doc.get(SESSION_FIELD) or leave.get(SESSION_FIELD)
+	if session not in SESSIONS:
+		return None
+	window = shift_window(doc.get("shift"))
+	if not window:
+		return None
+	midnight = get_datetime(f"{getdate(doc.get('attendance_date'))} 00:00:00")
+	start, mid, end = (midnight + timedelta(seconds=secs) for secs in window)
+	worked = (mid, end) if session == FIRST_HALF else (start, mid)
+	return frappe._dict(factor=SCALE, session=session, start=worked[0], end=worked[1])
+
+
+def minutes_against(context, in_time=None, out_time=None):
+	"""(late_mins, early_mins) against the worked half, whole minutes like the full day."""
+	late = early = 0
+	if in_time:
+		delta = (get_datetime(in_time) - context.start).total_seconds() / 60.0
+		if delta >= 1:
+			late = int(delta)
+	if out_time:
+		delta = (context.end - get_datetime(out_time)).total_seconds() / 60.0
+		if delta >= 1:
+			early = int(delta)
+	return late, early
+
+
+# What C&R writes on a row: flags, minutes and pool counts -- never status.
+CNR_FIELDS = (
+	"late_entry",
+	"early_exit",
+	"custom_late_mins",
+	"custom_early_mins",
+	"custom_cnr_unexcused_late",
+	"custom_cnr_unexcused_early",
+	"custom_cnr_late_in_pool",
+	"custom_cnr_early_in_pool",
+	"custom_cnr_month_late_pool_count",
+	"custom_cnr_month_early_pool_count",
+)
+
+
+def judge_worked_half_delays(doc):
+	"""Late/early on the worked half of a scaled half-day leave row, in memory.
+
+	Nothing else runs C&R on these rows: HRMS writes them with ignore_validate,
+	the check-in sync hands them here, and Recalculate protects them. Returns the
+	C&R values to write, or {} when the row keeps today's rule (scaling off, or
+	the half unknown). apply_unexcused_status=False stops before any status
+	logic, so the leave row's status is never touched.
+	"""
+	if not late_early_context(doc):
+		return {}
+	from nepal_hrms.custom_code.attendance_policy import apply_late_early_to_attendance
+
+	apply_late_early_to_attendance(doc, apply_unexcused_status=False)
+	meta = frappe.get_meta("Attendance")
+	return {field: doc.get(field) for field in CNR_FIELDS if meta.has_field(field)}
+
+
+def scaled_max_paid_ooo_hours(max_hours, employee, attendance_date):
+	"""Personal OOO allowance for the day: halved on a half-day leave day when on."""
+	if scaling_enabled() and half_day_leave_on(employee, attendance_date):
+		return float(max_hours) * SCALE
+	return float(max_hours)
+
+
 # -- settling the worked half --------------------------------------------------------
 
 
@@ -290,6 +378,12 @@ def resolve_half_day_other_half(attendance, computed=None):
 			{"attendance": attendance.name, "skip_auto_attendance": 0},
 			update_modified=False,
 		)
+
+	# With the worked half settled, judge its delays -- scaled rows only.
+	fresh = frappe.get_doc("Attendance", attendance.name)
+	cnr = judge_worked_half_delays(fresh)
+	if cnr:
+		frappe.db.set_value("Attendance", attendance.name, cnr, update_modified=False)
 
 	after = plan.writes.get("half_day_status")
 	if after and after != before:
