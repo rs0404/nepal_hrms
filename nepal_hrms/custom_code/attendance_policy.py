@@ -858,7 +858,7 @@ def build_cnr_attendance_comment(before, after, source_doc=None, employee=None, 
 	new_status = after.status or "—"
 	late_mins = cint(after.custom_late_mins)
 	early_mins = cint(after.custom_early_mins)
-	parts = [_("C&R: Status {0} → {1}.").format(old_status, new_status)]
+	parts = [_("Rechecked: Status {0} → {1}.").format(old_status, new_status)]
 
 	source_label = _source_app_label(source_doc)
 	event = _source_app_event(source_doc)
@@ -967,7 +967,7 @@ def build_cnr_attendance_comment(before, after, source_doc=None, employee=None, 
 	):
 		parts.append(_("Related: {0} ({1}).").format(source_label, delay_txt))
 	elif not (late_pool_cleared or early_pool_cleared or late_pool_added or early_pool_added):
-		parts.append(_("Updated C&R flags ({0}).").format(delay_txt))
+		parts.append(_("Updated late/early flags ({0}).").format(delay_txt))
 
 	return " ".join(parts)
 

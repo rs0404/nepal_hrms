@@ -536,7 +536,7 @@ def _dry_run_one(name):
 
 	# A half-day leave row is still protected from C&R, but its worked half is
 	# recalculated here -- this is how rows the old check-in sync swept to
-	# Absent get repaired, a month at a time, from the Recalculate dialog.
+	# Absent get repaired, a month at a time, from the Recheck Attendance dialog.
 	if reason is None and prior_status == "Half Day" and prior_leave:
 		from nepal_hrms.custom_code.half_day import (
 			SESSION_FIELD,
@@ -832,7 +832,7 @@ def apply_recalculate_attendance_period(
 			if reason:
 				reason_note = "<br>" + escape_html(_("Reason: {0}").format(reason))
 			comment_msg = _(
-				"<b>Recalculate C&R for Period</b> by {0}<br>"
+				"<b>Recheck Attendance for Period</b> by {0}<br>"
 				"Period: {1}{2}<br>"
 				"Changes:<br>{3}"
 			).format(

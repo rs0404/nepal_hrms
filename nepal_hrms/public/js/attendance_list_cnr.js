@@ -10,7 +10,7 @@ frappe.listview_settings["Attendance"].onload = function (listview) {
 		_attendance_list_onload(listview);
 	}
 
-	listview.page.add_inner_button(__("Recalculate C&R for Period…"), () => {
+	listview.page.add_inner_button(__("Recheck Attendance for Period…"), () => {
 		nepal_hrms.attendance_cnr_bulk.open_dialog({});
 	});
 };

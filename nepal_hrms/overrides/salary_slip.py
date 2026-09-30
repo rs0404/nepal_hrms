@@ -126,7 +126,7 @@ def get_pool_penalty_days(employee, start_date, end_date):
         order_by="attendance_date asc",
     )
 
-    # The mark is only written when someone runs Recalculate C&R. The Monthly
+    # The mark is only written when someone runs Recheck Attendance. The Monthly
     # Attendance Sheet BS does not wait for that -- it assigns the occurrence pool
     # live -- so a slip reading marks alone charged nothing while the sheet showed
     # the penalty. Assign it the same way here and let a stored mark override.
@@ -564,7 +564,7 @@ def compute_nepal_hr_variables(doc, data):
     # Only the penalty days HRMS already folded into absent_days come back out of
     # it. A penalty assigned live, on a row still reading Present, was never in
     # that bucket -- clamping the whole figure against it used to zero the charge
-    # entirely whenever Recalculate C&R had not been run.
+    # entirely whenever Recheck Attendance had not been run.
     penalty_inside_bucket = min(
         flt(sum(flt(d.get("units")) for d in penalty_dates if d.get("in_absent_bucket"))),
         total_absent_days,

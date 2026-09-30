@@ -243,7 +243,7 @@ HRMS notifies its approver and applicant already.
 - Target hours: 8.0 standard, 4.0 half day, 0 on holiday/WO/leave/absent
 - Work on a weekly off is tracked but does not add to target
 - Filters: BS year/month, custom period, employee
-- **Recalculate C&R…** bulk late/early recalculation with BS presets
+- **Recheck Attendance…** re-applies late/early, holiday, sandwich and half-day leave rules to chosen days, previewing every change first; BS presets
 - **Download Spreadsheet…** daily columns or full data (logs, late/early mins, leave & apps)
 - Permissions: HR Manager / HR User see company; Attendance Report Viewer sees company; Employee sees self and recursive subordinates
 
@@ -340,7 +340,7 @@ See [docs/attendance.md](docs/attendance.md) and [docs/ooo_attendance_flow.md](d
 
 **Dashboards:** Attendance connects check-ins and CNR apps; Employee connects Policy Escape and CIT.
 
-**Desk scripts:** BS dates on Salary Slip and Payroll Entry; SSA breakdown and encashment; Recalculate Late/Early and bulk C&R; CNR form helpers; leave allocation BS UI; festival claim; workspace icon patch.
+**Desk scripts:** BS dates on Salary Slip and Payroll Entry; SSA breakdown and encashment; Recalculate Late/Early and bulk Recheck Attendance; CNR form helpers; leave allocation BS UI; festival claim; workspace icon patch.
 
 **Custom fields** (high-signal): Salary Slip tax + attendance deduction + OT + BS dates + CIT + divisor snapshot; Attendance nepali_date, OOO hold/hours, late/early mins, CNR flags; Employee Checkin attendance type and approval; SSA Nepal breakdown; Leave Type BS monthly allocation; Payroll Entry BS dates and scheduler flag; BS dates on Expense Claim, Advances, Shifts, and related HR docs.
 

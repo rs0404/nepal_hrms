@@ -34,7 +34,7 @@ nepal_hrms.attendance_cnr_bulk.REASON_LABELS = {
 	worked_holiday: __("Worked on holiday (Comp Off via request)"),
 	working_day: __("Working day (was holiday)"),
 	working_day_absent: __("Working day absent (was holiday)"),
-	cnr: __("C&R late/early"),
+	cnr: __("Late / early"),
 };
 
 nepal_hrms.attendance_cnr_bulk._display_val = function (field, value) {
@@ -361,9 +361,16 @@ nepal_hrms.attendance_cnr_bulk.open_dialog = function (defaults) {
 	}
 
 	const d = new frappe.ui.Dialog({
-		title: __("Recalculate C&R for Period"),
+		title: __("Recheck Attendance for Period"),
 		size: "large",
 		fields: [
+			{
+				fieldname: "recheck_intro",
+				fieldtype: "HTML",
+				options: `<p class="text-muted small" style="margin-bottom:4px;">${__(
+					"Re-applies late entry, early exit, holiday, sandwich and half-day leave rules to the chosen days. Shows every change before saving."
+				)}</p>`,
+			},
 			{
 				fieldname: "selection_mode",
 				label: __("Select Employees"),
@@ -569,7 +576,7 @@ nepal_hrms.attendance_cnr_bulk.run_preview = function (dialog, values) {
 		method: "nepal_hrms.api.attendance_recalc.preview_recalculate_attendance_period",
 		args: args,
 		freeze: true,
-		freeze_message: __("Previewing C&R changes..."),
+		freeze_message: __("Checking attendance..."),
 		callback(r) {
 			if (!r.message) return;
 			const preview = r.message;
@@ -583,7 +590,7 @@ nepal_hrms.attendance_cnr_bulk.run_preview = function (dialog, values) {
 					title: __("No Changes"),
 					indicator: "blue",
 					message: __(
-						"No C&R changes needed for {0} ({1}). ({2} unchanged, {3} protected/skipped)",
+						"Nothing to change for {0} ({1}). ({2} already correct, {3} skipped)",
 						[
 							nepal_hrms.attendance_cnr_bulk._who_label(preview),
 							nepal_hrms.attendance_cnr_bulk._period_label(preview),
@@ -636,7 +643,7 @@ nepal_hrms.attendance_cnr_bulk.confirm_apply = function (dialog, args, preview) 
 	frappe.confirm(
 		`<div style="max-height:460px;overflow:auto;">
 			${nepal_hrms.attendance_cnr_bulk._stale_banner_html(preview)}
-			<p style="font-size:14px;margin-bottom:8px;"><b>${__("Confirm C&R recalculation?")}</b></p>
+			<p style="font-size:14px;margin-bottom:8px;"><b>${__("Recheck these days?")}</b></p>
 			<p>${__(
 				"This will update {0} Attendance record(s) for {1} ({2}) and add timeline comments. This cannot be undone automatically.",
 				[
@@ -657,7 +664,7 @@ nepal_hrms.attendance_cnr_bulk.confirm_apply = function (dialog, args, preview) 
 				method: "nepal_hrms.api.attendance_recalc.apply_recalculate_attendance_period",
 				args: args,
 				freeze: true,
-				freeze_message: __("Applying C&R recalculation..."),
+				freeze_message: __("Updating attendance..."),
 				callback(r) {
 					if (!r.message || !r.message.ok) return;
 					const res = r.message;

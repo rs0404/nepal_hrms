@@ -848,7 +848,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 			}
 		});
 
-		report.page.add_inner_button(__("Recalculate C&R…"), () => {
+		report.page.add_inner_button(__("Recheck Attendance…"), () => {
 			const filters = {
 				filter_based_on: frappe.query_report.get_filter_value("filter_based_on"),
 				bs_year: frappe.query_report.get_filter_value("bs_year"),

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-"""Holiday list + sandwich helpers for Recalculate C&R."""
+"""Holiday list + sandwich helpers for Recheck Attendance (the C&R engine)."""
 
 import re
 

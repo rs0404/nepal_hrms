@@ -267,7 +267,7 @@ def judge_worked_half_delays(doc):
 	"""Late/early on the worked half of a scaled half-day leave row, in memory.
 
 	Nothing else runs C&R on these rows: HRMS writes them with ignore_validate,
-	the check-in sync hands them here, and Recalculate protects them. Returns the
+	the check-in sync hands them here, and Recheck Attendance protects them. Returns the
 	C&R values to write, or {} when the row keeps today's rule (scaling off, or
 	the half unknown). apply_unexcused_status=False stops before any status
 	logic, so the leave row's status is never touched.
@@ -294,7 +294,7 @@ def scaled_max_paid_ooo_hours(max_hours, employee, attendance_date):
 def compute_half_day_other_half(attendance, computed=None):
 	"""What settling the worked half would write -- without writing it.
 
-	Recalculate C&R previews before it applies, so the verdict and the write are
+	Recheck Attendance previews before it applies, so the verdict and the write are
 	separate. Returns frappe._dict(writes, computed, session), or None when the
 	row is not a half-day leave. (Not "values": on a dict that name is the
 	built-in method, and plan.values would never reach the key.)

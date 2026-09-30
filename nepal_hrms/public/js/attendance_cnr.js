@@ -27,7 +27,7 @@ frappe.ui.form.on("Attendance", {
 				callback(r) {
 					if (r.message && r.message.ok) {
 						frappe.show_alert({
-							message: __("Late/early minutes and C&R status updated"),
+							message: __("Late/early minutes and attendance status rechecked"),
 							indicator: "green",
 						});
 						frm.reload_doc();
