@@ -398,6 +398,46 @@ def resolve_half_day_other_half(attendance, computed=None):
 	return plan.writes
 
 
+def convert_absent_for_half_day_leave(doc):
+	"""Turn an Absent row into the half day its approved leave says it is. In memory.
+
+	HRMS writes a half-day leave's Attendance as Half Day when the leave is
+	approved. A row created afterwards by a path that ignores leaves -- or one
+	overwritten to Absent -- ends up a whole-day absence on a day the leave
+	already covers half of: the employee is charged a full day and the leave
+	still takes half from their balance. The day then becomes what HRMS would
+	have made it: Half Day, linked to the leave, the worked half settled from
+	the check-ins (Absent when there are none -- nobody came for that half).
+
+	Only genuine absence: a 1P the occurrence pool wrote is left to C&R.
+	Returns the values to write, or None when the row is not such a day.
+	"""
+	from nepal_hrms.custom_code.attendance_policy import _is_genuine_absent
+
+	if not _is_genuine_absent(doc):
+		return None
+	leave = half_day_leave_on(doc.get("employee"), doc.get("attendance_date"))
+	if not leave:
+		return None
+
+	writes = {
+		"status": "Half Day",
+		"leave_type": leave.leave_type,
+		"leave_application": leave.name,
+		# No check-ins: the worked half was missed, and that is final.
+		"half_day_status": "Absent",
+		"modify_half_day_status": 0,
+	}
+	for field, value in writes.items():
+		doc.set(field, value)
+
+	plan = compute_half_day_other_half(doc)
+	writes.update((plan.writes if plan else None) or {})
+	for field, value in writes.items():
+		doc.set(field, value)
+	return writes
+
+
 def on_leave_application_change(doc, method=None):
 	"""on_submit / on_update_after_submit: settle the half-day's attendance now.
 

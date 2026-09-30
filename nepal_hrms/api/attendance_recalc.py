@@ -520,6 +520,20 @@ def _dry_run_one(name):
 
 	reason = apply_holiday_sandwich_status(doc)
 
+	# An Absent day that is the half day of an approved leave was written by a
+	# path that ignored the leave: it becomes that leave's Half Day here.
+	if reason in (None, "working_day_absent") and (doc.status or "").strip() == "Absent":
+		from nepal_hrms.custom_code.half_day import (
+			convert_absent_for_half_day_leave,
+			judge_worked_half_delays,
+		)
+
+		writes = convert_absent_for_half_day_leave(doc)
+		if writes:
+			judge_worked_half_delays(doc)
+			doc.flags.nepal_half_day_values = writes
+			return doc, before, _bulk_snapshot(doc), False, "half_day_leave"
+
 	# A half-day leave row is still protected from C&R, but its worked half is
 	# recalculated here -- this is how rows the old check-in sync swept to
 	# Absent get repaired, a month at a time, from the Recalculate dialog.
@@ -598,7 +612,14 @@ def _persist_recalc_doc(doc):
 	# A settled half-day leave also clears the stock "not yet checked" flag and
 	# records which half was leave; without the flag the next sweep would undo it.
 	half_day_values = doc.flags.get("nepal_half_day_values") or {}
-	for field in ("modify_half_day_status", "custom_half_day_session", "working_hours", "in_time", "out_time"):
+	for field in (
+		"modify_half_day_status",
+		"custom_half_day_session",
+		"leave_application",
+		"working_hours",
+		"in_time",
+		"out_time",
+	):
 		if field in half_day_values and meta.has_field(field):
 			values[field] = half_day_values[field]
 	frappe.db.set_value("Attendance", doc.name, values, update_modified=False)

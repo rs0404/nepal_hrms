@@ -357,3 +357,42 @@ class TestHalvedLimits(TestCase):
 			half_day, "half_day_leave_on", return_value=None
 		):
 			self.assertEqual(half_day.scaled_max_paid_ooo_hours(2.0, "EMP-1", "2026-09-01"), 2.0)
+
+
+class TestAbsentDayWithHalfDayLeave(_Base):
+	"""An Absent row on the half day of an approved leave becomes that leave's Half Day."""
+
+	def _absent(self, **over):
+		d = _attendance(status="Absent", leave_type=None, half_day_status=None, custom_cnr_pool_penalty="")
+		d.update(over)
+		d.set = lambda k, v: d.__setitem__(k, v)
+		return d
+
+	def _convert(self, doc, leave=LEAVE, computed=None):
+		with patch.object(half_day, "half_day_leave_on", return_value=leave), patch.object(
+			half_day, "scaling_enabled", return_value=True
+		), patch.object(
+			attendance_override, "compute_day_hours_from_checkins", return_value=computed or _computed()
+		):
+			return half_day.convert_absent_for_half_day_leave(doc)
+
+	def test_with_checkins_it_becomes_half_day_present_and_linked(self):
+		doc = self._absent()
+		writes = self._convert(doc, computed=_computed(hours=2.6))
+		self.assertEqual((writes["status"], writes["half_day_status"]), ("Half Day", "Present"))
+		self.assertEqual((writes["leave_type"], writes["leave_application"]), ("Sick Leave", "LA-0001"))
+		self.assertEqual(doc.status, "Half Day")  # applied in memory for the preview
+
+	def test_with_no_checkins_the_worked_half_is_absent(self):
+		writes = self._convert(self._absent(), computed=_computed(checkins=(), first_in=None))
+		self.assertEqual((writes["status"], writes["half_day_status"]), ("Half Day", "Absent"))
+		self.assertEqual(writes["modify_half_day_status"], 0)
+
+	def test_a_1p_penalty_is_left_to_cnr(self):
+		self.assertIsNone(self._convert(self._absent(custom_cnr_pool_penalty="full")))
+
+	def test_no_half_day_leave_means_a_genuine_absence(self):
+		self.assertIsNone(self._convert(self._absent(), leave=None))
+
+	def test_only_absent_rows_are_converted(self):
+		self.assertIsNone(self._convert(self._absent(status="Present")))
