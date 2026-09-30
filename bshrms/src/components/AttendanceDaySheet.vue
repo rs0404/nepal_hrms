@@ -155,6 +155,18 @@
 					</span>
 				</div>
 
+				<div v-if="halves" class="grid grid-cols-2 gap-2">
+					<div
+						v-for="half in halves"
+						:key="half.label"
+						class="rounded-lg px-3 py-2 ring-1 ring-inset"
+						:class="half.className"
+					>
+						<div class="text-[11px] font-medium opacity-80">{{ half.label }}</div>
+						<div class="text-sm font-semibold">{{ half.value }}</div>
+					</div>
+				</div>
+
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-gray-800">
 						{{ __("Check-in / Check-out Logs") }}
@@ -251,7 +263,7 @@
 			<div class="grid grid-cols-2 gap-2">
 				<button
 					v-for="action in details.actions"
-					:key="`${action.doctype}-${action.half_day || 0}`"
+					:key="`${action.doctype}-${action.half_day || 0}-${action.half || ''}`"
 					type="button"
 					class="flex min-h-[4.5rem] flex-col items-start justify-between gap-2 rounded-xl border p-3 text-left text-sm font-semibold leading-tight transition-colors"
 					:class="actionStyle(action).button"
@@ -371,7 +383,35 @@ const dayLeaveMarks = computed(() => {
 		is_lwp: details.value.flags?.is_lwp,
 		pool_penalty: details.value.flags?.pool_penalty,
 		penalty_mark: details.value.flags?.penalty_mark,
+		half_day_status: details.value.flags?.half_day_status,
+		worked_half: details.value.flags?.worked_half,
 	})
+})
+
+// First half / second half, spelled out. Only on a half-day leave, and only once
+// we know which half the leave took -- otherwise it would be a guess in a box.
+const halves = computed(() => {
+	const flags = details.value?.flags
+	if (!flags?.half_day || !flags.worked_half) return null
+	let leaveName = flags.leave_type ? __(flags.leave_type) : __("Leave")
+	if (flags.leave_app_status === "Pending") leaveName += ` · ${__("Pending")}`
+	const otherAbsent = flags.half_day_status === "Absent"
+	// No attendance yet (a leave applied for ahead): the worked half has not
+	// happened, so it is neither present nor absent.
+	const worked = !details.value.attendance
+		? { value: __("Working"), className: "bg-gray-50 text-gray-700 ring-gray-200" }
+		: {
+				value: otherAbsent ? __("Absent") : __("Present"),
+				className: otherAbsent
+					? "bg-red-50 text-red-700 ring-red-200"
+					: "bg-green-50 text-green-700 ring-green-200",
+		  }
+	const leave = { value: leaveName, className: "bg-blue-50 text-blue-700 ring-blue-200" }
+	const [first, second] = flags.worked_half === "first" ? [worked, leave] : [leave, worked]
+	return [
+		{ label: __("1st half"), ...first },
+		{ label: __("2nd half"), ...second },
+	]
 })
 
 function delayChip(mins, grace, appStatus, afterLabel, withinLabel, appOnlyLabel) {
@@ -502,6 +542,7 @@ function openForm(action) {
 		if (action.half_day) {
 			query.half_day = "1"
 			query.half_day_date = props.date
+			if (action.half) query.half = action.half
 		}
 	}
 	modalController.dismiss()

@@ -360,6 +360,7 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
     ]
     att_meta = frappe.get_meta("Attendance")
     for fname in (
+        "custom_half_day_session",
         "custom_late_mins",
         "custom_early_mins",
         "custom_cnr_unexcused_late",
@@ -1734,6 +1735,8 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "other_half_kind": other_half_kind,
                 "other_half_title": other_half_title,
                 "half_day": is_half_day,
+                # First Half / Second Half: the half covered by leave, when recorded.
+                "half_day_session": (getattr(att, "custom_half_day_session", None) if att else None) or None,
                 "late_mins": late_mins,
                 "early_mins": early_mins,
                 "late_kind": late_kind,
@@ -2053,7 +2056,12 @@ def build_bar_data(
 
     if result["is_half_day"]:
         segments = _convert_segments_for_half_day(
-            segments, status_abbr, shift_start_mins, shift_end_mins, pool_penalty
+            segments,
+            status_abbr,
+            shift_start_mins,
+            shift_end_mins,
+            pool_penalty,
+            leave_session=(getattr(att, "custom_half_day_session", None) if att else None),
         )
 
     # Sort segments by start time and clean up internal fields
@@ -2071,8 +2079,23 @@ def _charged_half_type(pool_penalty):
     return "halfday_penalty" if (pool_penalty or "") == "half" else "halfday_absent"
 
 
+def _half_day_bounds(status_abbr, shift_start_mins, shift_end_mins, leave_session=None):
+    """(lo, hi) minutes of the half this cell marks, leave or charged.
+
+    HD/P marks the half covered by leave; HD/A marks the half that is charged,
+    which on a half-day leave is the one the leave does *not* cover. Without a
+    recorded half they fall back to the old fixed halves -- leave on the
+    morning, charge on the afternoon.
+    """
+    half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
+    first, second = (shift_start_mins, half_point), (half_point, shift_end_mins)
+    if status_abbr == "HD/A":
+        return first if leave_session == "Second Half" else second
+    return second if leave_session == "Second Half" else first
+
+
 def _convert_segments_for_half_day(
-    segments, status_abbr, shift_start_mins, shift_end_mins, pool_penalty=None
+    segments, status_abbr, shift_start_mins, shift_end_mins, pool_penalty=None, leave_session=None
 ):
     """Mark the non-worked half of the shift instead of stacking purple on green.
 
@@ -2083,12 +2106,10 @@ def _convert_segments_for_half_day(
     half_type = (
         _charged_half_type(pool_penalty) if status_abbr == "HD/A" else "halfday"
     )
+    leave_lo, leave_hi = _half_day_bounds(
+        status_abbr, shift_start_mins, shift_end_mins, leave_session
+    )
     if not segments:
-        half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
-        if status_abbr == "HD/A":
-            leave_lo, leave_hi = half_point, shift_end_mins
-        else:
-            leave_lo, leave_hi = shift_start_mins, half_point
         return [{
             "start": _minutes_to_time(leave_lo),
             "end": _minutes_to_time(leave_hi),
@@ -2096,12 +2117,6 @@ def _convert_segments_for_half_day(
             "start_mins": leave_lo,
             "end_mins": leave_hi,
         }]
-
-    half_point = shift_start_mins + (shift_end_mins - shift_start_mins) // 2
-    if status_abbr == "HD/A":
-        leave_lo, leave_hi = half_point, shift_end_mins
-    else:
-        leave_lo, leave_hi = shift_start_mins, half_point
 
     converted = []
     for seg in segments:

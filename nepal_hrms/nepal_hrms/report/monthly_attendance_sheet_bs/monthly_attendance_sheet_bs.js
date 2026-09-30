@@ -1064,6 +1064,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					bar_data, attendance_doc, late_entry_app, early_exit_app, ooo_app,
 					late_mins, early_mins, late_kind, early_kind,
 					other_half_label, other_half_kind, worked_on_holiday, pool_penalty,
+					half_day_session,
 				} = cellData;
 
 				const lateMinsVal = late_mins || (bar_data && bar_data.late_mins) || 0;
@@ -1094,7 +1095,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					: "";
 				let pillHTML = getHalfDayPillsHTML(
 					status, wh, target, attendance_doc, half_day, leave_acronym,
-					other_half_label, other_half_kind, pool_penalty
+					other_half_label, other_half_kind, pool_penalty, half_day_session
 				);
 				let badgeRow = (lateBadge || earlyBadge || oooBadge)
 					? `<div class="cnr-badge-row">
@@ -1541,17 +1542,21 @@ function getOtherHalfPillHTML(label, kind, attendance_doc) {
 	</div>${linkEnd}`;
 }
 
-function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind, poolPenalty) {
-	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym, poolPenalty);
+function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind, poolPenalty, leaveSession) {
+	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym, poolPenalty, leaveSession);
 	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
 	if (!isHalfDay || !otherHalfLabel) {
 		return main;
 	}
 	const other = getOtherHalfPillHTML(otherHalfLabel, otherHalfKind, attendance_doc);
-	return `<div class="cnr-pill-row cnr-pill-row--dual">${main}${other}</div>`;
+	// The pills read left to right as the day did: morning, then afternoon. A
+	// leave on the first half puts its pill first.
+	return leaveSession === "First Half"
+		? `<div class="cnr-pill-row cnr-pill-row--dual">${other}${main}</div>`
+		: `<div class="cnr-pill-row cnr-pill-row--dual">${main}${other}</div>`;
 }
 
-function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym, poolPenalty) {
+function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym, poolPenalty, leaveSession) {
 	appLinks = appLinks || {};
 	if (status === "NONE" || !status) {
 		return `<div style='height:8px;width:8px;border-radius:50%;background:#cbd5e1;'></div>`;
@@ -1585,13 +1590,21 @@ function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_
 			bgColor = SHEET_BS_OUTCOME.present.fill;
 			ringColor = SHEET_BS_OUTCOME.holiday.ring;
 		} else if (isHalfDay) {
-			// Split corner to corner like the calendar. The report has no
-			// check-in here to infer the clock half from, so the worked half
-			// always leads; the PWA is the surface that knows which is which.
-			const other = status === "Ab" ? "absent" : "leave";
-			bgColor = SHEET_BS_OUTCOME.present.fill;
-			bgImage = `linear-gradient(135deg, ${SHEET_BS_OUTCOME.present.fill} 0 50%, ${SHEET_BS_OUTCOME[other].fill} 50% 100%)`;
-			ringColor = SHEET_BS_OUTCOME.present.ring;
+			// Split corner to corner like the calendar: [non-leave half, other half].
+			// On a half-day leave the other half is the leave, and HD/A means the
+			// non-leave half was absent. Without a leave, HD/A is a worked half and
+			// an absent one. (This used to test status === "Ab", which a half-day
+			// cell never is, so every HD/A was drawn present + leave.)
+			const hasLeave = Boolean(leaveAcronym);
+			const worked = status === "HD/A" && hasLeave ? "absent" : "present";
+			const other = hasLeave ? "leave" : status === "HD/A" ? "absent" : "leave";
+			// Top-left is the morning. A recorded first-half leave leads with it.
+			const [firstFill, secondFill] = leaveSession === "First Half" && hasLeave
+				? [SHEET_BS_OUTCOME[other].fill, SHEET_BS_OUTCOME[worked].fill]
+				: [SHEET_BS_OUTCOME[worked].fill, SHEET_BS_OUTCOME[other].fill];
+			bgColor = SHEET_BS_OUTCOME[worked].fill;
+			bgImage = `linear-gradient(135deg, ${firstFill} 0 50%, ${secondFill} 50% 100%)`;
+			ringColor = SHEET_BS_OUTCOME[worked].ring;
 		} else if (status === "P" || status === "WFH") {
 			// A short day is still Present; the hours in the pill and the gap
 			// segment in the bar below already say it fell short.

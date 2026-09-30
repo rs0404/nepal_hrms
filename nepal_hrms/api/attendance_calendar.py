@@ -93,42 +93,17 @@ def _apply_cnr_application_statuses(employee, from_date, to_date, events):
 			info[status_field] = _better_cnr_app_status(info.get(status_field), incoming)
 
 
-def _shift_midpoint(shift, cache):
-	"""Seconds-since-midnight midpoint of a shift, or None for an overnight one."""
-	if not shift:
-		return None
-	if shift not in cache:
-		row = frappe.db.get_value(
-			"Shift Type", shift, ["start_time", "end_time"], as_dict=True
-		)
-		mid = None
-		if row and row.start_time is not None and row.end_time is not None:
-			start, end = row.start_time.total_seconds(), row.end_time.total_seconds()
-			# An overnight shift has no meaningful "first half" on one calendar day.
-			if end > start:
-				mid = start + (end - start) / 2
-		cache[shift] = mid
-	return cache[shift]
-
-
-def _worked_half(in_time, shift, cache):
+def _worked_half(in_time, shift, cache=None, session=None):
 	"""'first' | 'second' | None -- which half of the day was actually worked.
 
-	Attendance.half_day_status records what the *other* half was (Present/Absent),
-	never which half of the clock, so the only real signal is when the person
-	turned up: a check-in past the shift midpoint means the morning was the
-	leave/absent half. Without a shift or a check-in there is nothing to infer
-	from, and the caller falls back to "worked half first".
+	The recorded leave half wins (custom_half_day_session: the half covered by
+	leave, so the worked half is the other one). Leaves filed before that was
+	recorded fall back to when the person turned up: a first check-in past the
+	shift midpoint means the morning was the leave/absent half.
 	"""
-	mid = _shift_midpoint(shift, cache)
-	if mid is None or not in_time:
-		return None
-	try:
-		t = get_datetime(in_time)
-	except Exception:
-		return None
-	secs = t.hour * 3600 + t.minute * 60 + t.second
-	return "second" if secs >= mid else "first"
+	from nepal_hrms.custom_code.half_day import worked_half_for_session, worked_half_from_time
+
+	return worked_half_for_session(session) or worked_half_from_time(in_time, shift)
 
 
 def _blank_calendar_day():
@@ -158,6 +133,8 @@ def _blank_calendar_day():
 		# which is the only thing that tells the two apart in the cell fill.
 		"half_day_status": None,
 		"worked_half": None,
+		# First Half / Second Half: the half covered by leave, when recorded.
+		"half_day_session": None,
 		"holiday_name": "",
 	}
 
@@ -572,6 +549,9 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 
 	lwp_types = _lwp_leave_types()
 
+	from nepal_hrms.custom_code.half_day import SESSION_FIELD, worked_half_for_session
+
+	att_session = frappe.get_meta("Attendance").has_field(SESSION_FIELD)
 	attendance_rows = frappe.get_all(
 		"Attendance",
 		filters={
@@ -591,7 +571,8 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			"custom_cnr_early_in_pool",
 			"custom_late_mins",
 			"custom_early_mins",
-		],
+		]
+		+ ([SESSION_FIELD] if att_session else []),
 	)
 
 	att_by_date = {}
@@ -608,7 +589,6 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 	except Exception:
 		settings = frappe._dict()
 	grace_mins = cint(getattr(settings, "late_early_grace_mins", None) or 15)
-	shift_mid_cache = {}
 
 	for row in attendance_rows:
 		d = getdate(row.attendance_date)
@@ -635,7 +615,10 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			{
 				"status": row.status,
 				"half_day_status": row.half_day_status or None,
-				"worked_half": _worked_half(row.in_time, row.shift, shift_mid_cache),
+				"worked_half": _worked_half(
+					row.in_time, row.shift, session=row.get(SESSION_FIELD)
+				),
+				"half_day_session": row.get(SESSION_FIELD) or None,
 				"leave": 1 if row.status == "On Leave" else 0,
 				"late": 1 if late_grace or late_after else 0,
 				"early": 1 if early_grace or early_after else 0,
@@ -680,7 +663,8 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 			"leave_type",
 			"half_day",
 			"half_day_date",
-		],
+		]
+		+ ([SESSION_FIELD] if frappe.get_meta("Leave Application").has_field(SESSION_FIELD) else []),
 	)
 	for app in leave_apps:
 		app_status = _normalize_leave_app_status(app.status, app.docstatus)
@@ -707,6 +691,12 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 				if not info.get("leave_type"):
 					info["leave_type"] = app.leave_type
 				info["half_day"] = 1 if _leave_half_day_on(app) == cur else 0
+				# A pending half-day has no Attendance yet; its own choice still says
+				# which half to shade, and it is the truth once approved.
+				session = app.get(SESSION_FIELD)
+				if info["half_day"] and session:
+					info["half_day_session"] = session
+					info["worked_half"] = worked_half_for_session(session)
 
 				if app_status == "Approved":
 					info["leave"] = 1
@@ -957,6 +947,8 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		"attendance_request",
 		"leave_application",
 	]
+	from nepal_hrms.custom_code.half_day import SESSION_FIELD
+
 	for f in (
 		"late_entry",
 		"early_exit",
@@ -964,6 +956,7 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		"custom_cnr_early_in_pool",
 		"custom_late_mins",
 		"custom_early_mins",
+		SESSION_FIELD,
 	):
 		if meta.has_field(f):
 			att_fields.append(f)
@@ -1116,17 +1109,26 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 
 	half_day = 0
 	leave_app_type = None
+	leave_app_session = None
 	if leave_application_name:
+		leave_app_fields = ["half_day", "half_day_date", "from_date", "to_date", "leave_type"]
+		if frappe.get_meta("Leave Application").has_field(SESSION_FIELD):
+			leave_app_fields.append(SESSION_FIELD)
 		leave_app_row = frappe.db.get_value(
 			"Leave Application",
 			leave_application_name,
-			["half_day", "half_day_date", "from_date", "to_date", "leave_type"],
+			leave_app_fields,
 			as_dict=True,
 		)
 		if leave_app_row:
 			leave_app_type = leave_app_row.leave_type
 			if _leave_half_day_on(leave_app_row) == day:
 				half_day = 1
+				leave_app_session = leave_app_row.get(SESSION_FIELD)
+
+	# The half covered by leave: what attendance settled on, else what the leave
+	# asked for (a pending one has no attendance yet).
+	half_day_session = (attendance.get(SESSION_FIELD) if attendance else None) or leave_app_session
 
 	# Form actions still available (no existing application of that type for the day)
 	existing_doctypes = {link["doctype"] for link in links}
@@ -1218,17 +1220,27 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		and leave_app_status != "Approved"
 	)
 	pool_penalty, penalty_label = _month_pool_penalty(employee, day)
+	def _half_day_leave(half):
+		# half: "first" | "second" -- the half taken off. The form opens with it
+		# chosen, so the one decision a half-day leave needs is already made.
+		label = _("Leave: 1st half") if half == "first" else _("Leave: 2nd half")
+		return {
+			"doctype": "Leave Application",
+			"label": label,
+			"route_name": "LeaveApplicationFormView",
+			"half_day": 1,
+			"half": half,
+		}
+
 	if can_offer_leave:
-		# Beyond max allowed late → half-day leave (in addition to Late Entry)
-		if late_kind == "major":
-			actions.append(
-				{
-					"doctype": "Leave Application",
-					"label": _("Apply Half Day Leave"),
-					"route_name": "LeaveApplicationFormView",
-					"half_day": 1,
-				}
-			)
+		# Beyond max allowed delay → half-day leave (in addition to the Late Entry /
+		# Early Exit form). The delay itself says which half: a late arrival took
+		# the morning, an early exit the afternoon.
+		if late_kind == "major" or early_kind == "major":
+			if late_kind == "major":
+				actions.append(_half_day_leave("first"))
+			if early_kind == "major":
+				actions.append(_half_day_leave("second"))
 		elif status == "Absent" or day > today_date or (is_today and not has_checkins):
 			actions.append(
 				{
@@ -1237,6 +1249,8 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 					"route_name": "LeaveApplicationFormView",
 				}
 			)
+			actions.append(_half_day_leave("first"))
+			actions.append(_half_day_leave("second"))
 
 	# Worked a holiday or weekly off: the day earns compensatory leave. Offered
 	# only where Frappe HR will accept it -- a holiday with submitted attendance
@@ -1288,6 +1302,12 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 			"leave_application": leave_application_name,
 			"half_day": half_day,
 			"half_day_status": (attendance.get("half_day_status") if attendance else None) or None,
+			"half_day_session": half_day_session or None,
+			"worked_half": (
+				_worked_half(attendance.in_time, attendance.shift, session=half_day_session)
+				if attendance
+				else _worked_half(None, None, session=half_day_session)
+			),
 			"is_lwp": _is_lwp_leave(
 				sandwich_leave_type
 				or (attendance.leave_type if attendance else None)

@@ -177,6 +177,9 @@ def get_half_day_windows(employee=None, date=None):
 	"""
 	if not employee or not date:
 		return {}
+	# Whitelisted: only someone who may read the employee learns their shift times.
+	if not frappe.has_permission("Employee", "read", doc=employee):
+		return {}
 	from hrms.hr.doctype.shift_assignment.shift_assignment import get_employee_shift
 
 	try:

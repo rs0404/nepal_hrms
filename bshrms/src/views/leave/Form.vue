@@ -67,6 +67,11 @@ import { formatNepaliPeriod } from "@/utils/nepali_date"
 import { markAttendanceRefresh } from "@/utils/attendance_refresh"
 import { myLeaves } from "@/data/leaves"
 
+// Which half of a half day is taken off. Same field on desk, so both write it.
+const SESSION = "custom_half_day_session"
+const HALF_FROM_QUERY = { first: "First Half", second: "Second Half" }
+const SESSION_HINT = "Choose which half you're taking off"
+
 const SPLIT_HIDDEN_FIELDS = [
 	"from_date",
 	"to_date",
@@ -126,6 +131,7 @@ function applyPrefillFromQuery() {
 	if (q.half_day === "1" && singleDay) {
 		leaveApplication.value.half_day = 1
 		leaveApplication.value.half_day_date = first.from_date
+		if (HALF_FROM_QUERY[q.half]) leaveApplication.value[SESSION] = HALF_FROM_QUERY[q.half]
 	}
 }
 
@@ -143,6 +149,16 @@ const formFields = createResource({
 
 		return fields.map((field) => {
 			if (field.fieldname === "half_day_date") field.hidden = true
+
+			if (field.fieldname === SESSION) {
+				field.label = __("Which half are you taking off?")
+				field.segmentOptions = [
+					{ value: "First Half", label: __("1st Half") },
+					{ value: "Second Half", label: __("2nd Half") },
+				]
+				// Shown and required by setHalfDayDate once Half Day is ticked.
+				field.hidden = true
+			}
 
 			if (field.fieldname === "posting_date") field.default = today
 
@@ -175,6 +191,14 @@ const formFields = createResource({
 		frequentLeaveTypes.reload()
 		leaveTypeBalances.reload()
 		hideSplitDateFields()
+		// A Half Day prefilled before the fields arrived (the day sheet's links)
+		// found no picker to show; without this it stays hidden and unrequired,
+		// and the server then refuses the save with no way to choose.
+		const { half_day, half_day_date } = leaveApplication.value
+		setHalfDaySession(half_day)
+		if (half_day && half_day_date) {
+			halfDayWindows.submit({ employee: currEmployee.value, date: half_day_date })
+		}
 	},
 })
 formFields.reload()
@@ -249,6 +273,35 @@ watch(
 watch(
 	() => leaveApplication.value.half_day,
 	(half_day) => setHalfDayDate(half_day)
+)
+
+watch(
+	() => leaveApplication.value[SESSION],
+	(value) => {
+		const session = formFields.data?.find((field) => field.fieldname === SESSION)
+		if (session) session.hint = leaveApplication.value.half_day && !value ? __(SESSION_HINT) : ""
+	}
+)
+
+const halfDayWindows = createResource({
+	url: "nepal_hrms.custom_code.half_day.get_half_day_windows",
+	auto: false,
+	onSuccess(data) {
+		const session = formFields.data?.find((field) => field.fieldname === SESSION)
+		if (!session?.segmentOptions) return
+		// No shift, or an overnight one: the buttons keep their names and no times.
+		session.segmentOptions = session.segmentOptions.map((opt) => ({
+			...opt,
+			hint: data?.[opt.value] || "",
+		}))
+	},
+})
+
+watch(
+	() => [leaveApplication.value.half_day, leaveApplication.value.half_day_date, currEmployee.value],
+	([half_day, date, employee]) => {
+		if (half_day && date && employee) halfDayWindows.submit({ employee, date })
+	}
 )
 
 watch(
@@ -408,7 +461,18 @@ function setLeaveBalance() {
 	leaveBalance.reload()
 }
 
+function setHalfDaySession(half_day) {
+	const session = formFields.data?.find((field) => field.fieldname === SESSION)
+	if (!session) return
+	session.hidden = !half_day
+	session.reqd = Boolean(half_day)
+	session.highlight = Boolean(half_day)
+	session.hint = half_day && !leaveApplication.value[SESSION] ? __(SESSION_HINT) : ""
+	if (!half_day) leaveApplication.value[SESSION] = null
+}
+
 function setHalfDayDate(half_day) {
+	setHalfDaySession(half_day)
 	if (isSplitLeave.value) return
 	const half_day_date = formFields.data?.find(
 		(field) => field.fieldname === "half_day_date"

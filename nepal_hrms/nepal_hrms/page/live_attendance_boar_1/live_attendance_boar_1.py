@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from frappe.utils import nowdate, getdate
 import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
 
@@ -40,11 +41,16 @@ def get_live_data(attendance_date=None, employee=None):
 		ignore_permissions=True,
 	)
 
+	# Which half a half-day leave takes, when the leave recorded it.
+	leave_fields = ["employee", "from_date", "to_date", "leave_type", "half_day", "half_day_date"]
+	if frappe.get_meta("Leave Application").has_field("custom_half_day_session"):
+		leave_fields.append("custom_half_day_session")
+
 	# 3. Approved leaves overlapping / after selected day
 	leaves = frappe.get_all(
 		"Leave Application",
 		filters={"status": "Approved", "docstatus": 1, "to_date": [">=", day_str]},
-		fields=["employee", "from_date", "to_date", "leave_type", "half_day", "half_day_date"],
+		fields=leave_fields,
 		ignore_permissions=True,
 	)
 
@@ -56,7 +62,7 @@ def get_live_data(attendance_date=None, employee=None):
 			"status": ["not in", ["Rejected", "Cancelled"]],
 			"to_date": [">=", day_str],
 		},
-		fields=["employee", "from_date", "to_date", "leave_type", "half_day", "half_day_date"],
+		fields=leave_fields,
 		ignore_permissions=True,
 	)
 
@@ -72,15 +78,26 @@ def get_live_data(attendance_date=None, employee=None):
 	leave_map_today = {}
 	leave_map_future = {}
 	leave_map_pending = {}
+	# Half-day leave falling on this very day: {employee: "½ Leave · 2nd half (Sick Leave)"}
+	half_leave_today = {}
+
+	half_suffix = {"First Half": " · 1st half", "Second Half": " · 2nd half"}
+
+	def half_label(l):
+		if not l.half_day:
+			return ""
+		return f" - Half Day{half_suffix.get(l.get('custom_half_day_session') or '', '')}"
 
 	for l in leaves:
 		from_bs = nepali_date.format_bs(l.from_date)
 		to_bs = nepali_date.format_bs(l.to_date)
-		half_lbl = " - Half Day" if l.half_day else ""
-		lbl = f"{from_bs} ~ {to_bs} ({l.leave_type}){half_lbl}"
+		lbl = f"{from_bs} ~ {to_bs} ({l.leave_type}){half_label(l)}"
 
 		if str(l.from_date) <= day_str <= str(l.to_date):
 			leave_map_today[l.employee] = lbl
+			if l.half_day and str(l.half_day_date or l.from_date) == day_str:
+				half = half_suffix.get(l.get("custom_half_day_session") or "", "")
+				half_leave_today[l.employee] = f"½ {_('Leave')}{half} ({l.leave_type})"
 
 		if str(l.to_date) > day_str:
 			if l.employee not in leave_map_future:
@@ -91,8 +108,7 @@ def get_live_data(attendance_date=None, employee=None):
 	for l in unapproved_leaves:
 		from_bs = nepali_date.format_bs(l.from_date)
 		to_bs = nepali_date.format_bs(l.to_date)
-		half_lbl = " - Half Day" if l.half_day else ""
-		lbl = f"{from_bs} ~ {to_bs} ({l.leave_type}){half_lbl}"
+		lbl = f"{from_bs} ~ {to_bs} ({l.leave_type}){half_label(l)}"
 
 		if l.employee not in leave_map_pending:
 			leave_map_pending[l.employee] = []
@@ -123,7 +139,13 @@ def get_live_data(attendance_date=None, employee=None):
 		emp.punches = punches
 		dept = emp.department
 
-		if emp.name in leave_map_today:
+		if emp.name in half_leave_today and punches:
+			# On half-day leave and here for the other half: they are working, so
+			# they belong with the people working, not hidden under On Leave with
+			# their punches replaced by a label.
+			emp.punches = punches + [half_leave_today[emp.name]]
+			add_to_group("completed" if "(OUT)" in punches[-1] else "active", dept, emp)
+		elif emp.name in leave_map_today:
 			emp.punches = [leave_map_today[emp.name]]
 			add_to_group("leave", dept, emp)
 		elif not punches:

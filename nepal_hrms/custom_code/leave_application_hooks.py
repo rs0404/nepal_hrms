@@ -12,6 +12,33 @@ def validate_leave_application_reason(doc, method=None):
 		frappe.throw(_("Reason is required."))
 
 
+def validate_half_day_session(doc, method=None):
+	"""A new half-day leave must say which half it takes off.
+
+	Only a draft is held to it. A leave already submitted before the field
+	existed has none, and refusing its edits would strand it; attendance works
+	its half out from the check-in time instead. Unticking Half Day clears the
+	choice, so a whole-day leave never carries a stale half.
+	"""
+	from nepal_hrms.custom_code.half_day import SESSION_FIELD, SESSIONS
+
+	if not doc.meta.has_field(SESSION_FIELD):
+		return
+	if not cint(doc.get("half_day")):
+		if doc.get(SESSION_FIELD):
+			doc.set(SESSION_FIELD, None)
+		return
+	if doc.docstatus != 0 or doc.get(SESSION_FIELD) in SESSIONS:
+		return
+	day = doc.get("half_day_date") or doc.get("from_date")
+	frappe.throw(
+		_("Choose which half of {0} you are taking off: First Half or Second Half.").format(
+			format_date(day) if day else _("the half day")
+		),
+		title=_("Half Day Session Required"),
+	)
+
+
 def exempt_leave_types(settings):
 	"""Leave types the submission deadline does not apply to."""
 	rows = getattr(settings, "leave_types_exempt_from_deadline", None) or []

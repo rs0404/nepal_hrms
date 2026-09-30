@@ -109,6 +109,8 @@ def create_custom_fields():
 			{"fieldname": "custom_cnr_month_early_pool_count", "label": "Month Early Pool Count", "fieldtype": "Int", "insert_after": "custom_cnr_early_in_pool", "default": 0, "allow_on_submit": 1, "read_only": 1, "description": "Calendar-month count of attendance days in the early occurrence pool for this employee (as of this date)"},
 			{"fieldname": "custom_cnr_pool_penalty", "label": "Occurrence Pool Penalty", "fieldtype": "Select", "options": "\nhalf\nfull", "insert_after": "custom_cnr_month_early_pool_count", "allow_on_submit": 1, "read_only": 1, "description": "half = ½P (Half Day / other half absent). full = 1P (Absent). Both count as unapproved absence on payroll."},
 			{"fieldname": "custom_ooo_hours", "label": "OOO Hours", "fieldtype": "Float", "insert_after": "custom_has_ooo_logs", "default": 0, "allow_on_submit": 1, "read_only": 1, "description": "Approved Out of Office / OOO Work hours for the day"},
+			# Which half the leave covered. HRMS has no such field (checked through v16 and develop); half_day_status stays stock's "status of the other half".
+			{"fieldname": "custom_half_day_session", "label": "Leave Half", "fieldtype": "Select", "options": "\nFirst Half\nSecond Half", "insert_after": "half_day_status", "depends_on": "eval:doc.status == 'Half Day'", "allow_on_submit": 1, "read_only": 1, "description": "The half of the day covered by leave. Taken from the Leave Application, or worked out from the check-in time for leaves filed before this was recorded."},
 		],
 		"HR Settings": [
 			{"fieldname": "custom_ooo_section", "label": "OOO Work Settings", "fieldtype": "Section Break", "insert_after": "allow_geolocation_tracking"},
@@ -129,6 +131,9 @@ def create_custom_fields():
 		"Leave Application": [
 			{"fieldname": "from_nepali_date_leave_application", "label": "From Date BS", "fieldtype": "Data", "insert_after": "from_date", "allow_on_submit": 1},
 			{"fieldname": "to_nepali_date_leave_application", "label": "To Date BS", "fieldtype": "Data", "insert_after": "to_date", "allow_on_submit": 1},
+			# Required on new half-day leaves by leave_application_hooks.validate_half_day_session,
+			# not mandatory_depends_on alone: that would also block edits to submitted leaves filed before it existed.
+			{"fieldname": "custom_half_day_session", "label": "Half Day Session", "fieldtype": "Select", "options": "\nFirst Half\nSecond Half", "insert_after": "half_day_date", "depends_on": "eval:doc.half_day", "mandatory_depends_on": "eval:doc.half_day && doc.docstatus == 0", "allow_on_submit": 1, "description": "Which half of the half day you are taking off. On a multi-day leave this applies to the Half Day Date."},
 		],
 		"Payroll Entry": [
 			{"fieldname": "nepali_start_date", "label": "Start Date BS", "fieldtype": "Data", "insert_after": "start_date", "allow_on_submit": 1},

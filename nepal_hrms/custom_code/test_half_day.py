@@ -214,8 +214,72 @@ class TestLeaveHook(TestCase):
 		doc = frappe._dict(
 			half_day=1, half_day_date="2026-09-01", docstatus=1, status="Approved", employee="EMP-1"
 		)
-		with patch.object(frappe.local, "db", create=True, new=_StubDB()), patch.object(
-			frappe, "log_error"
-		), patch.object(half_day, "resolve_half_day_other_half", side_effect=RuntimeError("boom")):
-			frappe.local.db.get_value = lambda *a, **k: "ATT-1"
-			half_day.on_leave_application_change(doc)  # must not raise
+		# Not patch.object(frappe.local, "db"): a werkzeug Local has no __dict__, so
+		# patch cannot see the attribute is there and deletes it on the way out.
+		stub = _StubDB()
+		stub.get_value = lambda *a, **k: "ATT-1"
+		saved = getattr(frappe.local, "db", None)
+		frappe.local.db = stub
+		try:
+			with patch.object(frappe, "log_error"), patch.object(
+				half_day, "resolve_half_day_other_half", side_effect=RuntimeError("boom")
+			):
+				half_day.on_leave_application_change(doc)  # must not raise
+		finally:
+			frappe.local.db = saved
+
+
+class TestSessionRequired(TestCase):
+	"""A new half-day leave must say which half; old submitted ones never block."""
+
+	def _leave(self, **over):
+		d = frappe._dict(half_day=1, half_day_date="2026-09-01", from_date="2026-09-01", docstatus=0)
+		d[half_day.SESSION_FIELD] = None
+		d.update(over)
+		d.meta = _Meta()
+		d.set = lambda k, v: d.__setitem__(k, v)
+		return d
+
+	def _validate(self, doc):
+		from nepal_hrms.custom_code.leave_application_hooks import validate_half_day_session
+
+		with patch("nepal_hrms.custom_code.leave_application_hooks.format_date", return_value="1 Sep"):
+			return validate_half_day_session(doc)
+
+	def test_a_draft_half_day_without_a_half_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._validate(self._leave())
+
+	def test_a_draft_with_a_half_passes(self):
+		self._validate(self._leave(**{half_day.SESSION_FIELD: half_day.SECOND_HALF}))
+
+	def test_a_submitted_leave_from_before_the_field_is_never_blocked(self):
+		self._validate(self._leave(docstatus=1))
+
+	def test_unticking_half_day_clears_a_stale_half(self):
+		doc = self._leave(half_day=0, **{half_day.SESSION_FIELD: half_day.FIRST_HALF})
+		self._validate(doc)
+		self.assertIsNone(doc[half_day.SESSION_FIELD])
+
+
+class TestSheetHalfBounds(TestCase):
+	"""BS sheet: which clock half a half-day cell marks. 09:00-17:00 = 540-1020."""
+
+	def _bounds(self, abbr, session=None):
+		from nepal_hrms.nepal_hrms.report.monthly_attendance_sheet_bs.monthly_attendance_sheet_bs import (
+			_half_day_bounds,
+		)
+
+		return _half_day_bounds(abbr, 540, 1020, session)
+
+	def test_leave_goes_on_the_recorded_half(self):
+		self.assertEqual(self._bounds("HD/P", half_day.FIRST_HALF), (540, 780))
+		self.assertEqual(self._bounds("HD/P", half_day.SECOND_HALF), (780, 1020))
+
+	def test_the_charged_half_is_the_one_the_leave_did_not_cover(self):
+		self.assertEqual(self._bounds("HD/A", half_day.FIRST_HALF), (780, 1020))
+		self.assertEqual(self._bounds("HD/A", half_day.SECOND_HALF), (540, 780))
+
+	def test_unrecorded_keeps_the_old_fixed_halves(self):
+		self.assertEqual(self._bounds("HD/P"), (540, 780))
+		self.assertEqual(self._bounds("HD/A"), (780, 1020))

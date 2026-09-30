@@ -110,9 +110,13 @@ export function halfDayParts(info) {
 	if (info.pool_penalty === "half" || info.penalty_mark === "½P") {
 		return ["present", "penalty"]
 	}
-	if (info.half_day_status === "Absent") return ["present", "absent"]
 	const onLeave = !!info.leave || !!info.leave_type || LEAVE_STATUSES.has(info.status)
-	return ["present", onLeave ? "leave" : "absent"]
+	// [non-leave half, leave half]. half_day_status is the *non-leave* half, so on
+	// a half-day leave an Absent there is that half -- the leave half is still
+	// leave. Reading it as the second part drew the absent half as present and
+	// lost the leave half entirely.
+	if (onLeave) return [info.half_day_status === "Absent" ? "absent" : "present", "leave"]
+	return ["present", "absent"]
 }
 
 /**
@@ -179,7 +183,8 @@ export function dayCodes(info) {
 	// Half-day leave whose other half is still Absent: the leave letter alone
 	// would leave the pink half with no secondary encoding, which is what the
 	// palette's CVD margin rests on.
-	if (parts && parts[1] === "absent" && outcome !== "absent") {
+	// Either position: on a leave day the absent half is the first part.
+	if (parts && parts.includes("absent") && outcome !== "absent") {
 		codes.push(OUTCOME.absent.code)
 	}
 	return codes

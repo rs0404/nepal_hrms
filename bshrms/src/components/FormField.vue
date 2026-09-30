@@ -59,6 +59,33 @@
 			</button>
 		</div>
 
+		<!-- Segmented choice: a short pick that has to be made, e.g. which half of a
+		     half day. Big buttons in place of a dropdown, because there are only a
+		     couple of answers and a dropdown hides them behind a tap. -->
+		<div
+			v-if="segmentOptions.length"
+			class="grid gap-2"
+			:class="props.highlight && !modelValue ? 'rounded-lg ring-2 ring-orange-400 bg-orange-100/80 p-1.5' : ''"
+			:style="{ gridTemplateColumns: `repeat(${segmentOptions.length}, minmax(0, 1fr))` }"
+		>
+			<button
+				v-for="opt in segmentOptions"
+				:key="opt.value"
+				type="button"
+				class="flex flex-col items-center justify-center gap-0.5 rounded-lg border px-2 py-3 transition-colors"
+				:class="
+					modelValue === opt.value
+						? 'border-red-500 bg-red-50 text-red-700 ring-1 ring-inset ring-red-500'
+						: 'border-gray-200 bg-white text-gray-700 active:bg-gray-50'
+				"
+				:disabled="isReadOnly"
+				@click="emit('update:modelValue', opt.value)"
+			>
+				<span class="text-sm font-semibold">{{ opt.label }}</span>
+				<span v-if="opt.hint" class="text-xs tabular-nums opacity-70">{{ opt.hint }}</span>
+			</button>
+		</div>
+
 		<!-- Select or Link field with predefined options -->
 		<Autocomplete
 			v-if="showSelectControl"
@@ -264,6 +291,11 @@ const props = defineProps({
 		type: Array,
 		default: () => [],
 	},
+	// [{ value, label, hint? }] -- renders buttons instead of the dropdown.
+	segmentOptions: {
+		type: Array,
+		default: () => [],
+	},
 	placeholder: String,
 	highlight: {
 		type: Boolean,
@@ -308,6 +340,7 @@ const highlightClass = computed(() => {
 })
 
 const showSelectControl = computed(() => {
+	if (props.segmentOptions?.length) return false
 	const hasSelect = props.fieldtype === "Select"
 	const hasList = Boolean(props.documentList)
 	if (!hasSelect && !hasList) return false
