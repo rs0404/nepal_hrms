@@ -210,8 +210,12 @@ def _hours_excluding_unapproved_ooo(logs, shift_name=None):
 	return flt(total_hours), in_time, out_time
 
 
-def _status_from_hours(working_hours, shift_name=None):
-	"""Map hours to Present/Half Day/Absent using shift thresholds when available."""
+def _status_from_hours(working_hours, shift_name=None, factor=1.0):
+	"""Map hours to Present/Half Day/Absent using shift thresholds when available.
+
+	factor scales both thresholds: 0.5 judges the worked half of a half-day leave
+	day as a half-length day (see custom_code/half_day.py).
+	"""
 	hours = flt(working_hours)
 	absent_th = half_th = 0
 	if shift_name:
@@ -220,8 +224,8 @@ def _status_from_hours(working_hours, shift_name=None):
 			shift_name,
 			["working_hours_threshold_for_absent", "working_hours_threshold_for_half_day"],
 		) or (0, 0)
-		absent_th = flt(absent_th)
-		half_th = flt(half_th)
+		absent_th = flt(absent_th) * flt(factor)
+		half_th = flt(half_th) * flt(factor)
 	if absent_th and hours < absent_th:
 		return "Absent"
 	if half_th and hours < half_th:
@@ -463,8 +467,16 @@ def sync_attendance_hours_from_checkins(employee, attendance_date):
 		return None
 
 	attendance = frappe.get_doc("Attendance", attendance_name)
-	if (attendance.status or "").strip() == "On Leave" or attendance.leave_type:
+	if (attendance.status or "").strip() == "On Leave":
 		return attendance
+	if attendance.leave_type:
+		# A half-day leave row still owes a verdict on the half that was worked.
+		# Returning here untouched is what left modify_half_day_status set, and the
+		# stock sweep then marked people who had checked in Absent for that half.
+		from nepal_hrms.custom_code.half_day import resolve_half_day_other_half
+
+		resolve_half_day_other_half(attendance)
+		return frappe.get_doc("Attendance", attendance_name)
 
 	computed = compute_day_hours_from_checkins(employee, attendance_date)
 	before_status = attendance.status

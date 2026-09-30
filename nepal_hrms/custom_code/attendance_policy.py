@@ -185,20 +185,9 @@ def _protected_status(doc, is_holiday=None):
 
 
 def _has_half_day_leave(employee, attendance_date):
-	return bool(
-		frappe.db.exists(
-			"Leave Application",
-			{
-				"employee": employee,
-				"docstatus": 1,
-				"status": "Approved",
-				"from_date": ["<=", getdate(attendance_date)],
-				"to_date": [">=", getdate(attendance_date)],
-				"half_day": 1,
-				"half_day_date": getdate(attendance_date),
-			},
-		)
-	)
+	from nepal_hrms.custom_code.half_day import half_day_leave_on
+
+	return bool(half_day_leave_on(employee, attendance_date))
 
 
 def delay_excused_for_attendance_status(mins, app, employee, attendance_date, grace, max_delay):

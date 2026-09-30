@@ -184,20 +184,14 @@ def _counted_in_absent_bucket(row):
 
 
 def _has_half_day_leave(employee, attendance_date):
-    """True if an approved half-day leave covers this date (major delay excused by leave)."""
-    return bool(
-        frappe.db.exists(
-            "Leave Application",
-            {
-                "employee": employee,
-                "docstatus": 1,
-                "status": "Approved",
-                "from_date": ["<=", attendance_date],
-                "to_date": [">=", attendance_date],
-                "half_day": 1,
-            },
-        )
-    )
+    """True if this date is the half day of an approved half-day leave.
+
+    Matches on half_day_date: the other days of a multi-day half-day leave are
+    whole leave days, and this used to count them as half days too.
+    """
+    from nepal_hrms.custom_code.half_day import half_day_leave_on
+
+    return bool(half_day_leave_on(employee, attendance_date))
 
 
 def _get_paid_leave_days(employee, start_date, end_date):

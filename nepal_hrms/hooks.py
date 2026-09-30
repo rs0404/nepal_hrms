@@ -177,7 +177,11 @@ doc_events = {
 			"nepal_hrms.custom_code.leave_application_hooks.validate_sandwich_leave_application",
 			"nepal_hrms.custom_code.leave_application_hooks.validate_leave_balance_including_drafts",
 			"nepal_hrms.custom_code.leave_application_hooks.validate_leave_application_deadline",
-		]
+		],
+		# Runs after HRMS has written the half-day Attendance: settle the worked
+		# half now, or check-ins punched before the approval are never re-read.
+		"on_submit": "nepal_hrms.custom_code.half_day.on_leave_application_change",
+		"on_update_after_submit": "nepal_hrms.custom_code.half_day.on_leave_application_change",
 	},
 }
 

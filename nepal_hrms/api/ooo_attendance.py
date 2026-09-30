@@ -225,6 +225,7 @@ def approve_ooo_checkins(employee, attendance_date):
 
 	if attendance_name:
 		attendance = frappe.get_doc("Attendance", attendance_name)
+		on_leave = _keep_leave_status(attendance, values)
 
 		if attendance.docstatus == 0:
 			for key, val in values.items():
@@ -247,6 +248,9 @@ def approve_ooo_checkins(employee, attendance_date):
 				attendance_name,
 				update_modified=False,
 			)
+
+		if on_leave:
+			new_status = _settle_leave_row(attendance_name)
 
 		frappe.db.commit()
 		return {
@@ -396,6 +400,7 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 
 	if attendance_name:
 		attendance = frappe.get_doc("Attendance", attendance_name)
+		on_leave = _keep_leave_status(attendance, values)
 		if attendance.docstatus == 0:
 			for key, val in values.items():
 				setattr(attendance, key, val)
@@ -406,6 +411,8 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 				attendance.submit()
 		else:
 			frappe.db.set_value("Attendance", attendance.name, values)
+		if on_leave:
+			new_status = _settle_leave_row(attendance_name)
 	elif has_normal:
 		attendance = frappe.new_doc("Attendance")
 		attendance.update(
@@ -427,6 +434,26 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 		"attendance": attendance_name,
 		"reason": reason,
 	}
+
+
+def _keep_leave_status(attendance, values):
+	"""A leave owns the day's status; OOO approval only settles hours around it.
+
+	Writing the hours-derived status onto a half-day leave row could turn an
+	approved half-day into Absent. Returns True when the row is a leave row.
+	"""
+	if not attendance.leave_type:
+		return False
+	values.pop("status", None)
+	return True
+
+
+def _settle_leave_row(attendance_name):
+	"""Re-judge the worked half of a half-day leave; return the row's status."""
+	from nepal_hrms.custom_code.half_day import resolve_half_day_other_half
+
+	resolve_half_day_other_half(attendance_name)
+	return frappe.db.get_value("Attendance", attendance_name, "status")
 
 
 @frappe.whitelist()
