@@ -251,6 +251,8 @@ def approve_ooo_checkins(employee, attendance_date):
 
 		if on_leave:
 			new_status = _settle_leave_row(attendance_name)
+		else:
+			new_status = _apply_attendance_policy(employee, attendance_date) or new_status
 
 		frappe.db.commit()
 		return {
@@ -287,6 +289,7 @@ def approve_ooo_checkins(employee, attendance_date):
 			attendance.name,
 			update_modified=False,
 		)
+	new_status = _apply_attendance_policy(employee, attendance_date) or new_status
 	frappe.db.commit()
 	return {
 		"message": _("OOO check-ins approved and attendance record created."),
@@ -413,6 +416,8 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 			frappe.db.set_value("Attendance", attendance.name, values)
 		if on_leave:
 			new_status = _settle_leave_row(attendance_name)
+		elif has_normal:
+			new_status = _apply_attendance_policy(employee, attendance_date) or new_status
 	elif has_normal:
 		attendance = frappe.new_doc("Attendance")
 		attendance.update(
@@ -425,6 +430,7 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 		attendance.insert(ignore_permissions=True)
 		attendance.submit()
 		attendance_name = attendance.name
+		new_status = _apply_attendance_policy(employee, attendance_date) or new_status
 
 	frappe.db.commit()
 	return {
@@ -434,6 +440,22 @@ def reject_ooo_checkins(employee, attendance_date, reason=None):
 		"attendance": attendance_name,
 		"reason": reason,
 	}
+
+
+def _apply_attendance_policy(employee, attendance_date):
+	"""Re-judge the day from its check-ins the way the check-in sync does; return the status.
+
+	The hours alone are not the verdict. An approved OOO stretch can lift a day
+	over the half-day threshold, but an arrival past the max allowed delay is
+	still a late arrival: written straight from the hours, a 67-minute-late day
+	became Present while its ½P stayed. The sync applies the late/early rules,
+	keeps a status an approved Attendance Request set, and leaves leave rows to
+	their own settling.
+	"""
+	from nepal_hrms.overrides.attendance_override import sync_attendance_hours_from_checkins
+
+	attendance = sync_attendance_hours_from_checkins(employee, attendance_date)
+	return attendance.status if attendance else None
 
 
 def _keep_leave_status(attendance, values):
