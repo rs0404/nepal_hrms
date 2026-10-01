@@ -11,7 +11,7 @@
  * Consequences worth keeping:
  *   - Work From Home is Present. It is not a different outcome, just a location.
  *   - Leave Pending / Rejected are Leave. They are application states, shown by
- *     the ○ / ✕ glyph, not by a hue of their own.
+ *     the pending clock / ✕ mark, not by a hue of their own.
  *   - A penalty day is a *worked* day, so it keeps its outcome fill and says ½P/1P.
  *   - A half day splits the cell diagonally rather than taking a seventh hue.
  *
@@ -115,9 +115,20 @@ export function halfDayParts(info) {
 	// a half-day leave an Absent there is that half -- the leave half is still
 	// leave. Reading it as the second part drew the absent half as present and
 	// lost the leave half entirely.
-	if (onLeave) return [info.half_day_status === "Absent" ? "absent" : "present", "leave"]
+	// With no Attendance row yet (a leave applied for ahead, or the day not
+	// marked) the worked half has not happened: "none", drawn white, rather than
+	// a Present nobody has earned. Only an explicit 0 says so -- a payload from
+	// before the flag existed keeps the old drawing.
+	if (onLeave) {
+		if (info.attendance === 0) return ["none", "leave"]
+		return [info.half_day_status === "Absent" ? "absent" : "present", "leave"]
+	}
 	return ["present", "absent"]
 }
+
+// The half of a day that has not happened yet. Not an outcome, so not in OUTCOME.
+const UNMARKED_FILL = "#ffffff"
+const partFill = (part) => (part === "none" ? UNMARKED_FILL : OUTCOME[part].fill)
 
 /**
  * Inline style for a day cell, or null when the day has no attendance at all.
@@ -138,8 +149,8 @@ export function dayCellStyle(info) {
 	const [worked, other] = parts
 	const workedSecond = info && typeof info !== "string" && info.worked_half === "second"
 	const [first, second] = workedSecond
-		? [OUTCOME[other].fill, OUTCOME[worked].fill]
-		: [OUTCOME[worked].fill, OUTCOME[other].fill]
+		? [partFill(other), partFill(worked)]
+		: [partFill(worked), partFill(other)]
 	// 135° runs top-left to bottom-right, so the first colour is the first half.
 	return {
 		backgroundImage: `linear-gradient(135deg, ${first} 0 50%, ${second} 50% 100%)`,

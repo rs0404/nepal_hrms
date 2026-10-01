@@ -83,7 +83,17 @@
 						v-if="hasMarkers(getEventOnDate(index))"
 						class="flex gap-0.5 mt-0.5 min-h-[14px] items-start justify-center"
 					>
-						<i v-if="dayMarkers(getEventOnDate(index)).leave" class="att-dot att-dot-leave" />
+						<span v-if="dayMarkers(getEventOnDate(index)).leave" class="marker-stack">
+							<i
+								class="att-dot att-dot-leave"
+								:title="appStatusTitle(__('Leave'), dayMarkers(getEventOnDate(index)).leave_app)"
+							/>
+							<i
+								v-if="dayMarkers(getEventOnDate(index)).leave_app"
+								class="att-appmark"
+								:class="appStatusClass(dayMarkers(getEventOnDate(index)).leave_app)"
+							/>
+						</span>
 						<i v-if="dayMarkers(getEventOnDate(index)).sandwich" class="att-dot att-dot-sandwich" />
 						<span
 							v-if="
@@ -138,14 +148,16 @@
 							/>
 						</span>
 						<span v-if="dayMarkers(getEventOnDate(index)).ooo" class="marker-stack">
+							<!-- Filled: out on office work (OOO punches). Hollow: an application, or a gap to explain. -->
 							<i
 								class="att-dot att-dot-ooo"
-								:title="appStatusTitle(__('Out of Office'), dayMarkers(getEventOnDate(index)).ooo_app)"
+								:class="dayMarkers(getEventOnDate(index)).oooPunched ? '' : 'att-dot-grace'"
+								:title="appStatusTitle(__('Out of Office'), dayMarkers(getEventOnDate(index)).oooMark)"
 							/>
 							<i
-								v-if="dayMarkers(getEventOnDate(index)).ooo_app"
+								v-if="dayMarkers(getEventOnDate(index)).oooMark"
 								class="att-appmark"
-								:class="appStatusClass(dayMarkers(getEventOnDate(index)).ooo_app)"
+								:class="appStatusClass(dayMarkers(getEventOnDate(index)).oooMark)"
 							/>
 						</span>
 					</div>
@@ -222,7 +234,10 @@
 						<i class="att-dot att-dot-early" />{{ __("Early exit") }}
 					</span>
 					<span class="inline-flex items-center gap-1">
-						<i class="att-dot att-dot-ooo" />{{ __("Out of Office") }}
+						<i class="att-dot att-dot-ooo" />{{ __("Out of Office · office work") }}
+					</span>
+					<span class="inline-flex items-center gap-1">
+						<i class="att-dot att-dot-ooo att-dot-grace" />{{ __("Out of Office · applied, or gap to explain") }}
 					</span>
 					<span class="inline-flex items-center gap-1">
 						<i class="att-dot att-dot-sandwich" />{{ __("Sandwich") }}
@@ -331,6 +346,7 @@ const dayMarkers = (info) => {
 	if (!info || typeof info === "string") {
 		return {
 			leave: info === "On Leave",
+			leave_app: "",
 			pending: false,
 			rejected: false,
 			sandwich: false,
@@ -343,6 +359,8 @@ const dayMarkers = (info) => {
 			early_after: false,
 			early_app: "",
 			ooo: false,
+			oooPunched: false,
+			oooMark: "",
 			oooDelay: false,
 			ooo_app: "",
 		}
@@ -359,8 +377,12 @@ const dayMarkers = (info) => {
 	const late_app = normalizeAppStatus(info.late_app_status)
 	const early_app = normalizeAppStatus(info.early_app_status)
 	const ooo_app = normalizeAppStatus(info.ooo_app_status)
+	const ooo_log = normalizeAppStatus(info.ooo_log_status)
+	// OOO Work punches are only for office work; a gap with no form is not.
+	const oooPunched = !!ooo_log
 	return {
 		leave,
+		leave_app: leave ? normalizeAppStatus(app) : "",
 		pending: leave && (app === "Pending" || status === "Leave Pending"),
 		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
 		sandwich: !!info.sandwich,
@@ -372,7 +394,10 @@ const dayMarkers = (info) => {
 		early_grace: earlyDelay.grace,
 		early_after: earlyDelay.after,
 		early_app,
-		ooo: !!(info.ooo_required || ooo_app),
+		ooo: oooPunched || !!ooo_app,
+		oooPunched,
+		// The punches are what get paid, so their approval is the mark shown.
+		oooMark: oooPunched ? ooo_log || ooo_app : ooo_app,
 		oooDelay: !!info.ooo_required,
 		ooo_app,
 	}
@@ -395,7 +420,7 @@ const hasMarkers = (info) => {
 		m.sandwich ||
 		m.lateDelay ||
 		m.earlyDelay ||
-		m.oooDelay ||
+		m.ooo ||
 		m.late_app ||
 		m.early_app ||
 		m.ooo_app

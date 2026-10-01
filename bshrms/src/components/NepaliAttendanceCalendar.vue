@@ -91,10 +91,19 @@
 					:title="day.holidayName"
 					@click="onDayClick(day)"
 				>
-					<span v-if="day.codes.length" class="day-codes" aria-hidden="true">
+					<!-- Bottom-left: what the day was, and where its leave stands (✓, pending clock, ✕).
+					     Top-right stays for the late / early / OOO dots, so the two
+					     never meet. -->
+					<span v-if="day.codes.length || day.leaveApp" class="day-codes" aria-hidden="true">
 						<span v-for="code in day.codes" :key="code" :class="dayCodeClass(code)">
 							{{ code }}
 						</span>
+						<i
+							v-if="day.leaveApp"
+							class="att-appmark"
+							:class="appStatusClass(day.leaveApp)"
+							:title="appStatusTitle(__('Leave'), day.leaveApp)"
+						/>
 					</span>
 
 					<span class="bs-day">{{ day.bsLabel }}</span>
@@ -209,7 +218,10 @@
 					<i class="att-dot att-dot-early" />{{ __("Early exit") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
-					<i class="att-dot att-dot-ooo" />{{ __("Out of Office") }}
+					<i class="att-dot att-dot-ooo" />{{ __("Out of Office · office work") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<i class="att-dot att-dot-ooo att-dot-grace" />{{ __("Out of Office · applied, or gap to explain") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
 					<i class="att-dot att-dot-sandwich" />{{ __("Sandwich") }}
@@ -433,6 +445,7 @@ const periodDays = computed(() => {
 			codes: dayCodes(info),
 			dots: markerDots(m),
 			appOnlyMarks: appOnlyMarks(m),
+			leaveApp: m.leave_app,
 			late: m.lateDelay,
 			early: m.earlyDelay,
 		})
@@ -500,6 +513,7 @@ const dayMarkers = (info) => {
 	if (!info || typeof info === "string") {
 		return {
 			leave: info === "On Leave",
+			leave_app: "",
 			pending: false,
 			rejected: false,
 			sandwich: false,
@@ -511,8 +525,11 @@ const dayMarkers = (info) => {
 			early_grace: false,
 			early_after: false,
 			early_app: "",
+			ooo: false,
+			oooPunched: false,
 			oooDelay: false,
 			ooo_app: "",
+			ooo_log: "",
 		}
 	}
 	const status = info.status || null
@@ -527,8 +544,15 @@ const dayMarkers = (info) => {
 	const late_app = normalizeAppStatus(info.late_app_status)
 	const early_app = normalizeAppStatus(info.early_app_status)
 	const ooo_app = normalizeAppStatus(info.ooo_app_status)
+	const ooo_log = normalizeAppStatus(info.ooo_log_status)
+	// OOO Work punches are only for office work, so the filled dot means that.
+	// A mid-day gap with no form is not office work: it joins the hollow dot,
+	// marked by nothing until an application covers it.
+	const oooPunched = !!ooo_log
 	return {
 		leave,
+		// Approval state of the leave, marked like a Late Entry's: ✓, pending clock, ✕.
+		leave_app: leave ? normalizeAppStatus(app) : "",
 		pending: leave && (app === "Pending" || status === "Leave Pending"),
 		rejected: leave && (app === "Rejected" || status === "Leave Rejected"),
 		sandwich: !!info.sandwich,
@@ -540,8 +564,13 @@ const dayMarkers = (info) => {
 		early_grace: earlyDelay.grace,
 		early_after: earlyDelay.after,
 		early_app,
+		// Any Out of Office on the day: an application, OOO Work punches, or a
+		// gap that still needs one.
+		ooo: oooPunched || !!ooo_app,
+		oooPunched,
 		oooDelay: !!info.ooo_required,
 		ooo_app,
+		ooo_log,
 	}
 }
 
@@ -573,12 +602,22 @@ function markerDots(m) {
 			app: m.early_app,
 		})
 	}
-	if (m.oooDelay) {
+	if (m.ooo) {
+		// Filled: out on office work (OOO punches). Hollow: an application, or a
+		// gap still to explain. The punches are what get paid, so theirs is the mark.
+		const app = m.oooPunched ? m.ooo_log || m.ooo_app : m.ooo_app
 		dots.push({
 			kind: "ooo",
-			cls: "att-dot-ooo",
-			title: appStatusTitle(__("Out of Office"), m.ooo_app),
-			app: m.ooo_app,
+			cls: m.oooPunched ? "att-dot-ooo" : "att-dot-ooo att-dot-grace",
+			title: appStatusTitle(
+				m.oooPunched
+					? __("Out of Office · office work")
+					: m.ooo_app
+						? __("Out of Office · applied")
+						: __("Out of Office · gap to explain"),
+				app
+			),
+			app,
 		})
 	}
 	return dots
@@ -590,7 +629,6 @@ function appOnlyMarks(m) {
 	const marks = []
 	if (m.late_app && !m.lateDelay) marks.push({ kind: __("Late"), status: m.late_app })
 	if (m.early_app && !m.earlyDelay) marks.push({ kind: __("Early exit"), status: m.early_app })
-	if (m.ooo_app && !m.oooDelay) marks.push({ kind: __("Out of Office"), status: m.ooo_app })
 	return marks
 }
 
@@ -669,7 +707,7 @@ function applyLeaveSelection() {
 	align-items: center;
 	justify-content: center;
 	min-height: 44px;
-	padding: 6px 2px 10px;
+	padding: 4px 2px 12px;
 	border-radius: 6px;
 	background-color: #fff;
 	cursor: pointer;
@@ -728,8 +766,9 @@ function applyLeaveSelection() {
 
 .day-cell .day-codes {
 	position: absolute;
-	top: 2px;
+	bottom: 2px;
 	left: 2px;
+	align-items: center;
 	z-index: 3;
 	display: flex;
 	gap: 1px;

@@ -42,6 +42,7 @@ body {
 	--att-rest-text: #a32d2d;
 	--att-approved: #166534;
 	--att-rejected: #a32d2d;
+	--att-pending: #854f0b;
 }
 
 /* Letters that say what the fill means. Translucent so the outcome tint reads
@@ -90,7 +91,7 @@ body {
 	color: var(--att-ooo);
 }
 
-/* Application state. The glyph carries it first — ✓ ✕ ○ are distinct shapes, so
+/* Application state. The glyph carries it first — ✓ ✕ and a clock are distinct shapes, so
    this still reads with the colour stripped — and the green/red reinforce. Both
    steps are dark enough to clear 4.5:1 on every outcome fill they can land on
    (worst 5.1:1 green, 5.0:1 red); the brighter obvious greens and reds do not. */
@@ -116,10 +117,34 @@ body {
 .att-appmark.rejected::before {
 	content: "✕";
 }
-.att-appmark.draft::before {
-	content: "○";
-}
-/* Pending stays ink: it is the absence of a decision, not a verdict. */
+/* Pending is a small clock, "waiting for approval". Drawn rather than a font
+   glyph so it is the same on every phone; ⧗ is missing from some Android fonts. */
 .att-appmark.draft {
-	opacity: 0.6;
+	position: relative;
+	width: 7px;
+	height: 7px;
+	border: 1.3px solid var(--att-pending);
+	border-radius: 50%;
+	box-sizing: border-box;
+	vertical-align: middle;
+	color: var(--att-pending);
+}
+.att-appmark.draft::before,
+.att-appmark.draft::after {
+	content: "";
+	position: absolute;
+	background: currentColor;
+}
+/* Minute hand to 12, hour hand to 3. */
+.att-appmark.draft::before {
+	left: calc(50% - 0.5px);
+	top: 0.5px;
+	width: 1px;
+	height: calc(50% - 0.5px);
+}
+.att-appmark.draft::after {
+	left: calc(50% - 0.5px);
+	top: calc(50% - 0.5px);
+	width: calc(50% - 0.5px);
+	height: 1px;
 }

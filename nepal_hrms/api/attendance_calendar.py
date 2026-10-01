@@ -93,6 +93,32 @@ def _apply_cnr_application_statuses(employee, from_date, to_date, events):
 			info[status_field] = _better_cnr_app_status(info.get(status_field), incoming)
 
 
+def _apply_ooo_log_statuses(checkins_by_date, events):
+	"""Mark days with OOO Work check-ins, and where their approval stands.
+
+	Out of Office reaches a day two ways: an Out of Office Application, or OOO
+	Work punches that an approver approves or rejects. Only the first used to
+	show, so a day worked partly at the bank looked like any other.
+	"""
+	for d, day_checkins in checkins_by_date.items():
+		ooo_logs = [c for c in day_checkins if c.get("custom_attendance_type") == "OOO Work"]
+		if not ooo_logs:
+			continue
+		if all(cint(c.get("custom_ooo_rejected")) for c in ooo_logs):
+			status = "Rejected"
+		elif all(cint(c.get("custom_is_approved")) for c in ooo_logs):
+			status = "Approved"
+		else:
+			status = "Draft"
+		date_str = d.strftime("%Y-%m-%d")
+		info = events.get(date_str)
+		if not info:
+			info = _blank_calendar_day()
+			events[date_str] = info
+		info["ooo"] = 1
+		info["ooo_log_status"] = status
+
+
 def _worked_half(in_time, shift, cache=None, session=None):
 	"""'first' | 'second' | None -- which half of the day was actually worked.
 
@@ -109,6 +135,9 @@ def _worked_half(in_time, shift, cache=None, session=None):
 def _blank_calendar_day():
 	return {
 		"status": None,
+		# A submitted Attendance row exists. Without one (a leave applied for
+		# ahead, or not yet marked) the worked half of a half-day has not happened.
+		"attendance": 0,
 		"leave": 0,
 		"late": 0,
 		"early": 0,
@@ -123,6 +152,9 @@ def _blank_calendar_day():
 		"late_app_status": None,
 		"early_app_status": None,
 		"ooo_app_status": None,
+		# OOO Work punches: Approved / Draft / Rejected. Separate from the
+		# application, so the calendar can tell going out from saying you will.
+		"ooo_log_status": None,
 		"leave_type": None,
 		"leave_app_status": None,
 		"leave_application": None,
@@ -614,6 +646,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		info.update(
 			{
 				"status": row.status,
+				"attendance": 1,
 				"half_day_status": row.half_day_status or None,
 				"worked_half": _worked_half(
 					row.in_time, row.shift, session=row.get(SESSION_FIELD)
@@ -817,6 +850,12 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 	)
 
 	grace_mins = cint(getattr(get_hr_settings(), "late_early_grace_mins", None) or 15)
+	checkin_meta = frappe.get_meta("Employee Checkin")
+	checkin_fields = ["time", "log_type"] + [
+		f
+		for f in ("custom_attendance_type", "custom_is_approved", "custom_ooo_rejected")
+		if checkin_meta.has_field(f)
+	]
 	all_checkins = frappe.get_all(
 		"Employee Checkin",
 		filters={
@@ -826,7 +865,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 				[f"{from_date} 00:00:00", f"{to_date} 23:59:59"],
 			],
 		},
-		fields=["time", "log_type"],
+		fields=checkin_fields,
 		order_by="time asc",
 	)
 	checkins_by_date = {}
@@ -862,6 +901,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		info["ooo"] = 1
 
 	_apply_cnr_application_statuses(employee, from_date, to_date, events)
+	_apply_ooo_log_statuses(checkins_by_date, events)
 
 	for info in events.values():
 		info["is_lwp"] = _is_lwp_leave(info.get("leave_type"), lwp_types)
