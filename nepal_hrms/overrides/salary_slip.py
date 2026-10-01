@@ -368,6 +368,61 @@ def _matches_component(name, roots):
     return any(name == root or name.startswith(f"{root} - ") for root in roots)
 
 
+TAKEN_FROM_EARNINGS_FIELD = "custom_taken_from_earnings"
+SKIP_TAX_PROJECTION_FIELD = "custom_skip_tax_projection"
+
+
+def _component_flag(component, fieldname):
+    """A Salary Component checkbox, or None where the field or component is missing.
+
+    Read from the component, not the slip or structure row: structures keep
+    their own copy of the stock flags, and these must not go stale with them.
+    """
+    if not component or not frappe.get_meta("Salary Component").has_field(fieldname):
+        return None
+    value = frappe.get_cached_value("Salary Component", component, fieldname)
+    # A component with no record answers nothing, rather than "unticked".
+    return None if value is None else cint(value)
+
+
+def _taken_from_earnings(component):
+    """Whether this deduction's amount comes out of earnings rather than net pay.
+
+    Until the checkbox exists on a site the attendance deduction keeps the
+    behaviour it always had, so nothing changes before the field is synced.
+    """
+    flag = _component_flag(component, TAKEN_FROM_EARNINGS_FIELD)
+    if flag is None:
+        return _matches_component(component, ATTENDANCE_DEDUCTION_COMPONENTS)
+    return bool(flag)
+
+
+def _is_attendance_deduction(component):
+    """The leave/late row the earned-salary pass takes out of earnings."""
+    return _matches_component(
+        component, ATTENDANCE_DEDUCTION_COMPONENTS
+    ) and _taken_from_earnings(component)
+
+
+def _skips_tax_projection(component):
+    """Leave this deduction out of the future months tax projects.
+
+    A deduction already taken from earnings is not an exemption at all, and one
+    that varies by month cannot be repeated for the rest of the year: repeating
+    one month's leave/late penalty is what cut taxable income by ~11x it.
+    """
+    return _taken_from_earnings(component) or bool(
+        _component_flag(component, SKIP_TAX_PROJECTION_FIELD)
+    )
+
+
+def _show_only(row):
+    """Keep a deduction row on the slip without it counting anywhere."""
+    row.do_not_include_in_total = 1
+    row.do_not_include_in_accounts = 1
+    row.exempted_from_income_tax = 0
+
+
 def _check_setting(settings, fieldname, default=0):
     value = settings.get(fieldname)
     return cint(default if value is None else value)
@@ -1304,6 +1359,7 @@ class CustomSalarySlip(SalarySlip):
         if self._earned_salary_mode_enabled():
             self._scale_contribution_deductions()
             self._make_attendance_deduction_informational()
+        self._make_taken_from_earnings_informational()
         return super().add_tax_components()
 
     def _earned_salary_mode_enabled(self):
@@ -1381,9 +1437,7 @@ class CustomSalarySlip(SalarySlip):
         if not structure:
             return False
         return any(
-            _matches_component(
-                row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS
-            )
+            _is_attendance_deduction(row.salary_component)
             for row in (structure.get("deductions") or [])
         )
 
@@ -1522,8 +1576,9 @@ class CustomSalarySlip(SalarySlip):
         is disabled or an oversized deduction leaves a real residual.
         """
         for row in self.get("deductions") or []:
-            if not _matches_component(
-                row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS
+            if not (
+                _matches_component(row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS)
+                or _taken_from_earnings(row.salary_component)
             ):
                 continue
             values = frappe.get_cached_value(
@@ -1549,9 +1604,7 @@ class CustomSalarySlip(SalarySlip):
         rows = [
             row
             for row in self.get("deductions") or []
-            if _matches_component(
-                row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS
-            )
+            if _is_attendance_deduction(row.salary_component)
         ]
         if not rows:
             return
@@ -1577,9 +1630,20 @@ class CustomSalarySlip(SalarySlip):
             return
 
         for row in rows:
-            row.do_not_include_in_total = 1
-            row.do_not_include_in_accounts = 1
-            row.exempted_from_income_tax = 0
+            _show_only(row)
+
+    def _make_taken_from_earnings_informational(self):
+        """Show-only for every other deduction ticked as already taken from earnings.
+
+        The attendance deduction is settled above, against what the earned-salary
+        pass actually took. Any other ticked component is the setup's word that
+        its amount is already out of the earnings, so the row only reports it.
+        """
+        for row in self.get("deductions") or []:
+            if _matches_component(row.salary_component, ATTENDANCE_DEDUCTION_COMPONENTS):
+                continue
+            if _taken_from_earnings(row.salary_component):
+                _show_only(row)
 
     def _inject_cit_contribution(self, data):
         """Expose the effective CIT election to formulas and snapshot this period."""
@@ -1641,7 +1705,22 @@ class CustomSalarySlip(SalarySlip):
         apply_retirement_cap_to_taxable_earnings(self)
 
     def compute_annual_deductions_before_tax_calculation(self):
-        stock_deductions = super().compute_annual_deductions_before_tax_calculation()
+        # Stock repeats every tax-exempt structure deduction for each remaining
+        # month. Hide the exemption on the ones that must not be repeated for the
+        # length of that call; months already paid and this one still count
+        # through their own slip rows.
+        masked = [
+            row
+            for row in (getattr(self, "_salary_structure_doc", None) or frappe._dict()).get("deductions") or []
+            if cint(row.exempted_from_income_tax) and _skips_tax_projection(row.salary_component)
+        ]
+        for row in masked:
+            row.exempted_from_income_tax = 0
+        try:
+            stock_deductions = super().compute_annual_deductions_before_tax_calculation()
+        finally:
+            for row in masked:
+                row.exempted_from_income_tax = 1
 
         if not getattr(self, "tax_slab", None) or not self.tax_slab.allow_tax_exemption:
             return stock_deductions

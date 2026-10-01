@@ -76,6 +76,7 @@ def _variant_components(variant, scheme, ot_multiplier):
 		 "abbr": f"earning_adjustment_{v.lower()}", "description": "Manual one-off addition."},
 		{"name": f"Leave and Late Deduction - {v}", "type": "Deduction",
 		 "formula": LEAVE_LATE_FORMULA, "abbr": f"leave_late_deduction_{v.lower()}",
+		 "custom_taken_from_earnings": 1, "custom_skip_tax_projection": 1,
 		 "description": "Late/early/OOO half-days, LWP, unapproved absence, and ½P / 1P pool penalties. Informational only when earned-salary attendance deductions are enabled."},
 		{"name": f"Deduction Adjustment - {v}", "type": "Deduction", "formula": None,
 		 "abbr": f"deduction_adjustment_{v.lower()}", "exempted_from_income_tax": 0,
@@ -241,6 +242,10 @@ def _upsert(spec):
 	# is_income_tax_component marks *the* tax component. create_salary_component()
 	# defaults it to 1 for everything, which would mislabel every deduction.
 	payload["is_income_tax_component"] = cint(spec.get("variable_based_on_taxable_salary", 0))
+	meta = frappe.get_meta("Salary Component")
+	for flag in ("custom_taken_from_earnings", "custom_skip_tax_projection"):
+		if flag in spec and meta.has_field(flag):
+			payload[flag] = cint(spec[flag])
 
 	if spec["type"] == "Earning":
 		payload["is_tax_applicable"] = 1

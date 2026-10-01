@@ -11,6 +11,7 @@ from nepal_hrms.overrides.salary_slip import (
     CustomPayrollEntry,
     CustomSalarySlip,
     _matches_component,
+    _skips_tax_projection,
     allocate_attendance_deduction,
 )
 
@@ -348,6 +349,57 @@ class TestEarnedSalaryRows(TestCase):
         self.assertEqual(row.amount, 2_000)
         self.assertEqual(row.do_not_include_in_total, 0)
         self.assertEqual(row.do_not_include_in_accounts, 0)
+
+    @patch("nepal_hrms.overrides.salary_slip._component_flag", return_value=0)
+    def test_unticked_attendance_component_stays_a_real_deduction(self, _flag):
+        row = FakeSalaryRow(
+            salary_component="Leave and Late Deduction - Salary",
+            amount=6_666.67,
+            do_not_include_in_total=0,
+            do_not_include_in_accounts=0,
+            exempted_from_income_tax=1,
+        )
+        slip = FakeSalarySlip([row], {"unapplied_deduction": 0})
+
+        CustomSalarySlip._make_attendance_deduction_informational(slip)
+
+        self.assertEqual(row.do_not_include_in_total, 0)
+        self.assertEqual(row.do_not_include_in_accounts, 0)
+
+    @patch("nepal_hrms.overrides.salary_slip._component_flag", return_value=1)
+    def test_other_ticked_deduction_is_show_only(self, _flag):
+        row = FakeSalaryRow(
+            salary_component="Canteen Deduction",
+            amount=1_500,
+            do_not_include_in_total=0,
+            do_not_include_in_accounts=0,
+            exempted_from_income_tax=1,
+        )
+        slip = FakeSalarySlip([row], {})
+
+        CustomSalarySlip._make_taken_from_earnings_informational(slip)
+
+        self.assertEqual(row.amount, 1_500)
+        self.assertEqual(row.do_not_include_in_total, 1)
+        self.assertEqual(row.do_not_include_in_accounts, 1)
+        self.assertEqual(row.exempted_from_income_tax, 0)
+
+    def test_tax_projection_skips_ticked_components_only(self):
+        flags = {
+            ("Leave and Late Deduction - Salary", "custom_taken_from_earnings"): 1,
+            ("Leave and Late Deduction - Salary", "custom_skip_tax_projection"): 1,
+            ("Overtime Recovery", "custom_taken_from_earnings"): 0,
+            ("Overtime Recovery", "custom_skip_tax_projection"): 1,
+            ("CIT", "custom_taken_from_earnings"): 0,
+            ("CIT", "custom_skip_tax_projection"): 0,
+        }
+        with patch(
+            "nepal_hrms.overrides.salary_slip._component_flag",
+            side_effect=lambda component, field: flags[(component, field)],
+        ):
+            self.assertTrue(_skips_tax_projection("Leave and Late Deduction - Salary"))
+            self.assertTrue(_skips_tax_projection("Overtime Recovery"))
+            self.assertFalse(_skips_tax_projection("CIT"))
 
     def test_contribution_deduction_scales_with_earned_basic(self):
         row = FakeSalaryRow(

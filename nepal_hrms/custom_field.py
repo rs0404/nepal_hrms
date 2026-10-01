@@ -3,6 +3,15 @@ import json
 import frappe
 from frappe import _
 
+# How a deduction meets the salary slip and income tax. Read live from the
+# component when a slip is built: Salary Structures keep their own copy of the
+# stock flags (exempted_from_income_tax, statistical_component), so a change
+# there never reaches a submitted structure, and these must.
+SALARY_COMPONENT_DEDUCTION_FLAGS = [
+	{"fieldname": "custom_taken_from_earnings", "label": "Already Taken from Earnings (Show Only)", "fieldtype": "Check", "insert_after": "statistical_component", "depends_on": "eval:doc.type == 'Deduction'", "description": "The amount comes out of basic and allowances instead of net pay. The row stays on the slip so the employee sees it, but it is not added to Total Deduction, not posted to accounts, and does not lower taxable income -- the lower earnings already do. For Leave and Late Deduction this is what the earned-salary attendance setting applies; anything it cannot take from earnings stays a real deduction."},
+	{"fieldname": "custom_skip_tax_projection", "label": "Varies Month to Month (Don't Project for Tax)", "fieldtype": "Check", "insert_after": "custom_taken_from_earnings", "depends_on": "eval:doc.type == 'Deduction'", "description": "Income tax estimates the year by repeating each tax-exempt deduction for every remaining month. Tick this when the amount is not the same every month, so only the months that actually happened count."},
+]
+
 
 def create_custom_fields():
 	custom_fields = {
@@ -13,6 +22,7 @@ def create_custom_fields():
 			{"fieldname": "nepali_date", "label": "Nepali Date", "fieldtype": "Data", "insert_after": "posting_date", "allow_on_submit": 1},
 		],
 		"Salary Component": [
+			*SALARY_COMPONENT_DEDUCTION_FLAGS,
 			{"fieldname": "include_in_taxable_salary", "label": "Include In Taxable Salary", "fieldtype": "Check", "insert_after": "is_income_tax_component", "allow_on_submit": 1, "description": "Check this if this component is to be included in taxable salary calculation of Nepal HRMS."},
 		],
 		"Salary Detail": [
