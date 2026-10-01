@@ -1167,7 +1167,19 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 			}
 		)
 
-	if is_self and early_kind in ("minor", "major") and "Early Exit Application" not in existing_doctypes:
+	# Early Exit, like Late Entry, may be informed in advance: today until the
+	# employee has checked out, and any future date.
+	normal_logs = [c for c in checkins if (c.custom_attendance_type or "Normal") != "OOO Work"]
+	checked_out = bool(normal_logs) and (normal_logs[-1].log_type or "").upper() == "OUT"
+	if (
+		is_self
+		and "Early Exit Application" not in existing_doctypes
+		and (
+			early_kind in ("minor", "major")
+			or (is_today and not checked_out)
+			or is_future
+		)
+	):
 		actions.append(
 			{
 				"doctype": "Early Exit Application",
@@ -1260,7 +1272,10 @@ def get_attendance_day_details(date: str, employee: str = None) -> dict:
 		if comp_action:
 			actions.append(comp_action)
 
-	if is_self and "Shift Request" not in existing_doctypes:
+	# Only while the day has no attendance: a shift approved afterwards does not
+	# re-mark a day already marked, so on a marked day the request changes
+	# nothing -- an Attendance Request is how that day gets corrected.
+	if is_self and not attendance and "Shift Request" not in existing_doctypes:
 		actions.append(
 			{
 				"doctype": "Shift Request",
