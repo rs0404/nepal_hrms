@@ -21,16 +21,10 @@
 			{{ props.hint }}
 		</p>
 
-		<!-- Quick choices (e.g. frequent leave types) -->
-		<div
-			v-if="quickOptions.length"
-			class="flex flex-wrap gap-1.5"
-			:class="
-				props.highlight && !modelValue
-					? 'rounded-md ring-2 ring-orange-400 bg-orange-100/80 p-1.5'
-					: ''
-			"
-		>
+		<!-- Quick choices (e.g. frequent leave types). No frame around the group:
+		     a ring there read as a choice already made. Until one is picked each
+		     chip is dashed, an empty slot; the picked one turns solid with a ✓. -->
+		<div v-if="quickOptions.length" class="flex flex-wrap gap-1.5">
 			<button
 				v-for="opt in quickOptions"
 				:key="opt.value"
@@ -41,6 +35,11 @@
 				:title="isOptionDisabled(opt) ? __('No remaining leave') : undefined"
 				@click="selectQuickOption(opt)"
 			>
+				<FeatherIcon
+					v-if="modelValue === opt.value"
+					name="check"
+					class="h-3.5 w-3.5 shrink-0"
+				/>
 				<span class="text-xs font-semibold truncate">{{ opt.label }}</span>
 				<!-- Leave chips carry a balance; shift chips do not. -->
 				<span
@@ -65,7 +64,6 @@
 		<div
 			v-if="segmentOptions.length"
 			class="grid gap-2"
-			:class="props.highlight && !modelValue ? 'rounded-lg ring-2 ring-orange-400 bg-orange-100/80 p-1.5' : ''"
 			:style="{ gridTemplateColumns: `repeat(${segmentOptions.length}, minmax(0, 1fr))` }"
 		>
 			<button
@@ -76,7 +74,9 @@
 				:class="
 					modelValue === opt.value
 						? 'border-red-500 bg-red-50 text-red-700 ring-1 ring-inset ring-red-500'
-						: 'border-gray-200 bg-white text-gray-700 active:bg-gray-50'
+						: props.highlight && !modelValue
+							? 'border-dashed border-orange-400 bg-white text-orange-950 active:bg-orange-50'
+							: 'border-gray-200 bg-white text-gray-700 active:bg-gray-50'
 				"
 				:disabled="isReadOnly"
 				@click="emit('update:modelValue', opt.value)"
@@ -252,7 +252,7 @@
 </template>
 
 <script setup>
-import { Autocomplete, DateTimePicker, ErrorMessage, Input, Button } from "frappe-ui"
+import { Autocomplete, DateTimePicker, ErrorMessage, FeatherIcon, Input, Button } from "frappe-ui"
 import ShiftTimeSlider from "@/components/ShiftTimeSlider.vue"
 import { computed, onMounted, inject, ref } from "vue"
 
@@ -404,7 +404,7 @@ function chipClass(opt) {
 		return "bg-orange-600 border-orange-600 text-white shadow-sm"
 	}
 	if (props.highlight && !props.modelValue) {
-		return "bg-white border-orange-400 text-orange-950"
+		return "bg-white border-dashed border-orange-400 text-orange-950 active:bg-orange-50"
 	}
 	return "bg-gray-50 border-gray-200 text-gray-800"
 }
