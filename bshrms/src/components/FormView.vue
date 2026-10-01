@@ -197,7 +197,7 @@
 			<!-- custom form button eg: Download button in salary slips -->
 			<div
 				v-if="!showFormButton"
-				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-[var(--ion-tab-bar-height,3.5rem)] w-full drop-shadow-xl z-50 border-t rounded-t-lg"
+				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-0 w-full drop-shadow-xl z-50 border-t rounded-t-lg"
 			>
 				<slot name="formButton"></slot>
 			</div>
@@ -213,7 +213,7 @@
 			<!-- save/submit/cancel -->
 			<div
 				v-else-if="isFormDirty || (!workflow?.hasWorkflow && formButton)"
-				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-[var(--ion-tab-bar-height,3.5rem)] w-full drop-shadow-xl z-50 border-t rounded-t-lg"
+				class="px-4 pt-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white sticky bottom-0 w-full drop-shadow-xl z-50 border-t rounded-t-lg"
 			>
 				<ErrorMessage
 					class="mb-2"
@@ -242,7 +242,7 @@
 			<div
 				v-if="canCancelOwnLeave"
 				class="px-4 pb-4 standalone:pb-safe-bottom sm:w-96 bg-white w-full"
-				:class="isFormDirty || (!workflow?.hasWorkflow && formButton) ? '' : 'pt-4 border-t drop-shadow-xl z-50 sticky bottom-[var(--ion-tab-bar-height,3.5rem)]'"
+				:class="isFormDirty || (!workflow?.hasWorkflow && formButton) ? '' : 'pt-4 border-t drop-shadow-xl z-50 sticky bottom-0'"
 			>
 				<Button
 					class="w-full rounded py-5 text-base"
