@@ -191,6 +191,8 @@ override_whitelisted_methods = {
 		"nepal_hrms.overrides.attendance_override.custom_mark_attendance_and_link_log",
 	"hrms.api.get_attendance_requests":
 		"nepal_hrms.overrides.hrms_api.get_attendance_requests",
+	"hrms.api.get_leave_applications":
+		"nepal_hrms.overrides.hrms_api.get_leave_applications",
 }
 
 scheduler_events = {

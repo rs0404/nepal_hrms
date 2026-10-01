@@ -23,6 +23,8 @@
 			>
 				{{ mark }}
 			</span>
+			<!-- Which part of the day: full, 1st half or 2nd half. -->
+			<LeaveSpanMark :span="span" :title="spanLabel" />
 		</template>
 	</RequestRow>
 </template>
@@ -31,8 +33,14 @@
 import { computed, inject } from "vue"
 
 import RequestRow from "@/components/RequestRow.vue"
+import LeaveSpanMark from "@/components/LeaveSpanMark.vue"
 import { formatDualPeriod } from "@/utils/nepali_date"
-import { leaveApplicationMarks, leaveMarkClass } from "@/utils/leave_marks"
+import {
+	leaveApplicationMarks,
+	leaveMarkClass,
+	leaveSpan,
+	leaveSpanLabel,
+} from "@/utils/leave_marks"
 
 const props = defineProps({
 	doc: {
@@ -48,9 +56,13 @@ const props = defineProps({
 	},
 })
 
-const leaveMarks = computed(() => leaveApplicationMarks(props.doc))
-
 const __ = inject("$translate")
+
+const leaveMarks = computed(() => leaveApplicationMarks(props.doc))
+const span = computed(() => leaveSpan(props.doc))
+const spanLabel = computed(() =>
+	leaveSpanLabel(span.value, __, props.doc?.from_date !== props.doc?.to_date)
+)
 
 const meta = computed(() => [
 	formatDualPeriod(props.doc.from_date, props.doc.to_date),

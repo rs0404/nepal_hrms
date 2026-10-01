@@ -30,6 +30,11 @@ export const LEAVE_FIELDS = [
 		fieldtype: "Date",
 	},
 	{
+		fieldname: "custom_half_day_session",
+		label: "Half Day Session",
+		fieldtype: "Select",
+	},
+	{
 		fieldname: "total_leave_days",
 		label: "Total Leave Days",
 		fieldtype: "Float",

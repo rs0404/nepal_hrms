@@ -26,6 +26,7 @@ const LEAVE_FIELDS = [
 	"to_date",
 	"total_leave_days",
 	"half_day",
+	"custom_half_day_session",
 	"status",
 ]
 const STATUS_FILTER_OPTIONS = ["Open", "Approved", "Rejected"] // __("Open"), __("Approved"), __("Rejected")

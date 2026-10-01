@@ -71,3 +71,20 @@ export function leaveMarkClass(mark) {
 	if (mark === "1P") return "penalty-full"
 	return ""
 }
+
+// How much of the day a leave takes: "full" | "first" | "second" | "half".
+// "half" is a half day whose half was never recorded (filed before the field).
+export function leaveSpan(doc) {
+	if (!doc?.half_day) return "full"
+	const session = doc.custom_half_day_session
+	if (session === "First Half") return "first"
+	if (session === "Second Half") return "second"
+	return "half"
+}
+
+export function leaveSpanLabel(span, __, multiDay = false) {
+	if (span === "first") return multiDay ? __("Incl. 1st half") : __("1st half")
+	if (span === "second") return multiDay ? __("Incl. 2nd half") : __("2nd half")
+	if (span === "half") return multiDay ? __("Incl. ½ day") : __("½ day")
+	return __("Full day")
+}

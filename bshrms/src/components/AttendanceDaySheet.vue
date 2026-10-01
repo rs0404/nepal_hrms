@@ -260,23 +260,50 @@
 			<div class="text-xs font-medium text-gray-500">
 				{{ __("Forms available for this day") }}
 			</div>
-			<div class="grid grid-cols-2 gap-2">
-				<button
-					v-for="action in details.actions"
-					:key="`${action.doctype}-${action.half_day || 0}-${action.half || ''}`"
-					type="button"
-					class="flex min-h-[4.5rem] flex-col items-start justify-between gap-2 rounded-xl border p-3 text-left text-sm font-semibold leading-tight transition-colors"
-					:class="actionStyle(action).button"
-					@click="openForm(action)"
-				>
-					<span
-						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-						:class="actionStyle(action).icon"
+			<!--
+				Leave forms stack in the left column and the rest in the right, so
+				they sit together instead of scattered among the other forms. The
+				two halves share one row as a pair of smaller buttons, which keeps
+				the column short and leaves the right one room for Late Entry and
+				Early Exit. The small bar at the right marks which part of the day
+				a leave button takes off.
+			-->
+			<div class="grid grid-cols-2 items-start gap-2">
+				<div v-for="(column, index) in actionColumns" :key="index" class="flex flex-col gap-2">
+					<div
+						v-for="row in column"
+						:key="row.map(actionKey).join('|')"
+						class="grid gap-2"
+						:class="row.length > 1 ? 'grid-cols-2' : 'grid-cols-1'"
 					>
-						<FeatherIcon :name="actionStyle(action).feather" class="h-4 w-4" />
-					</span>
-					<span>{{ action.label }}</span>
-				</button>
+						<button
+							v-for="action in row"
+							:key="actionKey(action)"
+							type="button"
+							class="flex min-h-[4.5rem] flex-col items-start justify-between gap-2 rounded-xl border text-left text-sm font-semibold leading-tight transition-colors"
+							:class="[actionStyle(action).button, row.length > 1 ? 'p-2' : 'p-3']"
+							@click="openForm(action)"
+						>
+							<span class="flex w-full items-start justify-between gap-1">
+								<span
+									class="flex shrink-0 items-center justify-center rounded-full"
+									:class="[actionStyle(action).icon, row.length > 1 ? 'h-7 w-7' : 'h-8 w-8']"
+								>
+									<FeatherIcon :name="actionStyle(action).feather" class="h-4 w-4" />
+								</span>
+								<LeaveSpanMark
+									v-if="isLeaveAction(action)"
+									:span="leaveActionSpan(action)"
+									:title="leaveSpanLabel(leaveActionSpan(action), __)"
+								/>
+							</span>
+							<!-- Half a column has no room for "Leave: 1st half"; the icon already says leave. -->
+							<span>
+								{{ row.length > 1 ? leaveSpanLabel(leaveActionSpan(action), __) : action.label }}
+							</span>
+						</button>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -291,6 +318,8 @@ import { useRouter } from "vue-router"
 import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 import { dayCodeClass, dayCodes } from "@/utils/attendance_colors"
 import { appStatusClass, normalizeAppStatus } from "@/utils/app_status"
+import { leaveSpanLabel } from "@/utils/leave_marks"
+import LeaveSpanMark from "@/components/LeaveSpanMark.vue"
 
 const props = defineProps({
 	date: { type: String, required: true },
@@ -523,6 +552,34 @@ const ACTION_STYLES = {
 		icon: "bg-gray-600 text-white",
 	},
 }
+
+const isLeaveAction = (action) => action.doctype === "Leave Application"
+const actionKey = (action) => `${action.doctype}-${action.half_day || 0}-${action.half || ""}`
+const leaveActionSpan = (action) => (action.half_day ? action.half : "full")
+
+// Below the leave forms rather than under the late/early ones, so neither
+// column runs a row longer than it needs to.
+const LEFT_COLUMN_DOCTYPES = ["Shift Request"]
+
+// [left, right], each a list of rows of buttons. With leave on offer it takes
+// the left column -- full day on its own row, the halves paired on the next --
+// with Shift Request under it, and every other form stacks on the right.
+// Without, the forms fill both columns in turn, as the plain two-column grid did.
+const actionColumns = computed(() => {
+	const actions = details.value?.actions || []
+	const leave = actions.filter(isLeaveAction)
+	const rest = actions.filter((action) => !isLeaveAction(action))
+	if (!leave.length) {
+		const rows = rest.map((action) => [action])
+		return [rows.filter((_, i) => i % 2 === 0), rows.filter((_, i) => i % 2 === 1)]
+	}
+	const full = leave.filter((action) => !action.half_day).map((action) => [action])
+	const halves = leave.filter((action) => action.half_day)
+	const toLeft = rest.filter((action) => LEFT_COLUMN_DOCTYPES.includes(action.doctype))
+	const right = rest.filter((action) => !LEFT_COLUMN_DOCTYPES.includes(action.doctype))
+	const left = [...full, ...(halves.length ? [halves] : []), ...toLeft.map((action) => [action])]
+	return [left, right.map((action) => [action])]
+})
 
 function actionStyle(action) {
 	return ACTION_STYLES[action.doctype] || ACTION_STYLES["Shift Request"]

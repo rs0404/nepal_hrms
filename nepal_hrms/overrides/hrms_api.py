@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Yarsa Labs Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-"""Attendance Request list APIs with Open/Approved/Rejected status for bshrms."""
+"""bshrms list APIs: Attendance Requests with Open/Approved/Rejected status, and
+Leave Applications with the half each half-day leave takes."""
 
 from __future__ import annotations
 
@@ -57,3 +58,38 @@ def get_attendance_requests(
 			application["workflow_state_field"] = workflow_state_field
 
 	return attendance_requests
+
+
+@frappe.whitelist()
+def get_leave_applications(
+	employee: str,
+	approver_id: str | None = None,
+	for_approval: bool = False,
+	limit: int | None = None,
+) -> list[dict]:
+	"""Stock leave list, plus which half each half-day leave takes.
+
+	The PWA marks a leave Full day / 1st half / 2nd half; stock returns half_day
+	alone, which cannot tell the two halves apart.
+	"""
+	from hrms.api import get_leave_applications as stock_get_leave_applications
+
+	from nepal_hrms.custom_code.half_day import SESSION_FIELD
+
+	applications = stock_get_leave_applications(
+		employee, approver_id=approver_id, for_approval=for_approval, limit=limit
+	)
+	names = [row.name for row in applications if row.get("half_day")]
+	if names and frappe.get_meta("Leave Application").has_field(SESSION_FIELD):
+		# Rows already passed stock's permission check; this only adds a column.
+		sessions = dict(
+			frappe.get_all(
+				"Leave Application",
+				filters={"name": ["in", names]},
+				fields=["name", SESSION_FIELD],
+				as_list=True,
+			)
+		)
+		for row in applications:
+			row[SESSION_FIELD] = sessions.get(row.name)
+	return applications
