@@ -1,7 +1,8 @@
 """One-click Nepal payroll setup, driven from Nepal HRMS Settings.
 
-Creates the salary components, four salary structures, the income tax slab and
-the employee tax exemption categories, then applies the account mapping held in
+Creates the salary components, the salary structures picked in the setup dialog
+(any of four), the income tax slab and the employee tax exemption categories for
+the picked companies (or all of them), then applies the account mapping held in
 settings.
 
 Four structures, because two axes matter:
@@ -203,23 +204,27 @@ def _apply_account(component_name, purposes, accounts):
 	return applied
 
 
-def _ensure_components(scheme, ot_multiplier, accounts):
-	"""Create/update every component for a scheme. Returns names by variant."""
-	created = {}
-	for variant in VARIANTS:
-		names = []
-		for spec in _variant_components(variant, scheme, ot_multiplier):
-			name = _upsert(spec)
-			names.append(name)
-			_apply_account(name, _expense_purposes(name, variant), accounts)
-		created[variant] = names
+def _component_plan(scheme, variants, ot_multiplier):
+	"""(spec, purposes, variant) for every component the chosen structures need.
 
+	variant is None for a shared component, which every chosen variant carries.
+	"""
+	for variant in variants:
+		for spec in _variant_components(variant, scheme, ot_multiplier):
+			yield spec, _expense_purposes(spec["name"], variant), variant
 	for spec in _shared_components(scheme):
+		yield spec, (spec["purpose"],) if spec.get("purpose") else (), None
+
+
+def _ensure_components(scheme, ot_multiplier, accounts, variants=VARIANTS):
+	"""Create/update every component for a scheme. Returns names by variant."""
+	created = {variant: [] for variant in variants}
+	for spec, purposes, variant in _component_plan(scheme, variants, ot_multiplier):
 		name = _upsert(spec)
-		if spec.get("purpose"):
-			_apply_account(name, spec["purpose"], accounts)
-		for variant in VARIANTS:
-			created[variant].append(name)
+		if purposes:
+			_apply_account(name, purposes, accounts)
+		for target in [variant] if variant else variants:
+			created[target].append(name)
 	return created
 
 
@@ -371,18 +376,103 @@ def _ensure_tax_slab(company, currency, effective_from):
 	return name, action, provenance
 
 
+def _structure_choices():
+	"""{"Nepal Payroll - SSF - Salary": ("SSF", "Salary"), ...}, in setup order."""
+	return {
+		f"{prefix} - {variant}": (scheme, variant)
+		for scheme, prefix in SCHEMES.items()
+		for variant in VARIANTS
+	}
+
+
+def _resolve_companies(companies=None, company=None):
+	"""Selected companies, or every company when none were picked."""
+	companies = frappe.parse_json(companies) if isinstance(companies, str) else companies
+	companies = [c for c in (companies or ([company] if company else [])) if c]
+	if not companies:
+		companies = frappe.get_all("Company", pluck="name", order_by="name asc")
+	if not companies:
+		frappe.throw(_("No Company found."))
+	unknown = [c for c in companies if not frappe.db.exists("Company", c)]
+	if unknown:
+		frappe.throw(_("Company not found: {0}").format(", ".join(unknown)))
+	return companies
+
+
+def _resolve_structures(structures=None):
+	"""{scheme: [variant, ...]} for the selected structures, or all four."""
+	choices = _structure_choices()
+	structures = frappe.parse_json(structures) if isinstance(structures, str) else structures
+	structures = structures or list(choices)
+	unknown = [s for s in structures if s not in choices]
+	if unknown:
+		frappe.throw(_("Unknown salary structure: {0}").format(", ".join(unknown)))
+
+	selected = {}
+	for key in choices:  # setup order, whatever order they were picked in
+		if key in structures:
+			scheme, variant = choices[key]
+			selected.setdefault(scheme, []).append(variant)
+	return selected
+
+
 @frappe.whitelist()
-def setup_nepal_payroll(company=None, effective_from=None):
-	"""Button target on Nepal HRMS Settings. Idempotent."""
+def get_setup_options():
+	"""What the setup dialog offers: the companies and the four structures."""
+	frappe.only_for(("System Manager", "HR Manager"))
+	return {
+		"companies": frappe.get_all("Company", pluck="name", order_by="name asc"),
+		"structures": list(_structure_choices()),
+	}
+
+
+@frappe.whitelist()
+def get_unmapped_purposes(companies=None, structures=None):
+	"""Mapping rows the chosen structures still need, as [{company, purpose}].
+
+	A component is covered when any purpose in its chain is mapped for the
+	company, or when the component already carries an account for it. Otherwise
+	the chain's last purpose is asked for -- the variant expense account for an
+	employer contribution -- since that one row covers the most components.
+	"""
+	frappe.only_for(("System Manager", "HR Manager"))
+	companies = _resolve_companies(companies)
+	selected = _resolve_structures(structures)
+	accounts = _account_map(_settings())
+
+	missing = []
+	for company in companies:
+		for scheme, variants in selected.items():
+			for spec, purposes, _variant in _component_plan(scheme, variants, 1):
+				if not purposes or any((company, p) in accounts for p in purposes):
+					continue
+				if frappe.db.exists(
+					"Salary Component Account",
+					{"parent": spec["name"], "parenttype": "Salary Component", "company": company},
+				):
+					continue
+				row = {"company": company, "purpose": purposes[-1]}
+				if row not in missing:
+					missing.append(row)
+	return missing
+
+
+@frappe.whitelist()
+def setup_nepal_payroll(company=None, effective_from=None, companies=None, structures=None):
+	"""Button target on Nepal HRMS Settings. Idempotent.
+
+	companies: company names to set up; every company when empty.
+	structures: keys from _structure_choices(); all four when empty.
+	"""
 	frappe.only_for(("System Manager", "HR Manager"))
 
 	settings = _settings()
-	accounts = _account_map(settings)
+	companies = _resolve_companies(companies, company)
+	selected = _resolve_structures(structures)
+	# Mapping rows for companies outside this run stay unapplied until that
+	# company is set up itself.
+	accounts = {k: v for k, v in _account_map(settings).items() if k[0] in companies}
 	ot_multiplier = flt(settings.get("overtime_rate_multiplier") or 1.5)
-
-	companies = [company] if company else frappe.get_all("Company", pluck="name")
-	if not companies:
-		frappe.throw(_("No Company found."))
 
 	if not effective_from:
 		# Shrawan 1 of the current BS year: the Nepali fiscal year start.
@@ -392,9 +482,10 @@ def setup_nepal_payroll(company=None, effective_from=None):
 	       "account_rows": len(accounts), "companies": companies}
 
 	seen_components = set()
-	for scheme, prefix in SCHEMES.items():
-		created = _ensure_components(scheme, ot_multiplier, accounts)
-		for variant in VARIANTS:
+	for scheme, variants in selected.items():
+		prefix = SCHEMES[scheme]
+		created = _ensure_components(scheme, ot_multiplier, accounts, variants)
+		for variant in variants:
 			seen_components.update(created[variant])
 			for comp in companies:
 				currency = frappe.db.get_value("Company", comp, "default_currency") or "NPR"

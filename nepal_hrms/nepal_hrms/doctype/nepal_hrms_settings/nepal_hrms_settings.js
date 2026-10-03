@@ -509,11 +509,143 @@ frappe.ui.form.on("Nepal HRMS Settings", {
 			return;
 		}
 
+		frappe.call({
+			method: "nepal_hrms.custom_code.payroll.setup.get_setup_options",
+			callback: (r) => {
+				if (r.message) frm.events.show_payroll_setup_dialog(frm, r.message);
+			},
+		});
+	},
+
+	show_payroll_setup_dialog(frm, options) {
+		const d = new frappe.ui.Dialog({
+			title: __("Run Payroll Setup"),
+			fields: [
+				{
+					fieldname: "companies",
+					fieldtype: "MultiCheck",
+					label: __("Companies"),
+					select_all: true,
+					columns: 2,
+					// A single-company site has nothing to choose, so start it ticked.
+					options: options.companies.map((c) => ({
+						label: c,
+						value: c,
+						checked: options.companies.length === 1 ? 1 : 0,
+					})),
+				},
+				{
+					fieldname: "structures",
+					fieldtype: "MultiCheck",
+					label: __("Salary Structures"),
+					description: __("Each is created per company, named with the company at the end. Pick SSF for SSF-registered companies, PF & Gratuity otherwise."),
+					columns: 2,
+					options: options.structures.map((s) => ({
+						label: s,
+						value: s,
+						checked: s === "Nepal Payroll - SSF - Salary" ? 1 : 0,
+					})),
+				},
+			],
+			primary_action_label: __("Continue"),
+			primary_action: () => {
+				const companies = d.fields_dict.companies.get_checked_options();
+				const structures = d.fields_dict.structures.get_checked_options();
+
+				if (!companies.length) {
+					frappe.msgprint(__("Select at least one company."));
+					return;
+				}
+				if (!structures.length) {
+					frappe.msgprint(__("Select at least one salary structure."));
+					return;
+				}
+
+				d.hide();
+				frm.events.check_payroll_setup_accounts(frm, { companies, structures });
+			},
+		});
+		d.show();
+	},
+
+	check_payroll_setup_accounts(frm, args) {
+		// Components the chosen structures need but no mapping row covers would be
+		// created without an account. Ask for those before anything is created.
+		frappe.call({
+			method: "nepal_hrms.custom_code.payroll.setup.get_unmapped_purposes",
+			args: args,
+			callback: (r) => {
+				const missing = r.message || [];
+				if (!missing.length) {
+					frm.events.confirm_payroll_setup(frm, args);
+					return;
+				}
+
+				const rows = missing
+					.map(
+						(m) => `<tr><td>${frappe.utils.escape_html(m.company)}</td>
+							<td>${frappe.utils.escape_html(m.purpose)}</td></tr>`
+					)
+					.join("");
+				const d = new frappe.ui.Dialog({
+					title: __("Accounts Not Mapped"),
+					size: "large",
+					fields: [
+						{
+							fieldtype: "HTML",
+							fieldname: "missing",
+							options: `<p>${__(
+								"These structures use salary components that have no account for the companies below. Add them to the Component Account Mapping table and pick an account for each?"
+							)}</p>
+							<table class="table table-bordered"><thead><tr>
+							<th>${__("Company")}</th><th>${__("Purpose")}</th></tr></thead>
+							<tbody>${rows}</tbody></table>`,
+						},
+					],
+					primary_action_label: __("Add to Mapping Table"),
+					primary_action: () => {
+						d.hide();
+						frm.events.add_unmapped_purposes(frm, missing);
+					},
+					secondary_action_label: __("Run Without Them"),
+					secondary_action: () => {
+						d.hide();
+						frm.events.confirm_payroll_setup(frm, args);
+					},
+				});
+				d.show();
+			},
+		});
+	},
+
+	add_unmapped_purposes(frm, missing) {
+		for (const m of missing) {
+			const exists = (frm.doc.payroll_accounts || []).some(
+				(row) => row.company === m.company && row.purpose === m.purpose
+			);
+			if (!exists) frm.add_child("payroll_accounts", { company: m.company, purpose: m.purpose });
+		}
+		frm.refresh_field("payroll_accounts");
+		frm.scroll_to_field("payroll_accounts");
+		frappe.msgprint({
+			title: __("Pick the Accounts"),
+			message: __("{0} row(s) were added to the Component Account Mapping table. Select an account in each, save, then run setup again.", [missing.length]),
+			indicator: "blue",
+		});
+	},
+
+	confirm_payroll_setup(frm, args) {
+		const companies = args.companies.map((c) => frappe.utils.escape_html(c)).join(", ");
+		const structures = args.structures.map((s) => `<li>${frappe.utils.escape_html(s)}</li>`).join("");
+
 		frappe.confirm(
-			__("Create the Nepal salary components, four salary structures and the income tax slab?<br><br>Existing records are updated in place, never duplicated. Salary structures already on this site are left untouched."),
+			`<p>${__("Create the Nepal salary components and income tax slab for {0}, and these salary structures:", [companies])}</p>
+			<ul>${structures}</ul>
+			<p>${__("Existing records are updated in place, never duplicated. Salary structures already on this site are left untouched.")}</p>`,
 			() => {
 				frappe.call({
 					method: "nepal_hrms.custom_code.payroll.setup.setup_nepal_payroll",
+					args: args,
 					freeze: true,
 					freeze_message: __("Setting up Nepal payroll…"),
 					callback: (r) => {
