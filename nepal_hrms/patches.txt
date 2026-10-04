@@ -15,3 +15,4 @@ nepal_hrms.patches.v1.clear_unexcused_flags_covered_by_leave
 nepal_hrms.patches.v1.drop_per_slip_bs_tail_flag
 nepal_hrms.patches.v1.leave_late_formula_single_total
 nepal_hrms.patches.v1.leave_late_deduction_flags
+nepal_hrms.patches.v1.drop_include_in_taxable_salary

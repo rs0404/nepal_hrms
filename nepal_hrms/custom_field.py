@@ -24,7 +24,6 @@ def create_custom_fields():
 		"Salary Component": [
 			{"fieldname": "custom_amount_from_assignment", "label": "Use Amount from Salary Structure Assignment", "fieldtype": "Check", "insert_after": "amount_based_on_formula", "description": "The amount is typed per employee in the Salary Structure Assignment's allowances table. No formula needed. Add the component to the salary structure as usual."},
 			*SALARY_COMPONENT_DEDUCTION_FLAGS,
-			{"fieldname": "include_in_taxable_salary", "label": "Include In Taxable Salary", "fieldtype": "Check", "insert_after": "is_income_tax_component", "allow_on_submit": 1, "description": "Check this if this component is to be included in taxable salary calculation of Nepal HRMS."},
 		],
 		"Salary Detail": [
 			{"fieldname": "custom_fixed_amount", "label": "Fixed Amount", "fieldtype": "Currency", "options": "currency", "insert_after": "abbr", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1, "columns": 2, "depends_on": "", "description": "Contractual amount before attendance deductions. Amount is the salary actually earned for the period."},
