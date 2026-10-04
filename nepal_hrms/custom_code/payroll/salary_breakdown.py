@@ -26,6 +26,8 @@ from frappe import _
 from frappe.utils import cint, flt
 
 OTHER_ALLOWANCE_COMPONENT = "Other Allowance"
+# Salary Component checkbox: take the amount from this table, no formula.
+AMOUNT_FROM_ASSIGNMENT_FIELD = "custom_amount_from_assignment"
 
 
 def get_default_other_allowance_component(salary_structure):
@@ -65,7 +67,15 @@ def compute_basic_remuneration(basic, dearness_allowance, grade, settings=None):
 
 
 def _allowance_total(doc):
-	return flt(sum(flt(r.amount) for r in (doc.get("custom_allowances") or [])), 2)
+	"""Earning rows only: a deduction typed in the table must not raise base."""
+	return flt(
+		sum(
+			flt(r.amount)
+			for r in (doc.get("custom_allowances") or [])
+			if _component_type(r.salary_component) == "Earning"
+		),
+		2,
+	)
 
 
 def _has_breakdown(doc):
@@ -195,12 +205,20 @@ def _is_other_allowance_component(name):
 	return name == OTHER_ALLOWANCE_COMPONENT or name.startswith("Other Allowance - ")
 
 
-def get_allowance_rows(salary_structure_assignment):
-	"""Return the employee's component-wise monthly allowance rows."""
+def _component_type(component):
+	return frappe.get_cached_value("Salary Component", component, "type") if component else None
+
+
+def get_allowance_rows(salary_structure_assignment, component_type="Earning"):
+	"""Return the employee's component-wise monthly rows of one component type.
+
+	The table also holds deductions whose amount comes from the assignment;
+	pass component_type=None for every row.
+	"""
 	if not salary_structure_assignment:
 		return []
 	try:
-		return frappe.get_all(
+		rows = frappe.get_all(
 			"Nepal Salary Allowance",
 			filters={
 				"parent": salary_structure_assignment,
@@ -212,6 +230,21 @@ def get_allowance_rows(salary_structure_assignment):
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "Nepal salary allowance lookup failed")
 		return []
+	if not component_type:
+		return rows
+	return [r for r in rows if _component_type(r.salary_component) == component_type]
+
+
+def get_assignment_amount(salary_structure_assignment, salary_component):
+	"""Total typed against one component in the assignment's table, 0 if absent."""
+	return flt(
+		sum(
+			flt(r.amount)
+			for r in get_allowance_rows(salary_structure_assignment, component_type=None)
+			if r.salary_component == salary_component
+		),
+		2,
+	)
 
 
 def get_allowance_map(salary_structure_assignment):
@@ -258,7 +291,7 @@ def get_allowance_map(salary_structure_assignment):
 # ---------------------------------------------------------------------------
 
 
-def _structure_earning_components(salary_structure):
+def _structure_earning_components(salary_structure, parentfield="earnings"):
 	if not salary_structure:
 		return set()
 	rows = frappe.get_all(
@@ -266,7 +299,7 @@ def _structure_earning_components(salary_structure):
 		filters={
 			"parent": salary_structure,
 			"parenttype": "Salary Structure",
-			"parentfield": "earnings",
+			"parentfield": parentfield,
 		},
 		pluck="salary_component",
 	)
@@ -279,7 +312,10 @@ def validate_allowance_rows(doc):
 	if not rows:
 		return
 
-	structure_components = _structure_earning_components(doc.get("salary_structure"))
+	structure_components = {
+		"Earning": _structure_earning_components(doc.get("salary_structure")),
+		"Deduction": _structure_earning_components(doc.get("salary_structure"), "deductions"),
+	}
 	dynamic_allowances = (doc.get("salary_structure") or "").startswith("Nepal Payroll - ")
 	seen = {}
 	missing_from_structure = []
@@ -289,16 +325,26 @@ def validate_allowance_rows(doc):
 		if not row.salary_component:
 			continue
 
+		fields = ["salary_component_abbr", "type"]
+		if frappe.get_meta("Salary Component").has_field(AMOUNT_FROM_ASSIGNMENT_FIELD):
+			fields.append(AMOUNT_FROM_ASSIGNMENT_FIELD)
 		comp = frappe.db.get_value(
-			"Salary Component",
-			row.salary_component,
-			["salary_component_abbr", "type"],
-			as_dict=True,
+			"Salary Component", row.salary_component, fields, as_dict=True
 		) or frappe._dict()
+		component_type = comp.get("type") or ""
 
-		if (comp.get("type") or "") != "Earning":
+		# A deduction is only ever taken through the checkbox; an earning may also
+		# be paid through an nsa_<abbr> formula, as before.
+		if component_type == "Deduction" and not cint(comp.get(AMOUNT_FROM_ASSIGNMENT_FIELD)):
 			frappe.throw(
-				_("Allowance row {0}: {1} is not an Earning component.").format(
+				_(
+					"Row {0}: tick Use Amount from Salary Structure Assignment on deduction {1} before adding it here."
+				).format(row.idx, frappe.bold(row.salary_component)),
+				title=_("Invalid Allowance"),
+			)
+		if component_type not in ("Earning", "Deduction"):
+			frappe.throw(
+				_("Row {0}: {1} is not an Earning or Deduction component.").format(
 					row.idx, frappe.bold(row.salary_component)
 				),
 				title=_("Invalid Allowance"),
@@ -329,7 +375,9 @@ def validate_allowance_rows(doc):
 			{"parent": row.salary_component, "company": doc.get("company")},
 		):
 			missing_accounts.append(row.salary_component)
-		elif structure_components and row.salary_component not in structure_components:
+		elif row.salary_component not in structure_components[component_type] and (
+			component_type == "Deduction" or structure_components["Earning"]
+		):
 			missing_from_structure.append(row.salary_component)
 
 	if missing_accounts:
@@ -344,11 +392,11 @@ def validate_allowance_rows(doc):
 		return
 
 	if missing_from_structure:
-		# The amount still counts toward base (so deduction rates stay right) but
-		# no earning line is produced -- the employee would not actually be paid it.
+		# An earning still counts toward base (so deduction rates stay right) but
+		# no line is produced -- the employee would not actually be paid it.
 		frappe.msgprint(
 			_(
-				"These allowances are not in Salary Structure {0}, so they will raise Base but will not be paid: {1}"
+				"These components are not in Salary Structure {0}, so they will not appear on the salary slip: {1}"
 			).format(
 				frappe.bold(doc.get("salary_structure")),
 				", ".join(frappe.bold(c) for c in missing_from_structure),

@@ -1,3 +1,4 @@
+import copy
 from contextlib import contextmanager
 
 import frappe, traceback
@@ -369,6 +370,7 @@ def _matches_component(name, roots):
 
 
 TAKEN_FROM_EARNINGS_FIELD = "custom_taken_from_earnings"
+AMOUNT_FROM_ASSIGNMENT_FIELD = "custom_amount_from_assignment"
 SKIP_TAX_PROJECTION_FIELD = "custom_skip_tax_projection"
 
 
@@ -395,6 +397,11 @@ def _taken_from_earnings(component):
     if flag is None:
         return _matches_component(component, ATTENDANCE_DEDUCTION_COMPONENTS)
     return bool(flag)
+
+
+def _amount_from_assignment(component):
+    """Whether the component's amount is typed per employee in the SSA table."""
+    return bool(_component_flag(component, AMOUNT_FROM_ASSIGNMENT_FIELD))
 
 
 def _is_attendance_deduction(component):
@@ -1264,8 +1271,12 @@ class CustomSalarySlip(SalarySlip):
 
     def add_structure_components(self, component_type):
         super().add_structure_components(component_type)
-        if component_type == "earnings" and (self.salary_structure or "").startswith("Nepal Payroll - "):
+        if not (self.salary_structure or "").startswith("Nepal Payroll - "):
+            return
+        if component_type == "earnings":
             self._add_assignment_allowance_earnings()
+        elif component_type == "deductions":
+            self._add_assignment_deductions()
 
     def _add_assignment_allowance_earnings(self):
         """Replace aggregate structure rows with one earning per SSA allowance row."""
@@ -1306,6 +1317,28 @@ class CustomSalarySlip(SalarySlip):
                 component_data,
                 amount,
                 "earnings",
+                data=self.data,
+                default_amount=amount,
+                remove_if_zero_valued=True,
+            )
+
+    def _add_assignment_deductions(self):
+        """Nepal structures take ticked deductions straight from the SSA table."""
+        from nepal_hrms.custom_code.payroll.salary_breakdown import get_allowance_rows
+
+        assignment = getattr(self, "_salary_structure_assignment", None) or {}
+        amounts_by_component = {}
+        for row in get_allowance_rows(assignment.get("name"), component_type="Deduction"):
+            if _amount_from_assignment(row.salary_component):
+                amounts_by_component[row.salary_component] = flt(
+                    amounts_by_component.get(row.salary_component)
+                ) + flt(row.amount)
+
+        for component, amount in amounts_by_component.items():
+            self.update_component_row(
+                get_salary_component_data(component),
+                amount,
+                "deductions",
                 data=self.data,
                 default_amount=amount,
                 remove_if_zero_valued=True,
@@ -1693,7 +1726,26 @@ class CustomSalarySlip(SalarySlip):
         if struct_row.salary_component == "CIT":
             return flt(data.get("cit_contribution"))
 
+        if _amount_from_assignment(struct_row.salary_component):
+            struct_row = self._row_with_assignment_amount(struct_row)
+
         return super().eval_condition_and_formula(struct_row, data)
+
+    def _row_with_assignment_amount(self, struct_row):
+        """A copy of the structure row carrying the SSA table amount, no formula.
+
+        Stock then applies the row's condition, sets data[abbr] and handles the
+        tax and payment-days flags exactly as for a fixed amount. A copy, because
+        the Salary Structure document is cached and shared between slips.
+        """
+        from nepal_hrms.custom_code.payroll.salary_breakdown import get_assignment_amount
+
+        assignment = getattr(self, "_salary_structure_assignment", None) or {}
+        row = copy.copy(struct_row)
+        row.amount_based_on_formula = 0
+        row.formula = None
+        row.amount = get_assignment_amount(assignment.get("name"), struct_row.salary_component)
+        return row
 
     def compute_taxable_earnings_for_year(self):
         super().compute_taxable_earnings_for_year()

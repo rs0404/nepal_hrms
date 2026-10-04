@@ -8,7 +8,7 @@ const EARNINGS_HELP_NEPAL = __(
 );
 
 const EARNINGS_HELP_CUSTOM = __(
-	"This is not a Nepal Payroll structure, so Other Allowances are not injected automatically from the Assignment.\n\nTo pay an allowance from Salary Structure Assignment → Other Allowances:\n1. Add the same Salary Component here under Earnings.\n2. Set the component formula to nsa_<abbr> (the component's Abbr).\n\nExample: Component Transport Allowance, Abbr transport, formula nsa_transport. Assignment amount 3,000 → slip pays 3,000.\n\nIf you put only a fixed amount on this Earnings row, the slip uses that fixed amount and ignores the Assignment table.\n\nIf the allowance is only on the Assignment and missing here, it raises Base but is not paid."
+	"To pay an amount typed per employee on the Salary Structure Assignment:\n1. Open the Salary Component and tick Use Amount from Salary Structure Assignment.\n2. Add the component here (Earnings or Deductions). No formula needed.\n3. On each employee's Salary Structure Assignment, add the component to the Other Allowances table and type the amount.\n\nExample: Commission is ticked and added here. Assignment has Commission = 20,000. The slip pays 20,000.\n\nTaxable, depends on payment days and the other component settings work as usual.\n\nA component that is only on the Assignment and missing here is not paid."
 );
 
 frappe.ui.form.on("Salary Structure", {
