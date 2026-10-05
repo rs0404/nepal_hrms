@@ -2,7 +2,7 @@
 
 <p align="center">
   Nepali HR and Payroll for <a href="https://github.com/frappe/hrms">Frappe HR</a> —
-  Bikram Sambat dates, attendance policy, Nepal payroll, and the <strong>BSHRMS</strong> employee PWA.
+  Bikram Sambat dates, attendance policy, Nepal payroll, and the <strong>Nepal HRMS</strong> employee PWA.
 </p>
 
 <p align="center">
@@ -15,18 +15,18 @@
 
 **Nepal HRMS** (`nepal_hrms`) is a Frappe app that localizes Frappe HR for Nepal: BS calendars, late/early/OOO policy, sandwich leave, SSF/PF payroll, and a mobile PWA at `/hr`.
 
-Desk home is the **Nepal HRMS** workspace. The **BS HRMS** tile on the Apps screen opens the employee PWA.
+Desk home is the **Nepal HRMS** workspace. The **Nepal HRMS** tile on the Apps screen opens the employee PWA.
 
 ---
 
 ## Screenshots
 
-### BSHRMS
+### Nepal HRMS
 
 Employee PWA at `/hr` (the route is a Nepal HRMS setting; `/bshrms` redirects to it): a live clock with the Nepali date, check-in (Normal or OOO Work), quick links, and the request panel. Screenshots use made-up employees.
 
 <p align="center">
-  <img src="docs/images/bshrms-home.png" width="320" alt="BSHRMS home">
+  <img src="docs/images/bshrms-home.png" width="320" alt="Nepal HRMS home">
 </p>
 
 ### Nepal HRMS Settings
@@ -71,7 +71,7 @@ HR and payroll overrides live in this app only. After merging upstream Nepal Com
 
 ## Features
 
-### BSHRMS (employee PWA)
+### Nepal HRMS (employee PWA)
 
 Route: `/bshrms`. Installable as a PWA (manifest + service worker). App permission: active Employee, or Employee read.
 
@@ -198,7 +198,7 @@ Deduction base options: Basic only · +Grade · +DA · +Grade+DA · Basic remune
 **Notifications**
 
 One event list, two delivery channels. Each row picks who is notified, then whether it
-goes to Raven, the BSHRMS PWA, or both. Every event starts disabled.
+goes to Raven, the Nepal HRMS PWA, or both. Every event starts disabled.
 
 | Setting | Purpose |
 | --- | --- |
@@ -363,7 +363,6 @@ Install / migrate: custom fields on every migrate; salary structures, default le
 Nepal HRMS is free software under the **GNU General Public License v3 or later**. You may redistribute and modify it under the terms of the GPL. There is **no warranty**.
 
 - Full license text: [LICENSE](LICENSE)
-- Copyright holder and short notice: [NOTICE](NOTICE)
 - SPDX: `GPL-3.0-or-later`
 
 ---
