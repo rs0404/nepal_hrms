@@ -370,13 +370,13 @@
    "label": "Block Leave Application on Sandwich Rule Violation"
   },
   {
-   "description": "These leave types appear as shortcuts on the BSHRMS leave form, with remaining balance. Other types stay in the dropdown.",
+   "description": "These leave types appear as shortcuts on the Nepal HRMS app's leave form, with remaining balance. Other types stay in the dropdown.",
    "fieldname": "pwa_leave_form_section",
    "fieldtype": "Section Break",
    "label": "PWA Frequent Leave Types"
   },
   {
-   "description": "Shown as quick choices on the BSHRMS leave form. Only types allocated to the employee (or LWP) are listed. Remaining types stay in the dropdown.",
+   "description": "Shown as quick choices on the Nepal HRMS app's leave form. Only types allocated to the employee (or LWP) are listed. Remaining types stay in the dropdown.",
    "fieldname": "frequent_leave_types",
    "fieldtype": "Table MultiSelect",
    "label": "Frequent Leave Types",
@@ -448,7 +448,7 @@
    "label": "Prevent Self-Approval of CNR Applications"
   },
   {
-   "description": "Control which roles can use BSHRMS PWA attendance and leave-board features. Empty tables turn that feature off; Leave Board also inherits Live Attendance Board roles.",
+   "description": "Control which roles can use Nepal HRMS app attendance and leave-board features. Empty tables turn that feature off; Leave Board also inherits Live Attendance Board roles.",
    "fieldname": "pwa_boards_section",
    "fieldtype": "Section Break",
    "label": "PWA Boards"
@@ -1041,7 +1041,7 @@
   {
    "fieldname": "pwa_section",
    "fieldtype": "Section Break",
-   "label": "BSHRMS PWA",
+   "label": "Nepal HRMS App Notifications",
    "description": "The mobile app is a separate delivery channel from Raven and needs neither a bot nor a channel. It notifies the employee's own user, so nobody has to be a Raven User to receive one."
   },
   {
@@ -1049,7 +1049,7 @@
    "fieldname": "enable_pwa_notifications",
    "fieldtype": "Check",
    "label": "Enable PWA Notifications",
-   "description": "Master switch for the BSHRMS PWA. Off until you turn it on, and off stops every PWA notification at once without disturbing the per-event boxes or the Raven side. Each event still needs its own PWA box ticked below."
+   "description": "Master switch for the Nepal HRMS app. Off until you turn it on, and off stops every PWA notification at once without disturbing the per-event boxes or the Raven side. Each event still needs its own PWA box ticked below."
   },
   {
    "description": "One list for both channels: each row picks who is notified, then whether it goes to Raven, the PWA, or both. Raven direct messages are skipped when the person is not a Raven User; PWA notifications are not. All events start disabled.",
@@ -1068,7 +1068,7 @@
   {
    "fieldname": "pwa_app_tab",
    "fieldtype": "Tab Break",
-   "label": "BS HRMS App",
+   "label": "Nepal HRMS App",
    "permlevel": 1
   },
   {
@@ -1079,14 +1079,14 @@
   },
   {
    "default": "hr",
-   "description": "The path the BS HRMS app opens at: hr serves it at https://your-site/hr. Use lowercase letters, digits and hyphens. /bshrms always redirects to this path. Anyone who installed the app on their home screen may need to reinstall it after a change.",
+   "description": "The path the Nepal HRMS app opens at: hr serves it at https://your-site/hr. Use lowercase letters, digits and hyphens. /bshrms always redirects to this path. Anyone who installed the app on their home screen may need to reinstall it after a change.",
    "fieldname": "pwa_route",
    "fieldtype": "Data",
    "label": "App Route",
    "permlevel": 1
   },
   {
-   "description": "Salary figures in the BS HRMS app show as xxxxx until the employee types the value of an Employee field they chose. A screen lock against someone holding their phone, not a change to who may read the data.",
+   "description": "Salary figures in the Nepal HRMS app show as xxxxx until the employee types the value of an Employee field they chose. A screen lock against someone holding their phone, not a change to who may read the data.",
    "fieldname": "salary_privacy_section",
    "fieldtype": "Section Break",
    "label": "PWA Salary Privacy"
@@ -1110,7 +1110,7 @@
    "label": "Unlock Fields"
   },
   {
-   "description": "Shown as quick choices when requesting a shift in the BSHRMS app, on the Shift Request form and from the Shift Roster. An employee may pick two of them for the same day.",
+   "description": "Shown as quick choices when requesting a shift in the Nepal HRMS app, on the Shift Request form and from the Shift Roster. An employee may pick two of them for the same day.",
    "fieldname": "pwa_shift_form_section",
    "fieldtype": "Section Break",
    "label": "PWA Frequent Shift Types"
@@ -1125,7 +1125,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-24 12:00:00.000000",
+ "modified": "2026-10-05 13:37:29.975110",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Settings",

@@ -22,7 +22,7 @@ add_to_apps_screen = [
 	{
 		"name": "bshrms",
 		"logo": "/assets/nepal_hrms/icon/app-icon.svg",
-		"title": "BS HRMS",
+		"title": "Nepal HRMS",
 		"route": "/bshrms",
 		"has_permission": "nepal_hrms.utils.check_app_permission",
 	}

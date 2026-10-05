@@ -78,7 +78,7 @@
    "fieldname": "send_to_pwa",
    "fieldtype": "Check",
    "label": "PWA",
-   "description": "Also deliver to the BSHRMS PWA as a PWA Notification, and push it to the device. Recipients follow the Employee / Reports To / Approver boxes on this row. Leave Application is excluded: HRMS already notifies it.",
+   "description": "Also deliver to the Nepal HRMS app as a PWA Notification, and push it to the device. Recipients follow the Employee / Reports To / Approver boxes on this row. Leave Application is excluded: HRMS already notifies it.",
    "in_list_view": 1
   },
   {
@@ -98,7 +98,7 @@
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-09-14 20:05:00.000000",
+ "modified": "2026-10-05 13:37:29.975110",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Raven Notification",

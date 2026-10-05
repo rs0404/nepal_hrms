@@ -174,8 +174,8 @@ def manifest():
 	"""Web app manifest. Served from here, not a built file, so start_url and scope follow the setting."""
 	route = "/" + get_pwa_route()
 	data = {
-		"name": "Nepal Hrms",
-		"short_name": "Nepal Hrms",
+		"name": "Nepal HRMS",
+		"short_name": "Nepal HRMS",
 		"description": "Everyday HR & Payroll operations at your fingertips (BS)",
 		"start_url": route,
 		"scope": route,
