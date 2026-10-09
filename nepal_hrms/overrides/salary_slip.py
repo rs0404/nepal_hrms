@@ -148,12 +148,17 @@ def get_pool_penalty_days(employee, start_date, end_date):
     from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
 
     holiday_dates = holiday_dates_between(employee, start_date, end_date)
+    # Nor does a day under a late/early escape -- even one whose stored mark
+    # predates the escape because nobody has rechecked attendance since.
+    from nepal_hrms.custom_code.policy_escape import escaped_dates
+
+    escaped = escaped_dates(employee, "escape_late_early", start_date, end_date)
 
     days = 0.0
     dates = []
     for row in rows:
         day = getdate(row.attendance_date)
-        if day in holiday_dates:
+        if day in holiday_dates or day in escaped:
             continue
         kind = (row.custom_cnr_pool_penalty or "").strip() or (
             assigned.get(day) or ""

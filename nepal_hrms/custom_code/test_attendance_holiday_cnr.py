@@ -161,7 +161,9 @@ class TestPoolExcludesHolidays(TestCase):
 		meta = type("M", (), {"has_field": lambda _s, _f: True})()
 		with patch.object(frappe, "get_meta", return_value=meta), patch.object(
 			frappe, "get_all", return_value=rows
-		), patch.object(attendance_holiday, "holiday_dates_between", return_value=holidays):
+		), patch.object(attendance_holiday, "holiday_dates_between", return_value=holidays), patch.object(
+			attendance_policy, "_late_early_escaped_dates", return_value=set()
+		):
 			return attendance_policy._pool_flags_between("EMP-1", date(2026, 1, 1), date(2026, 1, 31))
 
 	def test_holiday_days_are_dropped(self):

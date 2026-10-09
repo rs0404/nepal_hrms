@@ -4,6 +4,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import getdate
 
 from nepal_hrms.overrides.salary_slip import _counted_in_absent_bucket
 
@@ -54,6 +55,8 @@ class TestPenaltyFromTheLivePool(TestCase):
 			return_value=assigned,
 		), patch(
 			"nepal_hrms.custom_code.attendance_policy.get_hr_settings", return_value={}
+		), patch(
+			"nepal_hrms.custom_code.policy_escape.escaped_dates", return_value=set()
 		):
 			meta.return_value.has_field.return_value = True
 			from nepal_hrms.overrides.salary_slip import get_pool_penalty_days
@@ -94,3 +97,32 @@ class TestPenaltyFromTheLivePool(TestCase):
 		)
 		self.assertEqual(days, 0.0)
 		self.assertEqual(dates, [])
+
+
+class TestEscapedDayIsNotCharged(TestCase):
+	"""A mark stamped before the escape existed must not reach the slip."""
+
+	def test_stored_mark_on_an_escaped_day(self):
+		rows = [
+			frappe._dict(attendance_date="2026-08-20", status="Half Day", half_day_status="Absent", custom_cnr_pool_penalty="half"),
+			frappe._dict(attendance_date="2026-08-21", status="Half Day", half_day_status="Absent", custom_cnr_pool_penalty="half"),
+		]
+		with patch("nepal_hrms.overrides.salary_slip.frappe.get_meta") as meta, patch(
+			"nepal_hrms.overrides.salary_slip.frappe.db.get_single_value", return_value=0.5
+		), patch("nepal_hrms.overrides.salary_slip.frappe.get_all", return_value=rows), patch(
+			"nepal_hrms.custom_code.attendance_holiday.holiday_dates_between", return_value=set()
+		), patch(
+			"nepal_hrms.custom_code.attendance_policy.assign_employee_pool_penalties_for_range",
+			return_value={},
+		), patch(
+			"nepal_hrms.custom_code.attendance_policy.get_hr_settings", return_value={}
+		), patch(
+			"nepal_hrms.custom_code.policy_escape.escaped_dates",
+			return_value={getdate("2026-08-20")},
+		):
+			meta.return_value.has_field.return_value = True
+			from nepal_hrms.overrides.salary_slip import get_pool_penalty_days
+
+			days, dates = get_pool_penalty_days("EMP-001", "2026-08-14", "2026-09-13")
+		self.assertEqual(days, 0.5)
+		self.assertEqual([d["date"] for d in dates], ["2026-08-21"])

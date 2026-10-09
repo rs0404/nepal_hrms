@@ -4,7 +4,7 @@
 """Employee Attendance Policy Escape resolver (request-cached)."""
 
 import frappe
-from frappe.utils import cint, getdate, today
+from frappe.utils import add_days, cint, getdate, today
 
 ESCAPE_FLAGS = (
 	"escape_sandwich",
@@ -173,6 +173,42 @@ def get_policy_escapes_for_period(employee, start_date, end_date):
 
 	cache[cache_key] = flags
 	return flags
+
+
+def escaped_dates(employee, flag, start_date, end_date):
+	"""Dates in [start_date, end_date] that an active escape with `flag` covers.
+
+	One query for the whole range, for callers that walk a payroll period day by
+	day (the occurrence pool, the period sweep, payroll's penalty count).
+	"""
+	if not employee or not start_date or not end_date:
+		return set()
+
+	start_date = getdate(start_date)
+	end_date = getdate(end_date)
+	cache_key = f"{employee}::{flag}::{start_date}..{end_date}"
+	cache = getattr(frappe.local, "_nepal_policy_escapes", None)
+	if cache is None:
+		cache = {}
+		frappe.local._nepal_policy_escapes = cache
+	if cache_key in cache:
+		return cache[cache_key]
+
+	dates = set()
+	if flag in queryable_flags():
+		for row in frappe.get_all(
+			"Attendance Policy Escape",
+			filters={"employee": employee, "is_active": 1, flag: 1},
+			fields=["from_date", "to_date"],
+		):
+			day = max(start_date, getdate(row.from_date)) if row.from_date else start_date
+			last = min(end_date, getdate(row.to_date)) if row.to_date else end_date
+			while day <= last:
+				dates.add(day)
+				day = add_days(day, 1)
+
+	cache[cache_key] = dates
+	return dates
 
 
 def has_policy_escape(employee, flag, on_date=None):

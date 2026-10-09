@@ -17,13 +17,19 @@ nepal_hrms.attendance_cnr_bulk.FIELD_LABELS = {
 	custom_cnr_early_in_pool: __("Early In Pool"),
 	custom_cnr_month_late_pool_count: __("Month Late Pool"),
 	custom_cnr_month_early_pool_count: __("Month Early Pool"),
+	custom_cnr_pool_penalty: __("Penalty"),
 };
 
 nepal_hrms.attendance_cnr_bulk.TRACKED_FIELDS = Object.keys(
 	nepal_hrms.attendance_cnr_bulk.FIELD_LABELS
 );
 
-nepal_hrms.attendance_cnr_bulk.TEXT_FIELDS = ["status", "half_day_status", "leave_type"];
+nepal_hrms.attendance_cnr_bulk.TEXT_FIELDS = [
+	"status",
+	"half_day_status",
+	"leave_type",
+	"custom_cnr_pool_penalty",
+];
 
 nepal_hrms.attendance_cnr_bulk.REASON_LABELS = {
 	holiday: __("Holiday"),

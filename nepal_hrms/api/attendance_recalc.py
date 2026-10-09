@@ -34,9 +34,10 @@ BULK_TRACKED_FIELDS = (
 	"custom_cnr_early_in_pool",
 	"custom_cnr_month_late_pool_count",
 	"custom_cnr_month_early_pool_count",
+	"custom_cnr_pool_penalty",
 )
 
-_TEXT_FIELDS = ("status", "half_day_status", "leave_type")
+_TEXT_FIELDS = ("status", "half_day_status", "leave_type", "custom_cnr_pool_penalty")
 
 
 def _bulk_snapshot(doc):
@@ -87,6 +88,7 @@ def _format_field_diff(field, before_val, after_val):
 		"custom_cnr_early_in_pool": _("Early In Pool"),
 		"custom_cnr_month_late_pool_count": _("Month Late Pool"),
 		"custom_cnr_month_early_pool_count": _("Month Early Pool"),
+		"custom_cnr_pool_penalty": _("Penalty"),
 	}
 	label = labels.get(field, field)
 	return f"{label}: {before_val if before_val not in (None, '') else '—'} → {after_val if after_val not in (None, '') else '—'}"
@@ -597,6 +599,10 @@ def _persist_recalc_doc(doc):
 		values["leave_type"] = getattr(doc, "leave_type", None) or None
 	if meta.has_field("half_day_status"):
 		values["half_day_status"] = getattr(doc, "half_day_status", None) or None
+	# Payroll reads this mark ahead of anything else; leaving it behind kept a
+	# penalty charged after the status beside it was cleared.
+	if meta.has_field("custom_cnr_pool_penalty"):
+		values["custom_cnr_pool_penalty"] = getattr(doc, "custom_cnr_pool_penalty", None) or ""
 	for field in (
 		"custom_late_mins",
 		"custom_early_mins",

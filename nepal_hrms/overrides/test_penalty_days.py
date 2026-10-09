@@ -25,7 +25,9 @@ class TestPoolPenaltyDays(TestCase):
 			frappe.db, "get_single_value", return_value=half_day_fraction
 		), patch.object(
 			frappe, "get_all", return_value=[frappe._dict(r) for r in rows]
-		) as get_all:
+		) as get_all, patch(
+			"nepal_hrms.custom_code.policy_escape.escaped_dates", return_value=set()
+		):
 			result = get_pool_penalty_days("EMP-1", "2025-09-01", "2025-09-30")
 		return result, get_all
 

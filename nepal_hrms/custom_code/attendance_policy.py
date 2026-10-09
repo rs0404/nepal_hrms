@@ -184,6 +184,39 @@ def _protected_status(doc, is_holiday=None):
 	return _is_genuine_absent(doc)
 
 
+def _looks_like_cnr_penalty(doc):
+	"""A Half Day / Absent with no leave behind it and a late/early trace on it.
+
+	Late/early penalties are written as Half Day with half_day_status "Absent",
+	and Recheck Attendance has not always stored the ½P mark, so neither the mark
+	nor a "Present" half is a reliable sign. The delay itself is: a leave row is
+	excluded, and a genuine absence has no punches to be late or early with.
+	"""
+	if getattr(doc, "leave_type", None):
+		return False
+	if (doc.status or "").strip() not in ("Half Day", "Absent"):
+		return False
+	if (getattr(doc, "custom_cnr_pool_penalty", None) or "").strip() in ("half", "full"):
+		return True
+	return any(
+		cint(getattr(doc, field, 0))
+		for field in (
+			"late_entry",
+			"early_exit",
+			"custom_cnr_unexcused_late",
+			"custom_cnr_unexcused_early",
+			"custom_cnr_late_in_pool",
+			"custom_cnr_early_in_pool",
+		)
+	)
+
+
+def _late_early_escaped_dates(employee, start, end):
+	from nepal_hrms.custom_code.policy_escape import escaped_dates
+
+	return escaped_dates(employee, "escape_late_early", start, end)
+
+
 def _has_half_day_leave(employee, attendance_date):
 	from nepal_hrms.custom_code.half_day import half_day_leave_on
 
@@ -294,7 +327,11 @@ def _pool_flags_between(employee, start, end, exclude_name=None, extra=None):
 	# charged. Exclude at the source, not at display time.
 	from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
 
-	holidays = holiday_dates_between(employee, start, end)
+	# An escaped day is out of the pool for the same reason: it must not shift
+	# which of the other days is charged, recalculated yet or not.
+	holidays = holiday_dates_between(employee, start, end) | _late_early_escaped_dates(
+		employee, start, end
+	)
 	flags = []
 	for row in frappe.get_all("Attendance", filters=filters, fields=fields):
 		if getdate(row.attendance_date) in holidays:
@@ -339,7 +376,9 @@ def count_month_pool(employee, attendance_date, pool_field, current_in_pool=0, e
 	# (see _pool_flags_between). Row volume is bounded by one payroll period.
 	from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
 
-	holidays = holiday_dates_between(employee, start, end)
+	holidays = holiday_dates_between(employee, start, end) | _late_early_escaped_dates(
+		employee, start, end
+	)
 	dates = frappe.get_all("Attendance", filters=filters, pluck="attendance_date")
 	count = sum(1 for d in dates if getdate(d) not in holidays)
 	return cint(count) + (1 if cint(current_in_pool) else 0)
@@ -429,6 +468,7 @@ def sync_month_pool_penalties(employee, attendance_date, current_name=None):
 		from nepal_hrms.custom_code.attendance_holiday import holiday_dates_between
 
 		holidays = holiday_dates_between(employee, start, end)
+		escaped = _late_early_escaped_dates(employee, start, end)
 		meta = frappe.get_meta("Attendance")
 		fields = [
 			"name",
@@ -436,6 +476,8 @@ def sync_month_pool_penalties(employee, attendance_date, current_name=None):
 			"status",
 			"leave_type",
 			"half_day_status",
+			"late_entry",
+			"early_exit",
 			"custom_cnr_unexcused_late",
 			"custom_cnr_unexcused_early",
 			"custom_cnr_late_in_pool",
@@ -456,13 +498,20 @@ def sync_month_pool_penalties(employee, attendance_date, current_name=None):
 				continue
 			kind = assigned.get(getdate(att.attendance_date)) or ""
 			before_penalty = getattr(att, "custom_cnr_pool_penalty", None) or ""
-			_apply_pool_or_major_status(
-				att,
-				kind,
-				cint(att.custom_cnr_unexcused_late) or cint(att.custom_cnr_unexcused_early),
-				False,
-				is_holiday=getdate(att.attendance_date) in holidays,
-			)
+			if getdate(att.attendance_date) in escaped:
+				# Its stored flags predate the escape until the day itself is
+				# recalculated; never charge it from them, and undo a penalty.
+				_apply_pool_or_major_status(
+					att, "", 0, _looks_like_cnr_penalty(att), is_holiday=False
+				)
+			else:
+				_apply_pool_or_major_status(
+					att,
+					kind,
+					cint(att.custom_cnr_unexcused_late) or cint(att.custom_cnr_unexcused_early),
+					False,
+					is_holiday=getdate(att.attendance_date) in holidays,
+				)
 			values = {}
 			if meta.has_field("custom_cnr_pool_penalty"):
 				values["custom_cnr_pool_penalty"] = getattr(att, "custom_cnr_pool_penalty", None) or ""
@@ -625,6 +674,8 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 	early_in_pool = 0
 
 	if escape_late_early:
+		# Read before the flags below are cleared: they are the evidence.
+		escaped_penalty = was_cnr_half_day or _looks_like_cnr_penalty(doc)
 		if attendance_request_excused:
 			# The policy escape deliberately keeps these for visibility; the
 			# Attendance Request excuse is a full excuse, so the flags go too.
@@ -643,7 +694,7 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 		previous_penalty = (getattr(doc, "custom_cnr_pool_penalty", None) or "").strip()
 		if hasattr(doc, "custom_cnr_pool_penalty"):
 			doc.custom_cnr_pool_penalty = ""
-		if apply_unexcused_status and (was_cnr_half_day or previous_penalty in ("half", "full")):
+		if apply_unexcused_status and (escaped_penalty or previous_penalty in ("half", "full")):
 			doc.status = "Present"
 			if hasattr(doc, "half_day_status"):
 				doc.half_day_status = None
