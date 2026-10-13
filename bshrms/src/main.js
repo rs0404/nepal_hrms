@@ -12,6 +12,7 @@ import {
 	FormControl,
 } from "frappe-ui"
 import { translationsPlugin } from "./plugins/translationsPlugin.js"
+import { installErrorReporting } from "@/utils/error_reporting"
 import EmptyState from "@/components/EmptyState.vue"
 
 import { IonicVue } from "@ionic/vue"
@@ -41,6 +42,7 @@ import "./main.css"
 syncCsrfFromCookie()
 
 const app = createApp(App)
+installErrorReporting(app)
 const socket = createLazySocket()
 
 setConfig("resourceFetcher", frappeRequest)
