@@ -1,2 +1,0 @@
-const n={Approved:"green",Paid:"green",Rejected:"red",Pending:"orange",Open:"orange",Cancelled:"gray",Submitted:"blue"};function r(e,s){let t;return s&&(e!=null&&e[s])?t=e[s]:Number(e==null?void 0:e.docstatus)===2?t="Cancelled":Number(e==null?void 0:e.docstatus)===1?t=["Approved","Rejected"].includes(e.status)?e.status:"Approved":t=["Approved","Rejected","Cancelled"].includes(e==null?void 0:e.status)?e.status:"Pending",{label:t,theme:n[t]||"gray"}}export{r};
-//# sourceMappingURL=request_status-CVRlY2dw.js.map
