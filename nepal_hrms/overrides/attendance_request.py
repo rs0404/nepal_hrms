@@ -79,6 +79,15 @@ class CustomAttendanceRequest(AttendanceRequest):
 		):
 			_assert_can_approve_attendance_request(self)
 
+	def validate_no_attendance_to_create(self):
+		# Stock refuses any save once every day already has the status asked
+		# for -- typically auto attendance marked the day Present after the
+		# request was filed. A rejection creates nothing, so that is no reason
+		# to refuse it, and rejecting is how such a request leaves the list.
+		if self.status == "Rejected":
+			return
+		super().validate_no_attendance_to_create()
+
 	def before_submit(self):
 		# Submitting is approving. Covers self-submission too: an employee may
 		# only submit their own with an Allow Self-Approval escape.
