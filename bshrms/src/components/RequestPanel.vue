@@ -31,13 +31,24 @@
 		<div v-else-if="activeTab == 'Team Requests'" class="flex flex-col gap-5">
 			<details open class="request-section mt-4">
 				<summary class="request-section-title">
-					<span>{{ __("Pending Approval") }}</span>
-					<span class="request-count">{{ teamRequests.length }}</span>
+					<span>{{ __("Assigned to Me") }}</span>
+					<span class="request-count">{{ assignedToMe.length }}</span>
 				</summary>
 				<RequestList
-					:items="teamRequests"
+					:items="assignedToMe"
 					:teamRequests="true"
-					:emptyStateMessage="__('You have no pending team requests')"
+					:emptyStateMessage="__('Nothing is waiting for your approval')"
+				/>
+			</details>
+			<details open class="request-section">
+				<summary class="request-section-title">
+					<span>{{ __("Under My Approvers") }}</span>
+					<span class="request-count">{{ underMyApprovers.length }}</span>
+				</summary>
+				<RequestList
+					:items="underMyApprovers"
+					:teamRequests="true"
+					:emptyStateMessage="__('Nothing is waiting with the approvers who report to you')"
 				/>
 			</details>
 			<details open class="request-section">
@@ -88,22 +99,19 @@ import RequestList from "@/components/RequestList.vue"
 import {
 	myAttendanceRequests,
 	myShiftRequests,
-	teamShiftRequests,
-	teamAttendanceRequests,
 	pendingOOOApprovals,
 	approvedOOOApprovals,
 } from "@/data/attendance"
 import { myClaims, teamClaims } from "@/data/claims"
-import { myLeaves, teamLeaves } from "@/data/leaves"
+import { myLeaves } from "@/data/leaves"
 import { recentlyApprovedTeamRequests } from "@/data/request_dashboard"
+import { teamPendingRequests } from "@/data/team_requests"
 import {
 	myLateEntryApplications,
 	myEarlyExitApplications,
 	myOutOfOfficeApplications,
-	teamLateEntryApplications,
-	teamEarlyExitApplications,
-	teamOutOfOfficeApplications,
 } from "@/data/cnr_applications"
+import { isFinalDraft } from "@/utils/request_status"
 
 import AttendanceRequestItem from "@/components/AttendanceRequestItem.vue"
 import ExpenseClaimItem from "@/components/ExpenseClaimItem.vue"
@@ -114,7 +122,17 @@ import CnrApplicationItem from "@/components/CnrApplicationItem.vue"
 
 import { useListUpdate } from "@/composables/realtime"
 
-const activeTab = ref("My Requests")
+// Kept for the session so a pull-to-refresh, which re-renders the page, does
+// not drop the approver back on My Requests.
+const TAB_KEY = "nepal_hrms:request_panel_tab"
+function savedTab() {
+	try {
+		return sessionStorage.getItem(TAB_KEY) || "My Requests"
+	} catch (e) {
+		return "My Requests"
+	}
+}
+const activeTab = ref(savedTab())
 const socket = inject("$socket")
 
 const TAB_BUTTONS = ["My Requests", "Team Requests", "OOO Approvals"]
@@ -131,19 +149,15 @@ const myRequests = computed(() =>
 	)
 )
 
-const teamRequests = computed(() =>
-	getSortedRequests(
-		updateRequestDetails(
-			teamLeaves,
-			teamClaims,
-			teamShiftRequests,
-			teamAttendanceRequests,
-			teamLateEntryApplications,
-			teamEarlyExitApplications,
-			teamOutOfOfficeApplications
-		)
-	)
-)
+// Expense Claims follow the claim's own approver, so they are always "mine".
+const teamRequests = computed(() => {
+	const claims = (teamClaims.data || []).map((claim) => ({ ...claim, assigned_to_me: true }))
+	return updateRequestDetails({ data: teamPendingRequests.data || [] }, { data: claims })
+})
+
+const assignedToMe = computed(() => teamRequests.value.filter((r) => r.assigned_to_me))
+
+const underMyApprovers = computed(() => teamRequests.value.filter((r) => !r.assigned_to_me))
 
 const myPendingRequests = computed(() =>
 	getSortedRequests(myRequests.value.filter((request) => isPendingRequest(request)))
@@ -210,18 +224,17 @@ function getRequestStatus(request) {
 	return request.status || ""
 }
 
+// Approved means submitted. An approved draft has created nothing yet, so it
+// stays pending until someone submits it.
 function isApprovedRequest(request) {
 	const status = getRequestStatus(request)
 	if (["Rejected", "Cancelled"].includes(status)) return false
-	return status === "Approved" || Number(request.docstatus) === 1
+	return Number(request.docstatus) === 1
 }
 
 function isPendingRequest(request) {
 	const status = getRequestStatus(request)
-	return (
-		Number(request.docstatus) === 0 &&
-		!["Approved", "Rejected", "Cancelled"].includes(status)
-	)
+	return Number(request.docstatus) === 0 && status !== "Cancelled" && !isFinalDraft(request)
 }
 
 function getSortedRequests(list) {
@@ -239,27 +252,28 @@ function reloadAll(resources) {
 	resources.forEach((resource) => resource.reload())
 }
 
-watch(activeTab, (tab) => {
+function loadTab(tab) {
 	if (tab === "Team Requests") {
-		reloadAll([
-			teamLeaves,
-			teamClaims,
-			teamShiftRequests,
-			teamAttendanceRequests,
-			teamLateEntryApplications,
-			teamEarlyExitApplications,
-			teamOutOfOfficeApplications,
-			recentlyApprovedTeamRequests,
-		])
+		reloadAll([teamPendingRequests, teamClaims, recentlyApprovedTeamRequests])
 	} else if (tab === "OOO Approvals") {
 		reloadAll([pendingOOOApprovals, approvedOOOApprovals])
 	}
+}
+
+watch(activeTab, (tab) => {
+	try {
+		sessionStorage.setItem(TAB_KEY, tab)
+	} catch (e) {
+		// Private mode: the tab just is not remembered.
+	}
+	loadTab(tab)
 })
 
 onMounted(() => {
+	loadTab(activeTab.value)
 	useListUpdate(socket, "Leave Application", () => {
 		myLeaves.reload()
-		teamLeaves.reload()
+		teamPendingRequests.reload()
 		recentlyApprovedTeamRequests.reload()
 	})
 	useListUpdate(socket, "Expense Claim", () => {
@@ -269,12 +283,12 @@ onMounted(() => {
 	})
 	useListUpdate(socket, "Shift Request", () => {
 		myShiftRequests.reload()
-		teamShiftRequests.reload()
+		teamPendingRequests.reload()
 		recentlyApprovedTeamRequests.reload()
 	})
 	useListUpdate(socket, "Attendance Request", () => {
 		myAttendanceRequests.reload()
-		teamAttendanceRequests.reload()
+		teamPendingRequests.reload()
 		recentlyApprovedTeamRequests.reload()
 	})
 	useListUpdate(socket, "Attendance", () => {
@@ -283,17 +297,17 @@ onMounted(() => {
 	})
 	useListUpdate(socket, "Late Entry Application", () => {
 		myLateEntryApplications.reload()
-		teamLateEntryApplications.reload()
+		teamPendingRequests.reload()
 		recentlyApprovedTeamRequests.reload()
 	})
 	useListUpdate(socket, "Early Exit Application", () => {
 		myEarlyExitApplications.reload()
-		teamEarlyExitApplications.reload()
+		teamPendingRequests.reload()
 		recentlyApprovedTeamRequests.reload()
 	})
 	useListUpdate(socket, "Out of Office Application", () => {
 		myOutOfOfficeApplications.reload()
-		teamOutOfOfficeApplications.reload()
+		teamPendingRequests.reload()
 		recentlyApprovedTeamRequests.reload()
 	})
 })

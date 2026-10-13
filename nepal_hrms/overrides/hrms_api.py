@@ -21,9 +21,10 @@ def get_attendance_requests(
 	for_approval = cint(for_approval)
 	filters = get_filters("Attendance Request", employee, None, for_approval)
 
-	# Pending approval: only Open drafts (Rejected/Approved stay off the team queue)
+	# Pending approval: Open drafts, and Approved ones still waiting for Submit.
+	# A rejected request is final as a draft, so it stays off the queue.
 	if for_approval:
-		filters["status"] = "Open"
+		filters["status"] = ["in", ["Open", "Approved"]]
 
 	fields = [
 		"name",
@@ -67,7 +68,7 @@ def get_leave_applications(
 	for_approval: bool = False,
 	limit: int | None = None,
 ) -> list[dict]:
-	"""Stock leave list, plus which half each half-day leave takes.
+	"""Stock leave list, plus docstatus and which half each half-day leave takes.
 
 	The PWA marks a leave Full day / 1st half / 2nd half; stock returns half_day
 	alone, which cannot tell the two halves apart.
@@ -79,6 +80,18 @@ def get_leave_applications(
 	applications = stock_get_leave_applications(
 		employee, approver_id=approver_id, for_approval=for_approval, limit=limit
 	)
+	# Stock leaves docstatus out, so an approved draft read as approved.
+	if applications:
+		docstatus = dict(
+			frappe.get_all(
+				"Leave Application",
+				filters={"name": ["in", [row.name for row in applications]]},
+				fields=["name", "docstatus"],
+				as_list=True,
+			)
+		)
+		for row in applications:
+			row["docstatus"] = docstatus.get(row.name, 0)
 	names = [row.name for row in applications if row.get("half_day")]
 	if names and frappe.get_meta("Leave Application").has_field(SESSION_FIELD):
 		# Rows already passed stock's permission check; this only adds a column.

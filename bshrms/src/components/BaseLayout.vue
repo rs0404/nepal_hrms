@@ -52,7 +52,11 @@
 		</ion-header>
 
 		<ion-content class="ion-no-padding">
-			<div class="flex flex-col h-screen w-screen sm:w-96">
+			<ion-refresher slot="fixed" @ionRefresh="onPullRefresh">
+				<ion-refresher-content></ion-refresher-content>
+			</ion-refresher>
+			<!-- Re-keyed on refresh so the page's own resources load again too. -->
+			<div :key="refreshKey" class="flex flex-col h-screen w-screen sm:w-96">
 				<slot name="body"></slot>
 			</div>
 		</ion-content>
@@ -63,12 +67,21 @@
 // Bound, not a literal src: Vite would try to bundle a literal /assets path.
 const APP_ICON = "/assets/nepal_hrms/icon/app-icon.svg"
 
-import { IonHeader, IonContent, IonPage, onIonViewWillEnter } from "@ionic/vue"
+import {
+	IonHeader,
+	IonContent,
+	IonPage,
+	IonRefresher,
+	IonRefresherContent,
+	onIonViewWillEnter,
+} from "@ionic/vue"
 import { FeatherIcon, Avatar } from "frappe-ui"
 
 import { unreadNotificationsCount } from "@/data/notifications"
 
-import { inject } from "vue"
+import { inject, ref } from "vue"
+
+import { reloadLoadedResources } from "@/utils/pull_refresh"
 
 const user = inject("$user")
 const emit = defineEmits(["viewWillEnter"])
@@ -82,4 +95,16 @@ const props = defineProps({
 })
 
 onIonViewWillEnter(() => emit("viewWillEnter"))
+
+const refreshKey = ref(0)
+
+async function onPullRefresh(event) {
+	try {
+		await reloadLoadedResources()
+		refreshKey.value += 1
+		emit("viewWillEnter")
+	} finally {
+		event.target.complete()
+	}
+}
 </script>

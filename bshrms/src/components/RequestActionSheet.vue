@@ -107,10 +107,7 @@
 			</div>
 		</div>
 
-		<div
-			v-if="showAttendanceRequestApproval || showCnrApproval"
-			class="w-full px-4 pb-3"
-		>
+		<div v-if="showDecision" class="w-full px-4 pb-3">
 			<label class="block text-gray-600 text-base mb-1.5">
 				{{ __("Rejection Reason") }}
 			</label>
@@ -130,45 +127,32 @@
 			view="actionSheet"
 		/>
 
+		<!-- Step one: decide. Nothing is final until step two, Submit. -->
 		<div
-			v-else-if="showAttendanceRequestApproval || showCnrApproval"
+			v-else-if="showDecision"
 			class="w-full sticky bottom-0 border-t z-[100] p-4 bg-white"
 		>
 			<div class="flex w-full flex-row items-center justify-between gap-3">
 				<Button
-					@click="confirmReject"
+					@click="decide('Rejected')"
 					class="w-full py-5"
 					variant="subtle"
 					theme="red"
-					:loading="rejectingAttendanceRequest"
-					:disabled="!rejectReason.trim()"
+					:loading="deciding === 'Rejected'"
+					:disabled="!rejectReason.trim() || !!deciding"
 				>
 					<template #prefix>
 						<FeatherIcon name="x" class="w-4" />
 					</template>
 					{{ __("Reject") }}
 				</Button>
-
 				<Button
-					v-if="showAttendanceRequestApproval"
-					@click="approveAttendanceRequest"
+					@click="decide('Approved')"
 					class="w-full py-5"
 					variant="solid"
 					theme="green"
-					:loading="approvingAttendanceRequest"
-				>
-					<template #prefix>
-						<FeatherIcon name="check" class="w-4" />
-					</template>
-					{{ __("Approve") }}
-				</Button>
-				<Button
-					v-else
-					@click="approveCnrApplication"
-					class="w-full py-5"
-					variant="solid"
-					theme="green"
-					:loading="approvingCnrApplication"
+					:loading="deciding === 'Approved'"
+					:disabled="!!deciding"
 				>
 					<template #prefix>
 						<FeatherIcon name="check" class="w-4" />
@@ -178,8 +162,41 @@
 			</div>
 		</div>
 
+		<!-- Step two: submit the decision, or change it while it is still a draft. -->
+		<div
+			v-else-if="showTeamSubmit"
+			class="w-full sticky bottom-0 border-t z-[100] p-4 bg-white"
+		>
+			<p class="text-sm text-gray-600 mb-3 text-center">
+				{{
+					document.doc.status === "Approved"
+						? __("Approved. Submit to make it final.")
+						: __("Rejected. Submit to make it final.")
+				}}
+			</p>
+			<div class="flex w-full flex-row items-center justify-between gap-3">
+				<Button
+					@click="redeciding = true"
+					class="w-full py-5"
+					variant="subtle"
+					:disabled="submittingTeamRequest"
+				>
+					{{ __("Change Decision") }}
+				</Button>
+				<Button
+					@click="submitTeamRequest"
+					class="w-full py-5"
+					variant="solid"
+					:loading="submittingTeamRequest"
+				>
+					{{ __("Submit") }}
+				</Button>
+			</div>
+		</div>
+
 		<div
 			v-else-if="
+				!teamFlow &&
 				props.modelValue.doctype !== 'Attendance Request' &&
 				!CNR_DOCTYPES.includes(props.modelValue.doctype) &&
 				!canCancelOwnLeave &&
@@ -325,6 +342,7 @@ import { formatCurrency } from "@/utils/formatters"
 
 import useWorkflow from "@/composables/workflow"
 import { myLeaves, leaveBalance } from "@/data/leaves"
+import { isAwaitingSubmit, isFinalDraft } from "@/utils/request_status"
 
 const __ = inject("$translate")
 const employee = inject("$employee")
@@ -353,9 +371,9 @@ let workflow = ref(null)
 const rejectReason = ref("")
 const showCancelLeaveDialog = ref(false)
 const cancellingOwnLeave = ref(false)
-const approvingAttendanceRequest = ref(false)
-const rejectingAttendanceRequest = ref(false)
-const approvingCnrApplication = ref(false)
+const redeciding = ref(false)
+const deciding = ref("")
+const submittingTeamRequest = ref(false)
 
 function showFilePreview(fileObj) {
 	selectedFile.value = fileObj
@@ -428,12 +446,19 @@ const canApproveCnr = createResource({
 	}),
 })
 
-const canApproveAttendanceRequest = createResource({
-	url: "nepal_hrms.overrides.attendance_request.can_approve_attendance_request",
-	makeParams: () => ({
-		employee: document.doc?.employee || props.modelValue.employee,
-		name: props.modelValue.name,
-	}),
+// Decided in two steps (Approve / Reject, then Submit) through team_requests,
+// which checks the approver chain itself. Expense Claims, and doctypes running
+// a workflow, keep their own flow.
+const TEAM_DOCTYPES = ["Leave Application", "Attendance Request", "Shift Request", ...CNR_DOCTYPES]
+
+const teamFlow = computed(() => {
+	if (!TEAM_DOCTYPES.includes(props.modelValue.doctype)) return false
+	return isCnrOrAttendanceRequest.value || !workflow.value?.hasWorkflow
+})
+
+const canDecide = createResource({
+	url: "nepal_hrms.api.team_requests.can_decide_team_request",
+	makeParams: () => ({ doctype: props.modelValue.doctype, name: props.modelValue.name }),
 })
 
 watch(
@@ -442,12 +467,93 @@ watch(
 		if (employee && CNR_DOCTYPES.includes(props.modelValue.doctype)) {
 			canApproveCnr.reload()
 		}
-		if (employee && props.modelValue.doctype === "Attendance Request") {
-			canApproveAttendanceRequest.reload()
+		if (employee && TEAM_DOCTYPES.includes(props.modelValue.doctype)) {
+			canDecide.reload()
 		}
 	},
 	{ immediate: true }
 )
+
+const showDecision = computed(() => {
+	if (!teamFlow.value || document?.doc?.docstatus !== 0 || !canDecide.data) return false
+	const undecided = !["Approved", "Rejected", "Cancelled"].includes(document.doc.status)
+	return undecided || (redeciding.value && isAwaitingSubmit(teamDoc.value))
+})
+
+const showTeamSubmit = computed(() => {
+	if (!teamFlow.value || !canDecide.data) return false
+	return isAwaitingSubmit(teamDoc.value)
+})
+
+const teamDoc = computed(() => ({ ...(document?.doc || {}), doctype: props.modelValue.doctype }))
+
+function errorToast(error, fallback) {
+	toast({
+		title: __("Error"),
+		text: error?.messages?.join?.(" ") || error?.message || fallback,
+		icon: "alert-circle",
+		position: "bottom-center",
+		iconClasses: "text-red-500",
+	})
+}
+
+// No success toast here: it would sit over the Submit button this step is
+// meant to reveal. The status on the sheet changes instead.
+async function decide(status) {
+	if (status === "Rejected" && !rejectReason.value.trim()) {
+		errorToast(null, __("Please enter a rejection reason"))
+		return
+	}
+	deciding.value = status
+	try {
+		await call("nepal_hrms.api.team_requests.decide_team_request", {
+			doctype: props.modelValue.doctype,
+			name: props.modelValue.name,
+			status,
+			rejection_reason: status === "Rejected" ? rejectReason.value.trim() : null,
+		})
+		rejectReason.value = ""
+		redeciding.value = false
+		await document.reload()
+		// A rejected Attendance Request is final as it is; there is nothing to submit.
+		if (isFinalDraft(teamDoc.value)) {
+			toast({
+				title: __("Success"),
+				text: __("Rejected successfully!"),
+				icon: "check-circle",
+				position: "bottom-center",
+				iconClasses: "text-green-500",
+			})
+			modalController.dismiss()
+		}
+	} catch (error) {
+		errorToast(error, status === "Approved" ? __("Approval failed!") : __("Rejection failed!"))
+	} finally {
+		deciding.value = ""
+	}
+}
+
+async function submitTeamRequest() {
+	submittingTeamRequest.value = true
+	try {
+		await call("nepal_hrms.api.team_requests.submit_team_request", {
+			doctype: props.modelValue.doctype,
+			name: props.modelValue.name,
+		})
+		toast({
+			title: __("Success"),
+			text: __("Document submitted successfully!"),
+			icon: "check-circle",
+			position: "bottom-center",
+			iconClasses: "text-green-500",
+		})
+		modalController.dismiss()
+	} catch (error) {
+		errorToast(error, __("Document submission failed!"))
+	} finally {
+		submittingTeamRequest.value = false
+	}
+}
 
 const canCancelOwnLeave = computed(() => {
 	if (props.modelValue.doctype !== "Leave Application") return false
@@ -491,14 +597,6 @@ async function cancelOwnLeaveApplication() {
 	}
 }
 
-const showAttendanceRequestApproval = computed(() => {
-	if (props.modelValue.doctype !== "Attendance Request") return false
-	if (document?.doc?.docstatus !== 0) return false
-	const status = document?.doc?.status || "Open"
-	if (status !== "Open") return false
-	return !!canApproveAttendanceRequest.data
-})
-
 const isCnrOrAttendanceRequest = computed(() => {
 	return (
 		CNR_DOCTYPES.includes(props.modelValue.doctype) ||
@@ -506,16 +604,8 @@ const isCnrOrAttendanceRequest = computed(() => {
 	)
 })
 
-const showCnrApproval = computed(() => {
-	if (!CNR_DOCTYPES.includes(props.modelValue.doctype)) return false
-	if (document?.doc?.docstatus !== 0) return false
-	const status = document?.doc?.status || "Draft"
-	if (!["Draft", "Open"].includes(status)) return false
-	return !!canApproveCnr.data
-})
-
-
 const canSubmitRequest = computed(() => {
+	if (teamFlow.value) return false
 	if (document?.doc?.docstatus !== 0 || !hasPermission("submit")) return false
 	if (props.modelValue.doctype === "Attendance Request") {
 		const status = document?.doc?.status || "Open"
@@ -536,129 +626,6 @@ function hasPermission(action) {
 		return !!canApproveCnr.data && allowed
 	}
 	return allowed
-}
-
-async function approveAttendanceRequest() {
-	approvingAttendanceRequest.value = true
-	try {
-		await call(
-			"nepal_hrms.overrides.attendance_request.set_attendance_request_approval",
-			{
-				name: props.modelValue.name,
-				status: "Approved",
-			}
-		)
-		await document.reload()
-		toast({
-			title: __("Success"),
-			text: __("Approved successfully!"),
-			icon: "check-circle",
-			position: "bottom-center",
-			iconClasses: "text-green-500",
-		})
-	} catch (error) {
-		toast({
-			title: __("Error"),
-			text:
-				error.messages?.join?.(" ") ||
-				error.message ||
-				__("Approval failed!"),
-			icon: "alert-circle",
-			position: "bottom-center",
-			iconClasses: "text-red-500",
-		})
-	} finally {
-		approvingAttendanceRequest.value = false
-	}
-}
-
-async function approveCnrApplication() {
-	approvingCnrApplication.value = true
-	try {
-		await call("nepal_hrms.api.cnr_applications.set_cnr_application_approval", {
-			doctype: props.modelValue.doctype,
-			name: props.modelValue.name,
-			status: "Approved",
-		})
-		await document.reload()
-		toast({
-			title: __("Success"),
-			text: __("Approved successfully!"),
-			icon: "check-circle",
-			position: "bottom-center",
-			iconClasses: "text-green-500",
-		})
-		modalController.dismiss()
-	} catch (error) {
-		toast({
-			title: __("Error"),
-			text:
-				error.messages?.join?.(" ") ||
-				error.message ||
-				__("Approval failed!"),
-			icon: "alert-circle",
-			position: "bottom-center",
-			iconClasses: "text-red-500",
-		})
-	} finally {
-		approvingCnrApplication.value = false
-	}
-}
-
-async function confirmReject() {
-	if (!rejectReason.value.trim()) {
-		toast({
-			title: __("Error"),
-			text: __("Please enter a rejection reason"),
-			icon: "alert-circle",
-			position: "bottom-center",
-			iconClasses: "text-red-500",
-		})
-		return
-	}
-	rejectingAttendanceRequest.value = true
-	try {
-		if (CNR_DOCTYPES.includes(props.modelValue.doctype)) {
-			await call("nepal_hrms.api.cnr_applications.set_cnr_application_approval", {
-				doctype: props.modelValue.doctype,
-				name: props.modelValue.name,
-				status: "Rejected",
-				rejection_reason: rejectReason.value.trim(),
-			})
-		} else {
-			await call(
-				"nepal_hrms.overrides.attendance_request.set_attendance_request_approval",
-				{
-					name: props.modelValue.name,
-					status: "Rejected",
-					rejection_reason: rejectReason.value.trim(),
-				}
-			)
-		}
-		rejectReason.value = ""
-		await document.reload()
-		toast({
-			title: __("Success"),
-			text: __("Rejected successfully!"),
-			icon: "check-circle",
-			position: "bottom-center",
-			iconClasses: "text-green-500",
-		})
-		modalController.dismiss()
-	} catch (error) {
-		toast({
-			title: __("Error"),
-			text:
-				error.messages?.join?.(" ") ||
-				error.message ||
-				__("Rejection failed!"),
-			icon: "alert-circle",
-			position: "bottom-center",
-			iconClasses: "text-red-500",
-		})
-	} finally {
-		rejectingAttendanceRequest.value = false
-	}
 }
 
 const currency = computed(() => {
@@ -747,7 +714,10 @@ const updateDocumentStatus = ({ status = "", docstatus = 0 }) => {
 		{ ...updateValues },
 		{
 			onSuccess() {
-				if (docstatus !== 0) modalController.dismiss()
+				// The first step (Approve / Reject) shows no toast: it would cover
+				// the Submit button it has just revealed.
+				if (!docstatus) return
+				modalController.dismiss()
 
 				toast({
 					title: __("Success"),

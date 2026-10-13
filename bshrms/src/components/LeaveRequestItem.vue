@@ -35,6 +35,7 @@ import { computed, inject } from "vue"
 import RequestRow from "@/components/RequestRow.vue"
 import LeaveSpanMark from "@/components/LeaveSpanMark.vue"
 import { formatDualPeriod } from "@/utils/nepali_date"
+import { isAwaitingSubmit, notSubmittedLabel } from "@/utils/request_status"
 import {
 	leaveApplicationMarks,
 	leaveMarkClass,
@@ -73,6 +74,9 @@ const meta = computed(() => [
 const THEMES = { Approved: "green", Rejected: "red", Open: "orange", Cancelled: "gray" }
 
 const status = computed(() => {
+	if (!props.workflowStateField && isAwaitingSubmit(props.doc)) {
+		return { label: notSubmittedLabel(props.doc.status), theme: "orange" }
+	}
 	const label =
 		(props.workflowStateField ? props.doc[props.workflowStateField] : props.doc.status) || "Open"
 	return { label, theme: THEMES[label] || "gray" }

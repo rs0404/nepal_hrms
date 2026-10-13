@@ -40,7 +40,8 @@ def get_cnr_applications(doctype, employee=None, for_approval=0, limit=20):
 	filters = {}
 	if for_approval:
 		team = _team_employee_names()
-		filters.update({"docstatus": 0, "status": "Draft"})
+		# Decided drafts wait for Submit, so they stay in the queue until then.
+		filters.update({"docstatus": 0, "status": ["in", ["Draft", "Approved", "Rejected"]]})
 		if team is not None:
 			filters["employee"] = ["in", team]
 	else:
