@@ -469,6 +469,17 @@ def download_payroll_export(
 		title = _("Salary & Tax Sheet")
 		content = build_salary_tax_sheet(pe, period)
 	elif kind == "jv":
+		from nepal_hrms.custom_code.payroll.journal_access import (
+			PAYROLL_JOURNAL_ROLE,
+			can_see_payroll_journals,
+		)
+
+		# It is the payroll Journal Entry in another shape: same rule as opening it.
+		if not can_see_payroll_journals():
+			frappe.throw(
+				_("Only users with the {0} role can see the payroll Journal Entry.").format(PAYROLL_JOURNAL_ROLE),
+				frappe.PermissionError,
+			)
 		jv = accrual_jv_view(pe)
 		title = _("Accrual JV") + ("" if jv["posted"] else " " + _("Preview"))
 		content = _jv_xlsx(pe, jv, period)

@@ -24,4 +24,8 @@ def setup_roles():
             report.flags.ignore_validate = True
             report.save(ignore_permissions=True)
 
+    from nepal_hrms.custom_code.payroll.journal_access import ensure_role
+
+    ensure_role()
+
     frappe.db.commit()

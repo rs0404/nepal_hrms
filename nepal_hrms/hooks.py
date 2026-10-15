@@ -103,6 +103,15 @@ override_doctype_class = {
 	"Leave Application": "nepal_hrms.overrides.leave_application.CustomLeaveApplication",
 }
 
+# Payroll Journal Entries carry every employee's salary; only the Payroll
+# Journal Viewer role sees them (custom_code/payroll/journal_access.py).
+permission_query_conditions = {
+	"Journal Entry": "nepal_hrms.custom_code.payroll.journal_access.get_permission_query_conditions",
+}
+has_permission = {
+	"Journal Entry": "nepal_hrms.custom_code.payroll.journal_access.has_permission",
+}
+
 doc_events = {
 	"Salary Slip": {
 		"after_insert": "nepal_hrms.patches.payroll_entry.execute",

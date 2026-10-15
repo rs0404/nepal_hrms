@@ -90,7 +90,12 @@ function create_accrual_journal_entry(frm, status) {
                 message: __("Journal Entry {0} created", [journal_entry]),
                 indicator: "green",
             });
-            frappe.set_route("Form", "Journal Entry", journal_entry);
+            // Payroll Journal Entries open only for the Payroll Journal Viewer role.
+            if (can_see_payroll_journals()) {
+                frappe.set_route("Form", "Journal Entry", journal_entry);
+            } else {
+                frm.reload_doc();
+            }
         });
     });
 }
@@ -109,7 +114,9 @@ function add_payroll_download_buttons(frm) {
     frm.add_custom_button(__("Salary & Tax Sheet"), () => run_payroll_download({ payroll_entry: frm.doc.name, kind: "salary_sheet" }), group);
     frm.add_custom_button(__("SSF Contribution"), () => open_payroll_download(frm, "ssf"), group);
     frm.add_custom_button(__("CIT Contribution"), () => open_payroll_download(frm, "cit"), group);
-    frm.add_custom_button(__("Accrual Journal Entry"), () => open_payroll_download(frm, "jv"), group);
+    if (can_see_payroll_journals()) {
+        frm.add_custom_button(__("Accrual Journal Entry"), () => open_payroll_download(frm, "jv"), group);
+    }
 }
 
 // A server-side refusal (a slip that cannot go on the bank file) would come back
@@ -249,6 +256,11 @@ function payroll_download_checks_html(opts, kind) {
     return notes
         .map(([color, text]) => `<div class="alert alert-${{ red: "danger", blue: "info" }[color] || "warning"} small" style="margin-bottom:8px;">${text}</div>`)
         .join("");
+}
+
+// Mirrors nepal_hrms.custom_code.payroll.journal_access; the server enforces it.
+function can_see_payroll_journals() {
+    return frappe.session.user === "Administrator" || frappe.user.has_role("Payroll Journal Viewer");
 }
 
 function validate_payroll_entry_days(frm) {
