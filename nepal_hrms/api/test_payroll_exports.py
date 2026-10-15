@@ -14,6 +14,7 @@ from nepal_hrms.api.payroll_exports import (
 	component_amounts,
 	component_net_amounts,
 	component_root,
+	fill_missing_accounts,
 	normalize_bank_name,
 	offset_deduction_roots,
 	offset_roots,
@@ -152,6 +153,34 @@ class TestBankRows(TestCase):
 		)
 		self.assertEqual(rows, [])
 		self.assertEqual([p[0].name for p in problems], ["S1", "S2"])
+
+
+class TestAccountFallback(TestCase):
+	def test_slip_account_wins(self):
+		slips = [slip("S1", account="111")]
+		fill_missing_accounts(slips, {"EMP-1": [_dict(bank="Other Bank", bank_account_no="999")]}, {})
+		self.assertEqual(slips[0].bank_account_no, "111")
+
+	def test_bank_account_record_fills_a_blank_slip(self):
+		slips = [slip("S1", account="", bank=None)]
+		fill_missing_accounts(
+			slips,
+			{"EMP-1": [_dict(bank="Nabil Bank Limited", bank_account_no="06010017500001", custom_nchl_bank_code="")]},
+			{"EMP-1": _dict(bank_name="Ignored", bank_ac_no="555")},
+		)
+		self.assertEqual((slips[0].bank_name, slips[0].bank_account_no), ("Nabil Bank Limited", "06010017500001"))
+		rows, problems = bank_rows(slips, {"S1": 100}, CODES, "Salary")
+		self.assertEqual((rows[0][1], rows[0][2], problems), ("0401", "06010017500001", []))
+
+	def test_employee_fields_are_the_last_resort(self):
+		slips = [slip("S1", account="", bank=None)]
+		fill_missing_accounts(slips, {}, {"EMP-1": _dict(bank_name="Nabil Bank", bank_ac_no="555")})
+		self.assertEqual((slips[0].bank_name, slips[0].bank_account_no), ("Nabil Bank", "555"))
+
+	def test_no_account_anywhere_stays_blank(self):
+		slips = [slip("S1", account="", bank=None)]
+		fill_missing_accounts(slips, {"EMP-1": [_dict(bank="Nabil Bank Limited", bank_account_no="")]}, {})
+		self.assertEqual(slips[0].bank_account_no, "")
 
 
 class TestBankWorkbook(TestCase):

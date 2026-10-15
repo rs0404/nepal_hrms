@@ -146,6 +146,32 @@ def amounts_by_root(details, root):
 	return {slip: flt(value, 2) for slip, value in totals.items()}
 
 
+def fill_missing_accounts(slips, bank_accounts, employees):
+	"""Give a slip with no bank account the employee's current one.
+
+	The slip copies the account when it is created, so details added later --
+	a Bank Account record for the employee, or the Employee's own bank fields --
+	never reach it. bank_accounts is {employee: [rows]}, best first; employees
+	is {employee: row with bank_name / bank_ac_no}. The slip's own account
+	always wins.
+	"""
+	for slip in slips:
+		if (slip.bank_account_no or "").strip():
+			continue
+		for account in bank_accounts.get(slip.employee) or []:
+			if (account.bank_account_no or "").strip():
+				slip.bank_account_no = account.bank_account_no
+				slip.bank_name = account.bank
+				slip.bank_code = account.get("custom_nchl_bank_code") or ""
+				break
+		else:
+			employee = employees.get(slip.employee) or {}
+			if (employee.get("bank_ac_no") or "").strip():
+				slip.bank_account_no = employee.get("bank_ac_no")
+				slip.bank_name = employee.get("bank_name")
+	return slips
+
+
 def bank_rows(slips, amounts, codes_by_name, remarks):
 	"""Rows for the bank sheet, and the slips that could not go on it.
 
@@ -163,7 +189,7 @@ def bank_rows(slips, amounts, codes_by_name, remarks):
 			continue
 		if amount == 0 or not account:
 			continue
-		code = bank_code_for(slip.bank_name, codes_by_name)
+		code = slip.get("bank_code") or bank_code_for(slip.bank_name, codes_by_name)
 		if not code:
 			problems.append(
 				(slip, _("No NCHL bank code for bank '{0}'").format(slip.bank_name or ""))
@@ -201,6 +227,7 @@ def _load(payroll_entry):
 		],
 		order_by="employee_name asc",
 	)
+	_fill_accounts(slips)
 	details = (
 		frappe.get_all(
 			"Salary Detail",
@@ -214,6 +241,33 @@ def _load(payroll_entry):
 		else []
 	)
 	return pe, slips, details
+
+
+def _fill_accounts(slips):
+	missing = sorted({s.employee for s in slips if not (s.bank_account_no or "").strip()})
+	if not missing:
+		return
+	meta = frappe.get_meta("Bank Account")
+	filters = {"party_type": "Employee", "party": ["in", missing]}
+	if meta.has_field("disabled"):
+		filters["disabled"] = 0
+	fields = ["party", "bank", "bank_account_no", "is_default"]
+	if meta.has_field("custom_nchl_bank_code"):
+		fields.append("custom_nchl_bank_code")
+	bank_accounts = defaultdict(list)
+	for account in frappe.get_all(
+		"Bank Account", filters=filters, fields=fields, order_by="is_default desc, creation desc"
+	):
+		bank_accounts[account.party].append(account)
+	employees = {
+		e.name: e
+		for e in frappe.get_all(
+			"Employee",
+			filters={"name": ["in", missing]},
+			fields=["name", "bank_name", "bank_ac_no"],
+		)
+	}
+	fill_missing_accounts(slips, bank_accounts, employees)
 
 
 def _codes_by_name():
