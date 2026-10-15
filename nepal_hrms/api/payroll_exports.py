@@ -44,6 +44,10 @@ SSF_EMPLOYEE_ROOT = "Employee's Contribution SSF"
 SSF_EMPLOYER_ROOT = "Employer's Contribution SSF"
 CIT_ROOT = "CIT"
 
+# Nepali grouping: 12,34,567.89 (thousands, then every two digits). Excel has
+# no locale for it, so the lakh and crore commas are written into the format.
+NP_MONEY_FORMAT = '[>=10000000]##\\,##\\,##\\,##0.00;[>=100000]##\\,##\\,##0.00;#,##0.00'
+
 KINDS = ("net_pay", "component_net_pay", "components", "ssf", "cit", "jv")
 
 
@@ -334,7 +338,7 @@ def _cit_number(employee):
 
 @frappe.whitelist()
 def download_payroll_export(
-	payroll_entry, kind, components=None, exclude=None, deductions=None, validate_only=0
+	payroll_entry, kind, components=None, deductions=None, validate_only=0
 ):
 	"""validate_only builds the file and answers with its name, so the dialog
 	can show a refusal as a message instead of a downloaded error page."""
@@ -347,7 +351,7 @@ def download_payroll_export(
 
 	if kind in ("net_pay", "component_net_pay", "components"):
 		by_component = component_amounts(details)
-		chosen = set(_parse_list(exclude if kind == "net_pay" else components))
+		chosen = set(_parse_list(components))
 		not_paid = sorted(
 			(chosen & offset_roots(details))
 			| (set(_parse_list(deductions)) & offset_deduction_roots(details))
@@ -359,16 +363,11 @@ def download_payroll_export(
 				)
 			)
 		if kind == "net_pay":
-			roots = set(_parse_list(exclude))
-			amounts = {
-				s.name: _pay_amount(s)
-				- sum(by_component.get((s.name, root), 0.0) for root in roots)
-				for s in slips
-			}
+			# The ERP's own net pay, as is. Choosing what goes into the payment
+			# is Net Pay by Component.
+			amounts = {s.name: _pay_amount(s) for s in slips}
 			label = _("Salary")
-			title = _("Net Pay") + (
-				" " + _("less {0}").format(", ".join(sorted(roots))) if roots else ""
-			)
+			title = _("Net Pay")
 		elif kind == "component_net_pay":
 			roots = _parse_list(components)
 			taken = _parse_list(deductions)
@@ -395,13 +394,6 @@ def download_payroll_export(
 					len(negative), len(slips)
 				),
 				title=_("Deductions more than earnings"),
-			)
-		if kind == "net_pay" and negative:
-			frappe.throw(
-				_("Leaving out {0} takes more than net pay for {1} of {2} employee(s): those components are more than what is left after deductions. Untick the ones that are not paid separately -- usually only Festival Allowance or Bonus are.").format(
-					", ".join(sorted(roots)), len(negative), len(slips)
-				),
-				title=_("Left out more than net pay"),
 			)
 		if problems:
 			frappe.throw(
@@ -444,7 +436,7 @@ def _bank_xlsx(rows):
 		for col, value in enumerate(row, start=1):
 			cell = ws.cell(row=r, column=col, value=value)
 			# Bank code and account number are text: a leading 0 must survive.
-			cell.number_format = "#,##0.00" if col == 1 else "@"
+			cell.number_format = NP_MONEY_FORMAT if col == 1 else "@"
 	return _save(wb)
 
 
@@ -479,7 +471,7 @@ def _contribution_xlsx(pe, period, title, headers, rows, money_from):
 		for cell in row:
 			cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
 			if cell.row > header_row and cell.column > money_from:
-				cell.number_format = "#,##0.00"
+				cell.number_format = NP_MONEY_FORMAT
 			elif cell.row > header_row and cell.column > 1:
 				cell.number_format = "@"
 	for cell in ws[last_row]:
@@ -702,7 +694,7 @@ def _jv_xlsx(pe, jv, period):
 			for cell in row:
 				cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
 				if cell.row > first and cell.column >= money_from:
-					cell.number_format = "#,##0.00"
+					cell.number_format = NP_MONEY_FORMAT
 		for cell in sheet[last]:
 			cell.font = bold
 	widths = {"A": 6, "B": 42, "C": 26, "D": 12, "E": 18, "F": 16, "G": 22, "H": 16, "I": 16}

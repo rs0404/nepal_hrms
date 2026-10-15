@@ -6,6 +6,7 @@ from openpyxl import load_workbook
 
 from nepal_hrms.api.payroll_exports import (
 	BANK_FIRST_ROW,
+	NP_MONEY_FORMAT,
 	_bank_xlsx,
 	amounts_by_root,
 	bank_code_for,
@@ -162,7 +163,7 @@ class TestBankWorkbook(TestCase):
 		row = [ws.cell(row=BANK_FIRST_ROW, column=c).value for c in range(1, 7)]
 		self.assertEqual(row, [1234.5, "0401", "0010017501", "A Person", "Salary", "EMP-1"])
 		self.assertEqual(ws.cell(row=BANK_FIRST_ROW, column=2).number_format, "@")
-		self.assertEqual(ws.cell(row=BANK_FIRST_ROW, column=1).number_format, "#,##0.00")
+		self.assertEqual(ws.cell(row=BANK_FIRST_ROW, column=1).number_format, NP_MONEY_FORMAT)
 
 
 class TestJournalEntryWorkbook(TestCase):

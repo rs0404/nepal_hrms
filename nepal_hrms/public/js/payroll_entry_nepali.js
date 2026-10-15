@@ -95,19 +95,54 @@ function create_accrual_journal_entry(frm, status) {
     });
 }
 
-// Excel downloads built by nepal_hrms.api.payroll_exports. Each opens a dialog
-// that first lists whatever would make the file wrong or short, so nobody uploads
-// a bank file and discovers afterwards who was not on it.
+// Excel downloads built by nepal_hrms.api.payroll_exports. Net Pay downloads at
+// once; the rest open a dialog for their choices. Either way, whatever would make
+// the file short is said out loud, so nobody uploads a bank file and discovers
+// afterwards who was not on it.
 const PAYROLL_EXPORTS = "nepal_hrms.api.payroll_exports";
 
 function add_payroll_download_buttons(frm) {
     const group = __("Download");
-    frm.add_custom_button(__("Net Pay (Bank File)"), () => open_payroll_download(frm, "net_pay"), group);
-    frm.add_custom_button(__("Net Pay by Component (Bank File)"), () => open_payroll_download(frm, "component_net_pay"), group);
-    frm.add_custom_button(__("Component Payment (Bank File)"), () => open_payroll_download(frm, "components"), group);
+    frm.add_custom_button(__("Net Pay (Corporate Pay format)"), () => download_net_pay(frm), group);
+    frm.add_custom_button(__("Net Pay by Component (Corporate Pay format)"), () => open_payroll_download(frm, "component_net_pay"), group);
+    frm.add_custom_button(__("Component Payment (Corporate Pay format)"), () => open_payroll_download(frm, "components"), group);
     frm.add_custom_button(__("SSF Contribution"), () => open_payroll_download(frm, "ssf"), group);
     frm.add_custom_button(__("CIT Contribution"), () => open_payroll_download(frm, "cit"), group);
     frm.add_custom_button(__("Accrual Journal Entry"), () => open_payroll_download(frm, "jv"), group);
+}
+
+// A server-side refusal (a slip that cannot go on the bank file) would come back
+// as a downloaded error page, so the same call is made first as a check.
+function run_payroll_download(args) {
+    return frappe.call({
+        method: `${PAYROLL_EXPORTS}.download_payroll_export`,
+        args: Object.assign({ validate_only: 1 }, args),
+        freeze: true,
+        freeze_message: __("Preparing file..."),
+    }).then(() => {
+        open_url_post(frappe.request.url, Object.assign({ cmd: `${PAYROLL_EXPORTS}.download_payroll_export` }, args));
+    });
+}
+
+// The ERP's net pay as it stands: nothing to choose, so no dialog. Anyone left
+// off the file is named once it is on its way.
+function download_net_pay(frm) {
+    frappe.call({
+        method: `${PAYROLL_EXPORTS}.get_payroll_export_options`,
+        args: { payroll_entry: frm.doc.name },
+        freeze: true,
+    }).then((r) => {
+        const opts = r.message || {};
+        return run_payroll_download({ payroll_entry: frm.doc.name, kind: "net_pay" }).then(() => {
+            if (opts.draft_count || (opts.no_account || []).length) {
+                frappe.msgprint({
+                    title: __("Net Pay downloaded · check these"),
+                    indicator: "orange",
+                    message: payroll_download_checks_html(opts, "net_pay"),
+                });
+            }
+        });
+    });
 }
 
 function open_payroll_download(frm, kind) {
@@ -124,9 +159,8 @@ function open_payroll_download(frm, kind) {
         }));
         const options = to_options(opts.components);
         const titles = {
-            net_pay: __("Download Net Pay Bank File · {0}", [opts.period]),
-            component_net_pay: __("Download Net Pay by Component · {0}", [opts.period]),
-            components: __("Download Component Payment Bank File · {0}", [opts.period]),
+            component_net_pay: __("Download Net Pay by Component (Corporate Pay format) · {0}", [opts.period]),
+            components: __("Download Component Payment (Corporate Pay format) · {0}", [opts.period]),
             ssf: __("Download SSF Contribution · {0}", [opts.period]),
             cit: __("Download CIT Contribution · {0}", [opts.period]),
             jv: __("Download Accrual Journal Entry · {0}", [opts.period]),
@@ -134,13 +168,7 @@ function open_payroll_download(frm, kind) {
         const fields = [
             { fieldtype: "HTML", fieldname: "checks", options: payroll_download_checks_html(opts, kind) },
         ];
-        if (kind === "net_pay") {
-            fields.push({
-                fieldtype: "MultiCheck", fieldname: "exclude", columns: 2, options, select_all: true,
-                label: __("Leave out of net pay (paid separately)"),
-                description: __("Pay these with Component Payment (Bank File). Their tax stays deducted in net pay."),
-            });
-        } else if (kind === "component_net_pay") {
+        if (kind === "component_net_pay") {
             // Everything starts ticked, which is the slip's own net pay; untick
             // what this payment should not carry.
             fields.push({
@@ -158,7 +186,7 @@ function open_payroll_download(frm, kind) {
             fields.push({
                 fieldtype: "MultiCheck", fieldname: "components", columns: 2, options, reqd: 1, select_all: true,
                 label: __("Components to pay"),
-                description: __("Salary and Wages variants of a component are paid together."),
+                description: __("Salary and Wages variants of a component are paid together. Their tax stays deducted in Net Pay."),
             });
         }
 
@@ -168,7 +196,6 @@ function open_payroll_download(frm, kind) {
             primary_action_label: __("Download"),
             primary_action(values) {
                 const args = { payroll_entry: frm.doc.name, kind };
-                if (kind === "net_pay") args.exclude = JSON.stringify(values.exclude || []);
                 if (kind === "component_net_pay") {
                     if (!(values.components || []).length) {
                         frappe.msgprint(__("Tick at least one earning that makes up the payment."));
@@ -184,17 +211,7 @@ function open_payroll_download(frm, kind) {
                     }
                     args.components = JSON.stringify(values.components);
                 }
-                // A server-side refusal (a slip that cannot go on the bank file)
-                // comes back as a page, so check first with the same call.
-                frappe.call({
-                    method: `${PAYROLL_EXPORTS}.download_payroll_export`,
-                    args: Object.assign({ validate_only: 1 }, args),
-                    freeze: true,
-                    freeze_message: __("Preparing file..."),
-                }).then(() => {
-                    d.hide();
-                    open_url_post(frappe.request.url, Object.assign({ cmd: `${PAYROLL_EXPORTS}.download_payroll_export` }, args));
-                });
+                run_payroll_download(args).then(() => d.hide());
             },
         });
         d.show();
