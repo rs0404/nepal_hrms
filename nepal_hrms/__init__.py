@@ -39,13 +39,22 @@ try:
 					total_sub_periods = round(
 						(date_diff(payroll_period.end_date, payroll_period.start_date) + 1) / 30.4167
 					)
-					remaining_sub_periods = round(
-						(date_diff(period_end, start_date) + 1) / 30.4167
+					# The slip being made is itself a period, so at least one remains.
+					# Rounding alone gave 0 for an employee relieved within the first
+					# half of the slip's month: income tax divided by it, and the
+					# year's projection went negative.
+					remaining_sub_periods = max(
+						round((date_diff(period_end, start_date) + 1) / 30.4167), 1
 					)
 					return (total_sub_periods, remaining_sub_periods)
 			except Exception:
 				pass
-			return tuple(round(f) if isinstance(f, (int, float)) else f for f in factor)
+			total_sub_periods, remaining_sub_periods = (
+				round(f) if isinstance(f, (int, float)) else f for f in factor
+			)
+			if isinstance(remaining_sub_periods, (int, float)):
+				remaining_sub_periods = max(remaining_sub_periods, 1)
+			return (total_sub_periods, remaining_sub_periods)
 
 		if isinstance(factor, (int, float)):
 			return round(factor)
