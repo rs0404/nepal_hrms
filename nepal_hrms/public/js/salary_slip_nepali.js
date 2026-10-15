@@ -469,12 +469,35 @@ function show_duplicate_components(frm) {
 			}
 		}
 	}
-	// Only ever clear the banner this check put up; leave anyone else's alone.
-	if (notes.length) {
-		frm.nh_duplicate_banner = true;
-		frm.set_intro(notes.join("<br>"), "orange");
-	} else if (frm.nh_duplicate_banner) {
-		frm.nh_duplicate_banner = false;
-		frm.set_intro("");
+	show_duplicate_banner(frm, notes.join("<br>"));
+}
+
+// One banner of our own, updated in place. frm.set_intro appends a new message
+// on every call (and clearing it empties everyone's), and this check runs on
+// every grid redraw -- so it used to stack a copy per keystroke.
+function show_duplicate_banner(frm, html) {
+	const $container = frm.layout && frm.layout.message;
+	if (!$container) return;
+	let $banner = $container.children(".nh-duplicate-banner");
+
+	if (!html) {
+		frm.nh_duplicate_dismissed = null;
+		if ($banner.length) {
+			$banner.remove();
+			if (!$container.children().length) $container.addClass("hidden");
+		}
+		return;
 	}
+	// Closed with ×: stay closed until the duplicates themselves change.
+	if (frm.nh_duplicate_dismissed === html) return;
+
+	if ($banner.length) {
+		$banner.find(".nh-duplicate-text").html(html);
+		return;
+	}
+	frm.layout.show_message(`<div class="nh-duplicate-text">${html}</div>`, "orange");
+	$banner = $container.children(".form-message").last().addClass("nh-duplicate-banner");
+	$banner.find(".close-message").on("click", () => {
+		frm.nh_duplicate_dismissed = $banner.find(".nh-duplicate-text").html();
+	});
 }
