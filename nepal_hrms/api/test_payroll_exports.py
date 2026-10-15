@@ -13,6 +13,7 @@ from nepal_hrms.api.payroll_exports import (
 	component_amounts,
 	component_root,
 	normalize_bank_name,
+	offset_roots,
 )
 
 
@@ -56,6 +57,17 @@ class TestComponentGrouping(TestCase):
 			detail("S1", "deductions", "Employer's Contribution SSF Deduction", 2000),
 		]
 		self.assertEqual(amounts_by_root(details, "Employer's Contribution SSF"), {"S1": 2000})
+
+
+class TestOffsetRoots(TestCase):
+	def test_employer_contribution_deducted_back_is_offset(self):
+		details = [
+			detail("S1", "earnings", "Employer's Contribution SSF - Wages", 2000),
+			detail("S1", "deductions", "Employer's Contribution SSF Deduction", 2000),
+			detail("S1", "earnings", "Festival Allowance - Wages", 5000),
+			detail("S1", "deductions", "CIT", 500),
+		]
+		self.assertEqual(offset_roots(details), {"Employer's Contribution SSF"})
 
 
 class TestBankCodes(TestCase):

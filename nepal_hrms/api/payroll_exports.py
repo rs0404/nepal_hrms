@@ -77,6 +77,25 @@ def component_amounts(details):
 	return {key: flt(value, 2) for key, value in totals.items()}
 
 
+def offset_roots(details):
+	"""Earnings cancelled by a deduction of the same name + " Deduction".
+
+	"Employer's Contribution SSF" is added to gross only to be deducted back as
+	"Employer's Contribution SSF Deduction" and paid to the fund, never to the
+	employee. Leaving it out of net pay, or paying it to the employee's account,
+	is always a mistake, so it is not offered.
+	"""
+	deductions = {
+		component_root(d.salary_component) for d in details if d.parentfield == "deductions"
+	}
+	return {
+		component_root(d.salary_component)
+		for d in details
+		if d.parentfield == "earnings"
+		and f"{component_root(d.salary_component)} Deduction" in deductions
+	}
+
+
 def amounts_by_root(details, root):
 	"""{slip: amount} for one component root, earning or deduction alike.
 
@@ -220,9 +239,11 @@ def get_payroll_export_options(payroll_entry):
 	pe, slips, details = _load(payroll_entry)
 	codes = _codes_by_name()
 
+	offset = offset_roots(details)
 	earning_totals = defaultdict(float)
 	for (slip, root), amount in component_amounts(details).items():
-		earning_totals[root] += amount
+		if root not in offset:
+			earning_totals[root] += amount
 	components = [
 		{"root": root, "total": flt(total, 2)}
 		for root, total in sorted(earning_totals.items())
@@ -284,6 +305,14 @@ def download_payroll_export(payroll_entry, kind, components=None, exclude=None, 
 
 	if kind in ("net_pay", "components"):
 		by_component = component_amounts(details)
+		chosen = set(_parse_list(exclude if kind == "net_pay" else components))
+		not_paid = sorted(chosen & offset_roots(details))
+		if not_paid:
+			frappe.throw(
+				_("{0} is deducted back and paid to the fund, not to the employee, so it cannot be paid or left out here.").format(
+					", ".join(not_paid)
+				)
+			)
 		if kind == "net_pay":
 			roots = set(_parse_list(exclude))
 			amounts = {
@@ -306,6 +335,14 @@ def download_payroll_export(payroll_entry, kind, components=None, exclude=None, 
 			label = " + ".join(roots)
 			title = label
 		rows, problems = bank_rows(slips, amounts, _codes_by_name(), f"{label} {period}")
+		negative = [s for s, _msg in problems if flt(amounts.get(s.name)) < 0]
+		if kind == "net_pay" and negative:
+			frappe.throw(
+				_("Leaving out {0} takes more than net pay for {1} of {2} employee(s): those components are more than what is left after deductions. Untick the ones that are not paid separately -- usually only Festival Allowance or Bonus are.").format(
+					", ".join(sorted(roots)), len(negative), len(slips)
+				),
+				title=_("Left out more than net pay"),
+			)
 		if problems:
 			frappe.throw(
 				_("These slips cannot go on the bank file. Fix them and download again:")

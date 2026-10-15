@@ -116,7 +116,7 @@ function open_payroll_download(frm, kind) {
     }).then((r) => {
         const opts = r.message || {};
         const options = (opts.components || []).map((c) => ({
-            label: `${c.root} (${format_currency(c.total)})`,
+            label: `${c.root} (${format_currency(c.total, frappe.defaults.get_default("currency"), 2)})`,
             value: c.root,
         }));
         const titles = {
@@ -130,13 +130,13 @@ function open_payroll_download(frm, kind) {
         ];
         if (kind === "net_pay") {
             fields.push({
-                fieldtype: "MultiCheck", fieldname: "exclude", columns: 2, options,
+                fieldtype: "MultiCheck", fieldname: "exclude", columns: 2, options, select_all: true,
                 label: __("Leave out of net pay (paid separately)"),
                 description: __("Pay these with Component Payment (Bank File). Their tax stays deducted in net pay."),
             });
         } else if (kind === "components") {
             fields.push({
-                fieldtype: "MultiCheck", fieldname: "components", columns: 2, options, reqd: 1,
+                fieldtype: "MultiCheck", fieldname: "components", columns: 2, options, reqd: 1, select_all: true,
                 label: __("Components to pay"),
                 description: __("Salary and Wages variants of a component are paid together."),
             });
