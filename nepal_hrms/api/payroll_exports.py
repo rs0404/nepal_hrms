@@ -48,7 +48,7 @@ CIT_ROOT = "CIT"
 # no locale for it, so the lakh and crore commas are written into the format.
 NP_MONEY_FORMAT = '[>=10000000]##\\,##\\,##\\,##0.00;[>=100000]##\\,##\\,##0.00;#,##0.00'
 
-KINDS = ("net_pay", "component_net_pay", "components", "ssf", "cit", "jv")
+KINDS = ("net_pay", "component_net_pay", "components", "ssf", "cit", "jv", "salary_sheet")
 
 
 # --------------------------------------------------------------------------
@@ -409,6 +409,11 @@ def download_payroll_export(
 		if len(rows) > BANK_MAX_ROWS:
 			frappe.throw(_("The bank allows {0} rows per file; this has {1}.").format(BANK_MAX_ROWS, len(rows)))
 		content = _bank_xlsx(rows)
+	elif kind == "salary_sheet":
+		from nepal_hrms.api.salary_tax_sheet import build_salary_tax_sheet
+
+		title = _("Salary & Tax Sheet")
+		content = build_salary_tax_sheet(pe, period)
 	elif kind == "jv":
 		jv = accrual_jv_view(pe)
 		title = _("Accrual JV") + ("" if jv["posted"] else " " + _("Preview"))

@@ -106,6 +106,7 @@ function add_payroll_download_buttons(frm) {
     frm.add_custom_button(__("Net Pay (Corporate Pay format)"), () => download_net_pay(frm), group);
     frm.add_custom_button(__("Net Pay by Component (Corporate Pay format)"), () => open_payroll_download(frm, "component_net_pay"), group);
     frm.add_custom_button(__("Component Payment (Corporate Pay format)"), () => open_payroll_download(frm, "components"), group);
+    frm.add_custom_button(__("Salary & Tax Sheet"), () => run_payroll_download({ payroll_entry: frm.doc.name, kind: "salary_sheet" }), group);
     frm.add_custom_button(__("SSF Contribution"), () => open_payroll_download(frm, "ssf"), group);
     frm.add_custom_button(__("CIT Contribution"), () => open_payroll_download(frm, "cit"), group);
     frm.add_custom_button(__("Accrual Journal Entry"), () => open_payroll_download(frm, "jv"), group);
