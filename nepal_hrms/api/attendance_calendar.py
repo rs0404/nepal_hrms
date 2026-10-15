@@ -93,6 +93,46 @@ def _apply_cnr_application_statuses(employee, from_date, to_date, events):
 			info[status_field] = _better_cnr_app_status(info.get(status_field), incoming)
 
 
+_AR_RANK = {"Approved": 3, "Pending": 2, "Rejected": 1}
+
+
+def _normalize_ar_status(status, docstatus):
+	"""Approved only once submitted: an approved draft has marked nothing yet."""
+	if cint(docstatus) == 1 and status != "Rejected":
+		return "Approved"
+	if status == "Rejected":
+		return "Rejected"
+	return "Pending"
+
+
+def _apply_attendance_request_statuses(employee, from_date, to_date, events):
+	"""Tag each day an Attendance Request covers with where that request stands."""
+	from_date, to_date = getdate(from_date), getdate(to_date)
+	for req in frappe.get_all(
+		"Attendance Request",
+		filters={
+			"employee": employee,
+			"docstatus": ["<", 2],
+			"from_date": ["<=", to_date],
+			"to_date": [">=", from_date],
+		},
+		fields=["name", "from_date", "to_date", "status", "docstatus"],
+	):
+		incoming = _normalize_ar_status(req.status, req.docstatus)
+		day = max(getdate(req.from_date), from_date)
+		last = min(getdate(req.to_date), to_date)
+		while day <= last:
+			date_str = day.strftime("%Y-%m-%d")
+			info = events.get(date_str)
+			if not info:
+				info = _blank_calendar_day()
+				events[date_str] = info
+			if _AR_RANK[incoming] >= _AR_RANK.get(info.get("ar_status") or "", 0):
+				info["ar_status"] = incoming
+				info["attendance_request"] = req.name
+			day = add_days(day, 1)
+
+
 def _apply_ooo_log_statuses(checkins_by_date, events):
 	"""Mark days with OOO Work check-ins, and where their approval stands.
 
@@ -168,6 +208,9 @@ def _blank_calendar_day():
 		# First Half / Second Half: the half covered by leave, when recorded.
 		"half_day_session": None,
 		"holiday_name": "",
+		# Attendance Request covering the day: Approved / Pending / Rejected.
+		"ar_status": None,
+		"attendance_request": None,
 	}
 
 
@@ -551,6 +594,8 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 	      "leave_type": str | None,
 	      "leave_app_status": "Approved" | "Pending" | "Rejected" | None,
 	      "leave_application": str | None,
+	      "ar_status": "Approved" | "Pending" | "Rejected" | None,
+	      "attendance_request": str | None,
 	    },
 	    ...
 	  }
@@ -901,6 +946,7 @@ def get_attendance_calendar_details(from_date: str, to_date: str, employee: str 
 		info["ooo"] = 1
 
 	_apply_cnr_application_statuses(employee, from_date, to_date, events)
+	_apply_attendance_request_statuses(employee, from_date, to_date, events)
 	_apply_ooo_log_statuses(checkins_by_date, events)
 
 	for info in events.values():

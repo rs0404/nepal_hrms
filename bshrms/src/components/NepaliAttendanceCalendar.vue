@@ -94,7 +94,11 @@
 					<!-- Bottom-left: what the day was, and where its leave stands (✓, pending clock, ✕).
 					     Top-right stays for the late / early / OOO dots, so the two
 					     never meet. -->
-					<span v-if="day.codes.length || day.leaveApp" class="day-codes" aria-hidden="true">
+					<span
+						v-if="day.codes.length || day.leaveApp || day.arStatus"
+						class="day-codes"
+						aria-hidden="true"
+					>
 						<span v-for="code in day.codes" :key="code" :class="dayCodeClass(code)">
 							{{ code }}
 						</span>
@@ -104,6 +108,14 @@
 							:class="appStatusClass(day.leaveApp)"
 							:title="appStatusTitle(__('Leave'), day.leaveApp)"
 						/>
+						<!-- Attendance Request on the day, marked like a leave: ✓, pending clock, ✕. -->
+						<template v-if="day.arStatus">
+							<span
+								class="att-code att-code-ar"
+								:title="appStatusTitle(__('Attendance Request'), day.arStatus)"
+							>AR</span>
+							<i class="att-appmark" :class="appStatusClass(day.arStatus)" />
+						</template>
 					</span>
 
 					<span class="bs-day">{{ day.bsLabel }}</span>
@@ -248,6 +260,9 @@
 				</span>
 				<span class="inline-flex items-center gap-1">
 					<span class="att-code">LWP</span>{{ __("Without pay") }}
+				</span>
+				<span class="inline-flex items-center gap-1">
+					<span class="att-code att-code-ar">AR</span>{{ __("Attendance Request") }}
 				</span>
 				<span class="inline-flex items-center gap-1">
 					<span class="att-code att-code-penalty">½P</span>{{ __("Half-day penalty") }}
@@ -446,6 +461,7 @@ const periodDays = computed(() => {
 			dots: markerDots(m),
 			appOnlyMarks: appOnlyMarks(m),
 			leaveApp: m.leave_app,
+			arStatus: (info && info.ar_status) || "",
 			late: m.lateDelay,
 			early: m.earlyDelay,
 		})
