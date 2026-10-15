@@ -320,6 +320,34 @@ def _grid_summary_display(row: dict, fieldname: str):
 	return rounded
 
 
+def _employee_org(data) -> dict:
+	"""{employee: (branch, department)} for the rows being exported."""
+	names = [row.get("employee") for row in data or [] if row.get("employee")]
+	if not names:
+		return {}
+	return {
+		e.name: (e.branch or "", e.department or "")
+		for e in frappe.get_all(
+			"Employee",
+			filters={"name": ["in", names]},
+			fields=["name", "branch", "department"],
+			ignore_permissions=True,
+		)
+	}
+
+
+def sort_rows_for_download(data, org=None):
+	"""Branch, then department, then name, A to Z; blanks after named ones."""
+	org = org if org is not None else _employee_org(data)
+
+	def key(row):
+		branch, department = org.get(row.get("employee"), ("", ""))
+		name = row.get("employee_name") or row.get("employee") or ""
+		return (not branch, branch.lower(), not department, department.lower(), name.lower())
+
+	return sorted(data or [], key=key)
+
+
 def build_classic_grid_xlsx_bytes(filters) -> bytes:
 	"""Excel attendance grid: MONTH / NAME headers, BS dates, weekend shading."""
 	from nepal_hrms.nepal_hrms.report.monthly_attendance_sheet_bs.monthly_attendance_sheet_bs import (
@@ -333,6 +361,8 @@ def build_classic_grid_xlsx_bytes(filters) -> bytes:
 	columns, data, _message = execute(filters)
 	if not data:
 		frappe.throw(_("No data found for the selected filters."))
+	org = _employee_org(data)
+	data = sort_rows_for_download(data, org)
 
 	day_fields = _day_fields_from_report_columns(columns)
 	if not day_fields:
@@ -345,7 +375,10 @@ def build_classic_grid_xlsx_bytes(filters) -> bytes:
 	day_last_col = 1 + len(day_fields)
 	summary_start_col = day_last_col + 1
 	trailing_fields = list(GRID_TRAILING_FIELDS)
-	last_col = summary_start_col + len(trailing_fields) - 1
+	# Branch and Department close the row, after the totals.
+	org_start_col = summary_start_col + len(trailing_fields)
+	org_labels = (_("Branch"), _("Department"))
+	last_col = org_start_col + len(org_labels) - 1
 
 	wb = Workbook()
 	ws = wb.active
@@ -424,6 +457,10 @@ def build_classic_grid_xlsx_bytes(filters) -> bytes:
 		header_cell = ws.cell(2, col, _(label))
 		style_cell(header_cell, fill=header_fill, bold=True, align=center)
 		style_cell(ws.cell(3, col), fill=header_fill, bold=True, align=center)
+	for offset, label in enumerate(org_labels):
+		col = org_start_col + offset
+		style_cell(ws.cell(2, col, label), fill=header_fill, bold=True, align=center)
+		style_cell(ws.cell(3, col), fill=header_fill, bold=True, align=center)
 
 	# Employee rows
 	for row_index, row in enumerate(data, start=4):
@@ -440,12 +477,16 @@ def build_classic_grid_xlsx_bytes(filters) -> bytes:
 			value = _grid_summary_display(row, fieldname)
 			cell = ws.cell(row_index, col, value)
 			style_cell(cell, align=center)
+		for offset, value in enumerate(org.get(row.get("employee"), ("", ""))):
+			style_cell(ws.cell(row_index, org_start_col + offset, value), align=left)
 
 	ws.column_dimensions["A"].width = 24
 	for col in range(2, day_last_col + 1):
 		ws.column_dimensions[get_column_letter(col)].width = 5.5
-	for col in range(summary_start_col, last_col + 1):
+	for col in range(summary_start_col, org_start_col):
 		ws.column_dimensions[get_column_letter(col)].width = 14
+	for col in range(org_start_col, last_col + 1):
+		ws.column_dimensions[get_column_letter(col)].width = 22
 
 	output = BytesIO()
 	wb.save(output)
@@ -469,6 +510,7 @@ def build_export_table(filters, export_mode="daily"):
 	columns, data, _message = execute(filters)
 	if not data:
 		frappe.throw(_("No data found for the selected filters."))
+	data = sort_rows_for_download(data)
 
 	day_fields = _day_fields_from_report_columns(columns)
 	if not day_fields:
