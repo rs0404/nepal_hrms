@@ -103,9 +103,11 @@ const PAYROLL_EXPORTS = "nepal_hrms.api.payroll_exports";
 function add_payroll_download_buttons(frm) {
     const group = __("Download");
     frm.add_custom_button(__("Net Pay (Bank File)"), () => open_payroll_download(frm, "net_pay"), group);
+    frm.add_custom_button(__("Net Pay by Component (Bank File)"), () => open_payroll_download(frm, "component_net_pay"), group);
     frm.add_custom_button(__("Component Payment (Bank File)"), () => open_payroll_download(frm, "components"), group);
     frm.add_custom_button(__("SSF Contribution"), () => open_payroll_download(frm, "ssf"), group);
     frm.add_custom_button(__("CIT Contribution"), () => open_payroll_download(frm, "cit"), group);
+    frm.add_custom_button(__("Accrual Journal Entry"), () => open_payroll_download(frm, "jv"), group);
 }
 
 function open_payroll_download(frm, kind) {
@@ -115,15 +117,19 @@ function open_payroll_download(frm, kind) {
         freeze: true,
     }).then((r) => {
         const opts = r.message || {};
-        const options = (opts.components || []).map((c) => ({
+        const to_options = (list, checked) => (list || []).map((c) => ({
             label: `${c.root} (${format_currency(c.total, frappe.defaults.get_default("currency"), 2)})`,
             value: c.root,
+            checked: checked ? 1 : 0,
         }));
+        const options = to_options(opts.components);
         const titles = {
             net_pay: __("Download Net Pay Bank File · {0}", [opts.period]),
+            component_net_pay: __("Download Net Pay by Component · {0}", [opts.period]),
             components: __("Download Component Payment Bank File · {0}", [opts.period]),
             ssf: __("Download SSF Contribution · {0}", [opts.period]),
             cit: __("Download CIT Contribution · {0}", [opts.period]),
+            jv: __("Download Accrual Journal Entry · {0}", [opts.period]),
         };
         const fields = [
             { fieldtype: "HTML", fieldname: "checks", options: payroll_download_checks_html(opts, kind) },
@@ -133,6 +139,20 @@ function open_payroll_download(frm, kind) {
                 fieldtype: "MultiCheck", fieldname: "exclude", columns: 2, options, select_all: true,
                 label: __("Leave out of net pay (paid separately)"),
                 description: __("Pay these with Component Payment (Bank File). Their tax stays deducted in net pay."),
+            });
+        } else if (kind === "component_net_pay") {
+            // Everything starts ticked, which is the slip's own net pay; untick
+            // what this payment should not carry.
+            fields.push({
+                fieldtype: "MultiCheck", fieldname: "components", columns: 2, select_all: true,
+                options: to_options(opts.components, true),
+                label: __("Earnings to pay"),
+            });
+            fields.push({
+                fieldtype: "MultiCheck", fieldname: "deductions", columns: 2, select_all: true,
+                options: to_options(opts.deductions, true),
+                label: __("Deductions to take off"),
+                description: __("Amount paid = ticked earnings − ticked deductions. Calculation Only rows are never counted, so with everything ticked this is the ERP net pay."),
             });
         } else if (kind === "components") {
             fields.push({
@@ -149,6 +169,14 @@ function open_payroll_download(frm, kind) {
             primary_action(values) {
                 const args = { payroll_entry: frm.doc.name, kind };
                 if (kind === "net_pay") args.exclude = JSON.stringify(values.exclude || []);
+                if (kind === "component_net_pay") {
+                    if (!(values.components || []).length) {
+                        frappe.msgprint(__("Tick at least one earning that makes up the payment."));
+                        return;
+                    }
+                    args.components = JSON.stringify(values.components);
+                    args.deductions = JSON.stringify(values.deductions || []);
+                }
                 if (kind === "components") {
                     if (!(values.components || []).length) {
                         frappe.msgprint(__("Pick at least one component to pay."));
@@ -177,7 +205,7 @@ function payroll_download_checks_html(opts, kind) {
     const esc = frappe.utils.escape_html;
     const names = (list) => list.map(esc).join(", ");
     const notes = [];
-    const bank = kind === "net_pay" || kind === "components";
+    const bank = ["net_pay", "component_net_pay", "components"].includes(kind);
 
     if (opts.draft_count) {
         notes.push(["orange", __("{0} of {1} salary slip(s) are still drafts and are included as they stand.", [opts.draft_count, opts.slip_count])]);
@@ -194,11 +222,14 @@ function payroll_download_checks_html(opts, kind) {
     if (kind === "cit" && (opts.no_cit_number || []).length) {
         notes.push(["orange", __("No CIT Number on the employee: {0}", [names(opts.no_cit_number)])]);
     }
+    if (kind === "jv") {
+        notes.push(["blue", __("Shows the posted accrual Journal Entry, or, until the salary slips are submitted, a preview of the one that will be posted. Nothing is saved.")]);
+    }
     if (!notes.length) {
         return `<p class="text-muted">${__("{0} salary slip(s). Nothing needs attention.", [opts.slip_count])}</p>`;
     }
     return notes
-        .map(([color, text]) => `<div class="alert alert-${color === "red" ? "danger" : "warning"} small" style="margin-bottom:8px;">${text}</div>`)
+        .map(([color, text]) => `<div class="alert alert-${{ red: "danger", blue: "info" }[color] || "warning"} small" style="margin-bottom:8px;">${text}</div>`)
         .join("");
 }
 

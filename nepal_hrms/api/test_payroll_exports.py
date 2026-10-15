@@ -11,8 +11,10 @@ from nepal_hrms.api.payroll_exports import (
 	bank_code_for,
 	bank_rows,
 	component_amounts,
+	component_net_amounts,
 	component_root,
 	normalize_bank_name,
+	offset_deduction_roots,
 	offset_roots,
 )
 
@@ -70,6 +72,53 @@ class TestOffsetRoots(TestCase):
 		self.assertEqual(offset_roots(details), {"Employer's Contribution SSF"})
 
 
+class TestComponentNetPay(TestCase):
+	details = [
+		detail("S1", "earnings", "Basic Salary - Salary", 40000),
+		detail("S1", "earnings", "Festival Allowance - Salary", 30000),
+		detail("S1", "earnings", "Employer's Contribution SSF - Salary", 8000),
+		detail("S1", "deductions", "Employer's Contribution SSF Deduction", 8000),
+		detail("S1", "deductions", "Employee's Contribution SSF", 4400),
+		_dict(
+			parent="S1", parentfield="deductions", salary_component="Leave and Late Deduction - Salary",
+			amount=1500, do_not_include_in_total=1,
+		),
+	]
+	slips = [_dict(name="S1")]
+
+	def test_everything_ticked_is_the_slip_net_pay(self):
+		# 40000 + 30000 - 4400; the offset pair is hidden and the Calculation Only
+		# row is already out of earnings.
+		self.assertEqual(
+			component_net_amounts(
+				self.slips, self.details,
+				["Basic Salary", "Festival Allowance"], ["Employee's Contribution SSF"],
+			),
+			{"S1": 65600.0},
+		)
+
+	def test_unticked_earning_is_not_paid(self):
+		self.assertEqual(
+			component_net_amounts(
+				self.slips, self.details, ["Basic Salary"], ["Employee's Contribution SSF"]
+			),
+			{"S1": 35600.0},
+		)
+
+	def test_calculation_only_row_is_never_taken_off(self):
+		self.assertEqual(
+			component_net_amounts(
+				self.slips, self.details, ["Basic Salary"], ["Leave and Late Deduction"]
+			),
+			{"S1": 40000.0},
+		)
+
+	def test_offset_pair_hidden_on_both_sides(self):
+		self.assertEqual(
+			offset_deduction_roots(self.details), {"Employer's Contribution SSF Deduction"}
+		)
+
+
 class TestBankCodes(TestCase):
 	def test_name_variants_find_the_same_bank(self):
 		for name in ("Nabil Bank", "Nabil Bank Limited", "NABIL BANK LTD.", " nabil  bank "):
@@ -114,3 +163,27 @@ class TestBankWorkbook(TestCase):
 		self.assertEqual(row, [1234.5, "0401", "0010017501", "A Person", "Salary", "EMP-1"])
 		self.assertEqual(ws.cell(row=BANK_FIRST_ROW, column=2).number_format, "@")
 		self.assertEqual(ws.cell(row=BANK_FIRST_ROW, column=1).number_format, "#,##0.00")
+
+
+class TestJournalEntryWorkbook(TestCase):
+	def test_preview_lists_debits_first_balances_and_sums_expenses(self):
+		from nepal_hrms.api.payroll_exports import _jv_xlsx
+
+		pe = _dict(name="PE-1", company="Co", start_date="2026-09-14", end_date="2026-10-14")
+		jv = {
+			"posted": None,
+			"posting_date": "2026-10-15",
+			"remark": "Accrual",
+			"accounts": [
+				_dict(account="Payroll Payable", credit_in_account_currency=900, party_type="Employee", party="E1"),
+				_dict(account="Wages", debit_in_account_currency=1000, cost_center="Main"),
+				_dict(account="SSF Payable", credit_in_account_currency=100),
+			],
+		}
+		wb = load_workbook(BytesIO(_jv_xlsx(pe, jv, "Ashwin 2083")))
+		ws = wb["Journal Entry"]
+		self.assertIn("PREVIEW", ws["B2"].value)
+		rows = [r for r in ws.iter_rows(min_row=8, values_only=True)]
+		self.assertEqual(rows[0][1], "Wages")
+		self.assertEqual(rows[-1][1:], ("Total", None, None, None, None, None, 1000, 900 + 100))
+		self.assertEqual(list(wb.worksheets[1].iter_rows(values_only=True))[1:], [("Wages", 1000), ("Total", 1000)])

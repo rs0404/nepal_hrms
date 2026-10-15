@@ -44,7 +44,7 @@ SSF_EMPLOYEE_ROOT = "Employee's Contribution SSF"
 SSF_EMPLOYER_ROOT = "Employer's Contribution SSF"
 CIT_ROOT = "CIT"
 
-KINDS = ("net_pay", "components", "ssf", "cit")
+KINDS = ("net_pay", "component_net_pay", "components", "ssf", "cit", "jv")
 
 
 # --------------------------------------------------------------------------
@@ -68,11 +68,21 @@ def bank_code_for(bank_name, codes_by_name):
 	return codes_by_name.get(normalize_bank_name(bank_name)) or ""
 
 
-def component_amounts(details):
-	"""{(slip, root): amount} for earnings, each rounded once to 2 decimals."""
+def counted_in_totals(d):
+	"""Whether the slip's gross / total deduction includes this row.
+
+	A "Calculation Only" row (do_not_include_in_total) -- the Leave and Late
+	Deduction in earned-salary mode -- has already been taken out of earnings;
+	counting it again would pay less than the slip says.
+	"""
+	return not cint(d.get("do_not_include_in_total")) and not cint(d.get("statistical_component"))
+
+
+def component_amounts(details, parentfield="earnings"):
+	"""{(slip, root): amount} for one table, each rounded once to 2 decimals."""
 	totals = defaultdict(float)
 	for d in details:
-		if d.parentfield == "earnings":
+		if d.parentfield == parentfield and counted_in_totals(d):
 			totals[(d.parent, component_root(d.salary_component))] += flt(d.amount)
 	return {key: flt(value, 2) for key, value in totals.items()}
 
@@ -93,6 +103,29 @@ def offset_roots(details):
 		for d in details
 		if d.parentfield == "earnings"
 		and f"{component_root(d.salary_component)} Deduction" in deductions
+	}
+
+
+def offset_deduction_roots(details):
+	"""The deduction halves of offset_roots: hidden with them, as a pair."""
+	return {f"{root} Deduction" for root in offset_roots(details)}
+
+
+def component_net_amounts(slips, details, earnings, deductions):
+	"""{slip: ticked earnings - ticked deductions}, from counted rows only.
+
+	With every earning and deduction ticked this is the slip's net pay: the
+	offset pair is left out on both sides and cancels anyway.
+	"""
+	paid = component_amounts(details, "earnings")
+	taken = component_amounts(details, "deductions")
+	return {
+		s.name: flt(
+			sum(paid.get((s.name, root), 0.0) for root in earnings)
+			- sum(taken.get((s.name, root), 0.0) for root in deductions),
+			2,
+		)
+		for s in slips
 	}
 
 
@@ -168,7 +201,10 @@ def _load(payroll_entry):
 		frappe.get_all(
 			"Salary Detail",
 			filters={"parenttype": "Salary Slip", "parent": ["in", [s.name for s in slips]]},
-			fields=["parent", "parentfield", "salary_component", "amount"],
+			fields=[
+				"parent", "parentfield", "salary_component", "amount",
+				"do_not_include_in_total", "statistical_component",
+			],
 		)
 		if slips
 		else []
@@ -239,16 +275,19 @@ def get_payroll_export_options(payroll_entry):
 	pe, slips, details = _load(payroll_entry)
 	codes = _codes_by_name()
 
-	offset = offset_roots(details)
-	earning_totals = defaultdict(float)
-	for (slip, root), amount in component_amounts(details).items():
-		if root not in offset:
-			earning_totals[root] += amount
-	components = [
-		{"root": root, "total": flt(total, 2)}
-		for root, total in sorted(earning_totals.items())
-		if flt(total, 2) > 0
-	]
+	def totals(parentfield, hidden):
+		by_root = defaultdict(float)
+		for (slip, root), amount in component_amounts(details, parentfield).items():
+			if root not in hidden:
+				by_root[root] += amount
+		return [
+			{"root": root, "total": flt(total, 2)}
+			for root, total in sorted(by_root.items())
+			if flt(total, 2) > 0
+		]
+
+	components = totals("earnings", offset_roots(details))
+	deduction_components = totals("deductions", offset_deduction_roots(details))
 
 	no_account = [s.employee_name for s in slips if not (s.bank_account_no or "").strip()]
 	no_code = sorted(
@@ -276,6 +315,7 @@ def get_payroll_export_options(payroll_entry):
 		"slip_count": len(slips),
 		"draft_count": sum(1 for s in slips if s.docstatus == 0),
 		"components": components,
+		"deductions": deduction_components,
 		"no_account": no_account,
 		"no_bank_code": no_code,
 		"no_ssf_number": no_ssf_no,
@@ -293,7 +333,9 @@ def _cit_number(employee):
 
 
 @frappe.whitelist()
-def download_payroll_export(payroll_entry, kind, components=None, exclude=None, validate_only=0):
+def download_payroll_export(
+	payroll_entry, kind, components=None, exclude=None, deductions=None, validate_only=0
+):
 	"""validate_only builds the file and answers with its name, so the dialog
 	can show a refusal as a message instead of a downloaded error page."""
 	from frappe.desk.utils import provide_binary_file
@@ -303,10 +345,13 @@ def download_payroll_export(payroll_entry, kind, components=None, exclude=None, 
 	pe, slips, details = _load(payroll_entry)
 	period = _period_label(pe)
 
-	if kind in ("net_pay", "components"):
+	if kind in ("net_pay", "component_net_pay", "components"):
 		by_component = component_amounts(details)
 		chosen = set(_parse_list(exclude if kind == "net_pay" else components))
-		not_paid = sorted(chosen & offset_roots(details))
+		not_paid = sorted(
+			(chosen & offset_roots(details))
+			| (set(_parse_list(deductions)) & offset_deduction_roots(details))
+		)
 		if not_paid:
 			frappe.throw(
 				_("{0} is deducted back and paid to the fund, not to the employee, so it cannot be paid or left out here.").format(
@@ -324,6 +369,14 @@ def download_payroll_export(payroll_entry, kind, components=None, exclude=None, 
 			title = _("Net Pay") + (
 				" " + _("less {0}").format(", ".join(sorted(roots))) if roots else ""
 			)
+		elif kind == "component_net_pay":
+			roots = _parse_list(components)
+			taken = _parse_list(deductions)
+			if not roots:
+				frappe.throw(_("Tick at least one earning that makes up the payment."))
+			amounts = component_net_amounts(slips, details, roots, taken)
+			label = _("Salary")
+			title = _("Net Pay by Component")
 		else:
 			roots = _parse_list(components)
 			if not roots:
@@ -336,6 +389,13 @@ def download_payroll_export(payroll_entry, kind, components=None, exclude=None, 
 			title = label
 		rows, problems = bank_rows(slips, amounts, _codes_by_name(), f"{label} {period}")
 		negative = [s for s, _msg in problems if flt(amounts.get(s.name)) < 0]
+		if kind == "component_net_pay" and negative:
+			frappe.throw(
+				_("The ticked deductions are more than the ticked earnings for {0} of {1} employee(s). Tick the earnings those deductions come out of, or untick deductions.").format(
+					len(negative), len(slips)
+				),
+				title=_("Deductions more than earnings"),
+			)
 		if kind == "net_pay" and negative:
 			frappe.throw(
 				_("Leaving out {0} takes more than net pay for {1} of {2} employee(s): those components are more than what is left after deductions. Untick the ones that are not paid separately -- usually only Festival Allowance or Bonus are.").format(
@@ -357,6 +417,10 @@ def download_payroll_export(payroll_entry, kind, components=None, exclude=None, 
 		if len(rows) > BANK_MAX_ROWS:
 			frappe.throw(_("The bank allows {0} rows per file; this has {1}.").format(BANK_MAX_ROWS, len(rows)))
 		content = _bank_xlsx(rows)
+	elif kind == "jv":
+		jv = accrual_jv_view(pe)
+		title = _("Accrual JV") + ("" if jv["posted"] else " " + _("Preview"))
+		content = _jv_xlsx(pe, jv, period)
 	elif kind == "ssf":
 		title = _("SSF Contribution")
 		content = _ssf_xlsx(pe, slips, details, period)
@@ -489,3 +553,162 @@ def _save(wb):
 	out = BytesIO()
 	wb.save(out)
 	return out.getvalue()
+
+
+# --------------------------------------------------------------------------
+# Accrual Journal Entry view
+
+
+JV_FIELDS = (
+	("account", "Account"),
+	("cost_center", "Cost Center"),
+	("party_type", "Party Type"),
+	("party", "Party"),
+	("reference_type", "Reference Type"),
+	("reference_name", "Reference"),
+)
+
+
+def accrual_jv_view(pe):
+	"""The accrual Journal Entry's rows: the posted one, or what would be posted.
+
+	A posted JV is read back as it stands. Otherwise HRMS's own make_accrual_jv_entry
+	runs over every slip of this run not yet in a JV -- drafts included, since
+	the JV is posted the moment they are submitted -- and its rows are caught at
+	make_journal_entry, before anything is saved. The whole run is rolled back
+	regardless.
+	"""
+	from nepal_hrms.custom_code.payroll.accrual_jv import get_accrual_journal_entries
+
+	posted = next((e for e in get_accrual_journal_entries(pe.name) if e.docstatus == 1), None)
+	if posted:
+		je = frappe.get_doc("Journal Entry", posted.name)
+		return {
+			"posted": je.name,
+			"posting_date": je.posting_date,
+			"remark": je.user_remark,
+			"accounts": [a.as_dict() for a in je.accounts],
+		}
+
+	captured = {}
+
+	def unaccrued_slips(ss_status, as_dict=False):
+		# Drafts and submitted slips alike; the stock query skips any slip a JV holds.
+		return type(pe).get_sal_slip_list(pe, 0, as_dict) + type(pe).get_sal_slip_list(
+			pe, 1, as_dict
+		)
+
+	def capture(accounts, currencies, payroll_payable_account=None, **kwargs):
+		captured["accounts"] = [frappe._dict(a) for a in accounts]
+		captured["remark"] = kwargs.get("user_remark")
+
+	frappe.db.savepoint("nh_jv_preview")
+	try:
+		# Instance attributes shadow the methods for this one run; reading the
+		# preview needs read access only, which _load has already checked.
+		pe.get_sal_slip_list = unaccrued_slips
+		pe.make_journal_entry = capture
+		pe.check_permission = lambda *args, **kwargs: None
+		pe.make_accrual_jv_entry(submitted_salary_slips=None)
+	finally:
+		for attr in ("get_sal_slip_list", "make_journal_entry", "check_permission"):
+			pe.__dict__.pop(attr, None)
+		frappe.db.rollback(save_point="nh_jv_preview")
+
+	if not captured.get("accounts"):
+		frappe.throw(_("Every salary slip of this Payroll Entry is already in a Journal Entry, and none of them is a posted accrual entry to show."))
+	return {
+		"posted": None,
+		"posting_date": pe.posting_date,
+		"remark": captured.get("remark"),
+		"accounts": captured["accounts"],
+	}
+
+
+def _jv_xlsx(pe, jv, period):
+	from openpyxl import Workbook
+	from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+	accounts = sorted(
+		jv["accounts"],
+		# Debits (expenses) first, then credits; within each, by account.
+		key=lambda a: (
+			0 if flt(a.get("debit_in_account_currency")) else 1,
+			a.get("account") or "",
+			a.get("party") or "",
+		),
+	)
+	debit_total = flt(sum(flt(a.get("debit_in_account_currency")) for a in accounts), 2)
+	credit_total = flt(sum(flt(a.get("credit_in_account_currency")) for a in accounts), 2)
+
+	wb = Workbook()
+	ws = wb.active
+	ws.title = "Journal Entry"
+	status = (
+		_("Posted as {0}").format(jv["posted"])
+		if jv["posted"]
+		else _("PREVIEW -- not posted. It is posted when the salary slips are submitted.")
+	)
+	ws.append([_("Accrual Journal Entry"), pe.company])
+	ws.append([_("Status"), status])
+	ws.append([_("Payroll Entry"), f"{pe.name} -- {period} ({pe.start_date} to {pe.end_date})"])
+	ws.append([_("Posting Date"), str(jv["posting_date"] or "")])
+	ws.append([_("Remark"), jv["remark"] or ""])
+	ws.append([])
+	header_row = ws.max_row + 1
+	ws.append([_("#")] + [_(label) for _f, label in JV_FIELDS] + [_("Debit"), _("Credit")])
+	for i, a in enumerate(accounts, start=1):
+		ws.append(
+			[i]
+			+ [a.get(field) or "" for field, _label in JV_FIELDS]
+			+ [
+				flt(a.get("debit_in_account_currency"), 2) or None,
+				flt(a.get("credit_in_account_currency"), 2) or None,
+			]
+		)
+	ws.append([""] * (len(JV_FIELDS) + 1) + [debit_total, credit_total])
+	total_row = ws.max_row
+	ws.cell(row=total_row, column=2, value=_("Total"))
+	if abs(debit_total - credit_total) > 0.005:
+		ws.append([""] * (len(JV_FIELDS)) + [_("Out of balance by"), flt(debit_total - credit_total, 2)])
+
+	# Expense summary: what this payroll costs, by account.
+	by_account = defaultdict(float)
+	for a in accounts:
+		if flt(a.get("debit_in_account_currency")):
+			by_account[a.get("account")] += flt(a.get("debit_in_account_currency"))
+	summary = wb.create_sheet(_("Debits by Account")[:31])
+	summary.append([_("Account"), _("Debit")])
+	for account, amount in sorted(by_account.items()):
+		summary.append([account, flt(amount, 2)])
+	summary.append([_("Total"), flt(sum(by_account.values()), 2)])
+
+	bold = Font(bold=True)
+	thin = Side(style="thin", color="999999")
+	fill = PatternFill("solid", fgColor="E8EEF7")
+	ws["A1"].font = Font(bold=True, size=13)
+	ws["B2"].font = Font(bold=True, color="C0392B" if not jv["posted"] else "1E8449")
+	for col in range(1, 4):
+		for row in range(1, 6):
+			ws.cell(row=row, column=col).alignment = Alignment(vertical="top")
+	for sheet, first, last, money_from in (
+		(ws, header_row, total_row, len(JV_FIELDS) + 2),
+		(summary, 1, summary.max_row, 2),
+	):
+		for cell in sheet[first]:
+			cell.font = bold
+			cell.fill = fill
+		for row in sheet.iter_rows(min_row=first, max_row=last):
+			for cell in row:
+				cell.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+				if cell.row > first and cell.column >= money_from:
+					cell.number_format = "#,##0.00"
+		for cell in sheet[last]:
+			cell.font = bold
+	widths = {"A": 6, "B": 42, "C": 26, "D": 12, "E": 18, "F": 16, "G": 22, "H": 16, "I": 16}
+	for col, width in widths.items():
+		ws.column_dimensions[col].width = width
+	summary.column_dimensions["A"].width = 48
+	summary.column_dimensions["B"].width = 18
+	ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+	return _save(wb)
