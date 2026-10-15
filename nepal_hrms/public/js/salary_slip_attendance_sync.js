@@ -27,10 +27,20 @@ nepal_hrms.salary_slip_sync = {
 		// Same vocabulary as the Monthly Attendance Sheet BS: late / early penalties
 		// on their own line, "Absent" meaning only genuine unapproved absence. The
 		// raw absent_days HRMS keeps internally lumps the two together.
-		const cell = (r, field) =>
-			`<td class="text-right">${this.fmt(r.before[field])} &rarr; <b>${this.fmt(
-				r.after[field]
-			)}</b></td>`;
+		// Only a figure that moves is drawn as before → after and coloured, so the
+		// eye lands on what the sync changes; an unchanged one is shown once, muted.
+		// Compared as displayed, so float noise below 2 decimals never lights up.
+		const cell = (r, field) => {
+			const before = this.fmt(r.before[field]);
+			const after = this.fmt(r.after[field]);
+			if (before === after) {
+				return `<td class="text-right text-muted">${after}</td>`;
+			}
+			return `<td class="text-right" style="background:var(--yellow-highlight-color, #fff5cc);">
+				<span class="text-muted">${before}</span> &rarr;
+				<b style="color:var(--orange-600, #c2410c);">${after}</b>
+			</td>`;
+		};
 		const body = rows
 			.map(
 				(r) => `<tr>
