@@ -170,7 +170,7 @@
 				<div class="flex flex-col space-y-4 p-4" v-else>
 					<slot name="formHeader"></slot>
 					<FormField
-						v-for="field in props.fields"
+						v-for="field in displayFields"
 						:key="field.name"
 						:fieldtype="field.fieldtype"
 						:fieldname="field.fieldname"
@@ -602,6 +602,16 @@ watch(
 )
 
 const slotTabs = computed(() => (props.tabs || []).filter((tab) => tab.slot))
+
+// On an existing application the status is what the approver came to see and
+// set, and at the end of a long form it sat under the sticky Submit bar.
+const STATUS_FIELDS = ["status", "approval_status"]
+const displayFields = computed(() => {
+	if (!props.id) return props.fields
+	const status = props.fields.filter((field) => STATUS_FIELDS.includes(field.fieldname))
+	if (!status.length) return props.fields
+	return [...status, ...props.fields.filter((field) => !STATUS_FIELDS.includes(field.fieldname))]
+})
 
 const tabFields = computed(() => {
 	let fieldsByTab = {}
