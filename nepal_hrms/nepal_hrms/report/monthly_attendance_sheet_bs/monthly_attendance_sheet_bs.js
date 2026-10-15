@@ -718,6 +718,14 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 	const left = `<div class="sheet-bs-daily-col">
 		<div class="sheet-bs-audit-section">
 			${sheetBsAuditRow(__("Status"), statusLabels[status] || status)}
+			${cellData.outside_employment
+				? sheetBsAuditRow(
+					__("Why"),
+					cellData.outside_employment === "before_joining"
+						? __("Before joining date — counted as absent")
+						: __("After relieving date — counted as absent")
+				)
+				: ""}
 			${sheetBsAuditRow(__("Worked"), cellData.wh || "0h")}
 			${leaveLabel ? sheetBsAuditRow(__("Leave"), leaveLabel) : ""}
 			${penaltyLabel ? sheetBsAuditRow(__("Penalty"), penaltyLabel) : ""}

@@ -69,6 +69,10 @@ def seed_absence_from_attendance(doc):
 	# reads a stale zero and sheds every penalty.
 	if doc.meta.has_field("custom_total_unpaid_days"):
 		doc.custom_total_unpaid_days = absent
+	# That bucket holds Attendance only. Days before joining or after relieving
+	# are added on top when the slip recalculates, as the change from this figure.
+	if doc.meta.has_field("custom_days_outside_employment"):
+		doc.custom_days_outside_employment = 0
 	if doc.meta.has_field("custom_absent_days_manual"):
 		doc.custom_absent_days_manual = 1
 	doc.flags.use_manual_absent_days = 1

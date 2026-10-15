@@ -1078,6 +1078,33 @@ def _total_unpaid_days(doc):
     return flt(doc.absent_days or 0)
 
 
+def days_outside_employment(doc):
+    """Working days in the period before joining or after relieving.
+
+    Counted off the calendar, not Attendance: nothing is marked for an employee
+    before they join or once a relieving date is set. Holidays drop out unless
+    Payroll Settings counts them as working days, as HRMS does for payment_days.
+    See custom_code/payroll/employment_window.py for the policy.
+    """
+    from nepal_hrms.custom_code.payroll.employment_window import dates_outside_employment
+
+    dates = dates_outside_employment(
+        doc.start_date, doc.end_date, doc.joining_date, doc.relieving_date
+    )
+    if not dates:
+        return 0.0
+    if not cint(
+        frappe.get_cached_value(
+            "Payroll Settings", None, "include_holidays_in_total_working_days"
+        )
+    ):
+        holidays = {
+            getdate(d) for d in doc.get_holidays_for_employee(min(dates), max(dates))
+        }
+        dates = [d for d in dates if d not in holidays]
+    return flt(len(dates))
+
+
 def apply_manual_absent_days(doc, manual_absent, calculated_absent):
     """Keep user-edited absent days and adjust payment days by the delta."""
     manual_absent = max(flt(manual_absent), 0.0)
@@ -1173,6 +1200,11 @@ class CustomSalarySlip(SalarySlip):
 
         super().get_working_days_details(lwp=lwp, for_preview=for_preview)
 
+        if not for_preview:
+            change = self._count_days_outside_employment_as_absent()
+            if manual_absent is not None:
+                manual_absent += change
+
         if manual_absent is not None and not for_preview:
             calculated_absent = flt(self.absent_days)
             apply_manual_absent_days(self, manual_absent, calculated_absent)
@@ -1187,6 +1219,39 @@ class CustomSalarySlip(SalarySlip):
         for attr in ("_nepal_hr_variables_loaded", "_nepal_hr_vars"):
             if hasattr(self, attr):
                 delattr(self, attr)
+
+    def _count_days_outside_employment_as_absent(self):
+        """Turn the days HRMS cut off at joining / relieving into absences.
+
+        Returns how much the stored absence bucket has to move by, so the manual
+        path can carry the same change.
+
+        The count is kept on custom_days_outside_employment because the bucket
+        persists across saves (custom_total_unpaid_days, or absent_days itself in
+        Leave mode): only the difference from the last save is added, so a resave
+        never charges the days twice and a date set or moved after the slip was
+        made still lands. Without the field there is nowhere to keep it, and the
+        days stay outside the period as HRMS leaves them.
+        """
+        if not self.meta.has_field("custom_days_outside_employment"):
+            return 0.0
+
+        days = days_outside_employment(self)
+        previous = flt(self.get("custom_days_outside_employment"))
+        self.custom_days_outside_employment = days
+
+        if frappe.get_cached_value("Payroll Settings", None, "payroll_based_on") == "Attendance":
+            # HRMS recounts absent_days from Attendance on every save and has
+            # already left these days out of payment_days, as it does for any
+            # absence. They only join the fresh count.
+            self.absent_days = flt(self.absent_days) + days
+        else:
+            # Leave mode charges absence through the attendance deduction and
+            # keeps it in payment_days, so the cut-off days go back in and the
+            # carried-over absent_days moves by what changed since last save.
+            self.payment_days = flt(self.payment_days) + days
+            self.absent_days = flt(self.absent_days) + days - previous
+        return days - previous
 
     def _restore_attendance_escaped_days(self):
         """Give back every payment day attendance took, for an escaped employee.

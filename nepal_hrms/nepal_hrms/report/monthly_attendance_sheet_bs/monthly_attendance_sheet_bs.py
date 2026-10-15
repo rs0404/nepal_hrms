@@ -7,6 +7,8 @@ from frappe.utils import cint, flt, getdate, add_days, get_datetime, get_time, t
 
 import nepal_compliance.nepali_date_utils.nepali_date as nepali_date
 
+from nepal_hrms.custom_code.payroll.employment_window import dates_outside_employment
+
 from nepal_hrms.custom_code.attendance_policy import (
     assign_employee_pool_penalties_for_range,
     free_occurrences_remaining,
@@ -346,7 +348,10 @@ def get_attendance_and_leaves(filters, start_ad, end_ad):
         "Employee",
         filters=emp_conditions,
         or_filters=relieving_or_filters,
-        fields=["name", "employee_name", "holiday_list", "default_shift"],
+        fields=[
+            "name", "employee_name", "holiday_list", "default_shift",
+            "date_of_joining", "relieving_date",
+        ],
         ignore_permissions=True,
     )
     if not employees: return {"employees": []}, set()
@@ -1468,6 +1473,13 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
         total_target = 0.0
         hl = emp.holiday_list or company_holiday_list
         emp_holidays = holidays_by_list.get(hl, {})
+        joining = getdate(emp.date_of_joining) if emp.get("date_of_joining") else None
+        outside_employment = {
+            day: "before_joining" if joining and day < joining else "after_relieving"
+            for day in dates_outside_employment(
+                start_ad, end_ad, emp.get("date_of_joining"), emp.get("relieving_date")
+            )
+        }
 
         curr = start_ad
         while curr <= end_ad:
@@ -1633,7 +1645,16 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 target_hours = 0.0
                 is_half_day = 0
 
-            day_penalty = emp_penalties.get(curr) or (
+            # A working day before joining or after relieving is an absence, as on
+            # the Salary Slip, whatever Attendance holds -- usually nothing, since
+            # nobody is marked outside employment. Holidays stay holidays.
+            outside_kind = None if is_holiday else outside_employment.get(curr)
+            if outside_kind:
+                status, status_abbr = "Absent", "Ab"
+                leave_type, is_half_day, target_hours = "", 0, 0.0
+                is_sandwich, sandwich_leave_type = False, None
+
+            day_penalty = None if outside_kind else emp_penalties.get(curr) or (
                 getattr(att, "custom_cnr_pool_penalty", None) if att else None
             )
             penalty_kind = half_penalty_kind(att) if day_penalty == "half" else ""
@@ -1651,7 +1672,8 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             include_in_paid_audit = _include_in_paid_day_audit(
                 curr,
                 current_date,
-                has_attendance=bool(att),
+                # Today's absence outside employment is already certain.
+                has_attendance=bool(att) or bool(outside_kind),
                 is_holiday=is_holiday,
                 is_sandwich=is_sandwich,
             )
@@ -1792,6 +1814,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "applications": day_applications,
                 "worked_on_holiday": worked_on_holiday,
                 "sandwich": is_sandwich,
+                "outside_employment": outside_kind or "",
                 "paid_day_audit_included": include_in_paid_audit,
                 "pool_penalty": day_penalty or "",
                 "penalty_kind": penalty_kind,
