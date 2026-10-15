@@ -222,3 +222,34 @@ class TestJournalEntryWorkbook(TestCase):
 		self.assertEqual(rows[0][1], "Wages")
 		self.assertEqual(rows[-1][1:], ("Total", None, None, None, None, None, 1000, 900 + 100))
 		self.assertEqual(list(wb.worksheets[1].iter_rows(values_only=True))[1:], [("Wages", 1000), ("Total", 1000)])
+
+
+class TestCitPhatwari(TestCase):
+	def test_rows_follow_cit_column_order(self):
+		from nepal_hrms.api.payroll_exports import cit_rows
+
+		slips = [slip("S1", employee="EMP-1", employee_name="A Person"), slip("S2", employee="EMP-2")]
+		ids = {
+			"EMP-1": _dict(custom_cit_no="001KBB0000001"),
+			"EMP-2": _dict(custom_cit_no="001KBB0000002"),
+		}
+		self.assertEqual(
+			cit_rows(slips, {"S1": 10000, "S2": 0}, ids),
+			[["001KBB0000001", "", "", 10000, "A Person"]],
+		)
+
+	def test_workbook_is_cit_template_with_text_numbers(self):
+		from unittest.mock import patch
+
+		from nepal_hrms.api import payroll_exports as px
+
+		slips = [slip("S1", employee="EMP-1", employee_name="A Person")]
+		details = [_dict(parent="S1", parentfield="deductions", salary_component="CIT", amount=5000)]
+		ids = {"EMP-1": _dict(custom_cit_no="001KBB0000001")}
+		with patch.object(px, "_employee_ids", return_value=ids):
+			ws = load_workbook(BytesIO(px._cit_xlsx(None, slips, details, "Ashwin 2083"))).active
+		self.assertEqual([c.value for c in ws[1]], ["AC_NO", "OLD_AC_NO", "EMP_SERIAL_NO", "AMOUNT", "CUSTOMER_NAME"])
+		self.assertEqual([c.value for c in ws[2]], ["001KBB0000001", None, None, 5000, "A Person"])
+		self.assertEqual(ws.max_row, 2)
+		self.assertTrue(ws["A2"].quotePrefix)
+		self.assertEqual(ws["A2"].number_format, "@")

@@ -587,19 +587,60 @@ def _ssf_xlsx(pe, slips, details, period):
 	return _contribution_xlsx(pe, period, _("SSF Contribution"), headers, rows, money_from=4)
 
 
-def _cit_xlsx(pe, slips, details, period):
-	cit = amounts_by_root(details, CIT_ROOT)
-	ids = _employee_ids({s.employee for s in slips})
+CIT_HEADERS = ("AC_NO", "OLD_AC_NO", "EMP_SERIAL_NO", "AMOUNT", "CUSTOMER_NAME")
+
+
+def cit_rows(slips, cit_amounts, ids):
+	"""Rows of CIT's Phatwari upload, in its column order: CIT_HEADERS.
+
+	CIT matches on AC_NO (the employee's CIT No); OLD_AC_NO and EMP_SERIAL_NO
+	stay blank.
+	"""
 	rows = []
 	for s in slips:
-		amount = cit.get(s.name, 0.0)
+		amount = flt(cit_amounts.get(s.name), 2)
 		if not amount:
 			continue
+		employee = ids.get(s.employee) or {}
 		rows.append(
-			[len(rows) + 1, s.employee, s.employee_name, _cit_number(ids.get(s.employee)), amount]
+			[
+				_cit_number(employee),
+				"",
+				"",
+				amount,
+				s.employee_name or "",
+			]
 		)
-	headers = [_("S.N."), _("Employee ID"), _("Employee Name"), _("CIT Number"), _("CIT Amount")]
-	return _contribution_xlsx(pe, period, _("CIT Contribution"), headers, rows, money_from=4)
+	return rows
+
+
+def _cit_xlsx(pe, slips, details, period):
+	"""CIT's Online Phatwari Excel template: headers on row 1, nothing above.
+
+	The layout is CIT's own (Online Phatwari Collection manual, 4.6.2), so the
+	file uploads as is -- no title rows and no total row. Account and serial
+	numbers are text, as in CIT's Download With Data sheet.
+	"""
+	from openpyxl import Workbook
+	from openpyxl.styles import Alignment, Font
+
+	rows = cit_rows(slips, amounts_by_root(details, CIT_ROOT), _employee_ids({s.employee for s in slips}))
+	wb = Workbook()
+	ws = wb.active
+	ws.title = "Sheet1"
+	ws.append(list(CIT_HEADERS))
+	for cell in ws[1]:
+		cell.font = Font(bold=True)
+		cell.alignment = Alignment(horizontal="center")
+	for row in rows:
+		ws.append(row)
+		r = ws.max_row
+		for col in (1, 2, 3, 5):
+			mark_as_text(ws.cell(row=r, column=col))
+		ws.cell(row=r, column=4).number_format = "0.00"
+	for letter, width in zip("ABCDE", (18, 16, 16, 14, 32)):
+		ws.column_dimensions[letter].width = width
+	return _save(wb)
 
 
 def _slip_values(slips, field):
