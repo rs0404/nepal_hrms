@@ -17,6 +17,11 @@ def create_custom_fields():
 	custom_fields = {
 		"Employee": [
 			{"fieldname": "revised_salary", "label": "Revised Salary", "fieldtype": "Currency", "insert_after": "payroll_cost_center", "reqd": 0, "allow_on_submit": 1},
+			# Read by the SSF and CIT Contribution downloads. They were first made by
+			# hand on the live site; the placement here matches it, so syncing there
+			# moves nothing, and other sites get them too.
+			{"fieldname": "custom_ssf_number", "label": "SSF No", "fieldtype": "Data", "insert_after": "custom_column_break_5txxd", "description": "Social Security Fund number. Used by the SSF Contribution download."},
+			{"fieldname": "custom_cit_no", "label": "CIT No", "fieldtype": "Data", "insert_after": "custom_ssf_number", "description": "Citizen Investment Trust account number (e.g. 001KBB...). AC_NO of the CIT Contribution download."},
 		],
 		"Expense Claim": [
 			{"fieldname": "nepali_date", "label": "Nepali Date", "fieldtype": "Data", "insert_after": "posting_date", "allow_on_submit": 1},
