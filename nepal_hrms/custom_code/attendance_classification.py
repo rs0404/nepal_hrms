@@ -260,7 +260,7 @@ def _collect_day_dates(row, attendance_date, day):
     add("absent_dates", day.get("absent_full"), _("Absent"))
     add("absent_dates", day.get("absent_half"), _("Half day absent"))
     add("penalty_dates", day.get("penalty_full"), _("1P full-day penalty"))
-    add("penalty_dates", day.get("penalty_half"), _("½P half-day penalty"))
+    add("penalty_dates", day.get("penalty_half"), day.get("penalty_half_note") or _("½P half-day penalty"))
     for leave_type, units in (day.get("lwp_breakdown") or {}).items():
         add("lwp_dates", units, leave_type)
     for leave_type, units in (day.get("leave_breakdown") or {}).items():

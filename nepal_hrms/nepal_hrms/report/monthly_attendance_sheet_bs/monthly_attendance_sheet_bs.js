@@ -45,6 +45,9 @@ const SHEET_BS_OUTCOME = {
 	holiday: { fill: "#fde8c4", ring: "#eda100" },
 };
 const SHEET_BS_INK = "#1c1917";
+// ½L / ½E: a half day for one late / early beyond max delay. Red, apart from
+// the ink ½P that the occurrence count limit charges.
+const SHEET_BS_PENALTY_MAJOR = "#b91c1c";
 const SHEET_BS_REST_TEXT = "#a32d2d";
 const SHEET_BS_APPROVED = "#166534";
 const SHEET_BS_REJECTED = "#a32d2d";
@@ -242,7 +245,7 @@ function sheetBsLeaveSummaryCell(row, fieldname) {
 		const days = parseFloat(row.penalty_days) || 0;
 		title = __("Penalty Days");
 		body = `<div class="sheet-bs-audit-section">
-			${sheetBsAuditRow("½P", sheetBsFormatOneDecimal(row.penalty_half_days || 0), __("{0} day units", [sheetBsFormatOneDecimal(row.penalty_half || 0)]))}
+			${sheetBsHalfPenaltyRows(row)}
 			${sheetBsAuditRow("1P", sheetBsFormatOneDecimal(row.penalty_full_days || 0), __("{0} day units", [sheetBsFormatOneDecimal(row.penalty_full || 0)]))}
 		</div>
 		<div class="sheet-bs-audit-subtitle">${__("Dates counted")}</div>
@@ -441,6 +444,18 @@ function sheetBsPenaltyPolicyHTML(row) {
 	</div>`;
 }
 
+// ½P / ½L / ½E rows; older reports without the split show one ½P row.
+function sheetBsHalfPenaltyRows(row) {
+	if (row.penalty_half_pool_days === undefined) {
+		return sheetBsAuditRow("½P", sheetBsFormatOneDecimal(row.penalty_half_days || 0));
+	}
+	return [
+		sheetBsAuditRow(__("½P · count limit"), sheetBsFormatOneDecimal(row.penalty_half_pool_days || 0)),
+		sheetBsAuditRow(__("½L · late beyond max"), sheetBsFormatOneDecimal(row.penalty_half_late_days || 0)),
+		sheetBsAuditRow(__("½E · early beyond max"), sheetBsFormatOneDecimal(row.penalty_half_early_days || 0)),
+	].join("");
+}
+
 function sheetBsOccurrenceHTML(row, kind) {
 	if (!["late_entry", "early_exit"].includes(kind)) return "";
 	const half = sheetBsFormatOneDecimal(row.penalty_half_days || 0);
@@ -450,7 +465,7 @@ function sheetBsOccurrenceHTML(row, kind) {
 		return `<div class="sheet-bs-audit-info">${__("No ½P / 1P pool penalty this period.")}</div>`;
 	}
 	return `<div class="sheet-bs-audit-section">
-		${sheetBsAuditRow("½P", half)}
+		${sheetBsHalfPenaltyRows(row)}
 		${sheetBsAuditRow("1P", full)}
 		${sheetBsAuditRow(__("Counted in Penalty Days"), paid)}
 	</div>`;
@@ -694,7 +709,11 @@ function sheetBsDailyHoverHTML(cellData, attendanceDate) {
 	const penaltyLabel = cellData.pool_penalty === "full"
 		? __("1P full-day pool penalty — counted as 1.0 Penalty Day")
 		: cellData.pool_penalty === "half"
-			? __("½P half-day pool penalty — counted as 0.5 Penalty Day")
+			? cellData.penalty_kind === "late"
+				? __("½L half-day penalty — late beyond max delay, counted as 0.5 Penalty Day")
+				: cellData.penalty_kind === "early"
+					? __("½E half-day penalty — early exit beyond max delay, counted as 0.5 Penalty Day")
+					: __("½P half-day penalty — occurrence count limit, counted as 0.5 Penalty Day")
 			: "";
 	const left = `<div class="sheet-bs-daily-col">
 		<div class="sheet-bs-audit-section">
@@ -737,7 +756,8 @@ function sheetBsTimeBarLegendHtml(leaveLegendRows) {
 				<span class="legend-item">${cellSwatch("holiday")}${__("Holiday / weekly off")}</span>
 				<span class="legend-item"><span class="legend-swatch" style="background-image:linear-gradient(135deg, ${SHEET_BS_OUTCOME.present.fill} 0 50%, ${SHEET_BS_OUTCOME.leave.fill} 50% 100%);box-shadow:inset 0 0 0 1.5px ${SHEET_BS_OUTCOME.present.ring};"></span>${__("Half day — worked half, then the other")}</span>
 				<span class="legend-item">${cellSwatch("present", SHEET_BS_OUTCOME.holiday.ring)}${__("Worked on WO/Hol (in Holiday count, not in Present)")}</span>
-				<span class="legend-item"><span class="legend-swatch" style="background:${SHEET_BS_INK};"></span>${__("½P / 1P penalty")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:${SHEET_BS_INK};"></span>${__("½P / 1P penalty (count limit)")}</span>
+				<span class="legend-item"><span class="legend-swatch" style="background:${SHEET_BS_PENALTY_MAJOR};"></span>${__("½L / ½E late or early beyond max delay")}</span>
 			</div>
 		</div>`;
 	const timeBar = `
@@ -1064,7 +1084,7 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					bar_data, attendance_doc, late_entry_app, early_exit_app, ooo_app,
 					late_mins, early_mins, late_kind, early_kind,
 					other_half_label, other_half_kind, worked_on_holiday, pool_penalty,
-					half_day_session,
+					half_day_session, penalty_mark, penalty_kind, penalty_side,
 				} = cellData;
 
 				const lateMinsVal = late_mins || (bar_data && bar_data.late_mins) || 0;
@@ -1095,7 +1115,8 @@ frappe.query_reports["Monthly Attendance Sheet BS"] = {
 					: "";
 				let pillHTML = getHalfDayPillsHTML(
 					status, wh, target, attendance_doc, half_day, leave_acronym,
-					other_half_label, other_half_kind, pool_penalty, half_day_session
+					other_half_label, other_half_kind, pool_penalty, half_day_session,
+					penalty_mark, penalty_kind, penalty_side
 				);
 				let badgeRow = (lateBadge || earlyBadge || oooBadge)
 					? `<div class="cnr-badge-row">
@@ -1296,16 +1317,17 @@ function bind_sheet_bs_audit_hovers(datatable) {
 	if (!datatable || !datatable.wrapper || datatable.__sheet_bs_audit_bound) return;
 	datatable.__sheet_bs_audit_bound = true;
 	const wrapper = datatable.wrapper;
+	// Opened by a click, not hover: details used to flash up while the pointer
+	// merely crossed the sheet. Closed by clicking the cell again, anywhere
+	// outside the popup, Esc, or scrolling the table.
 	let portal = null;
-	let closeTimer = null;
+	let openCell = null;
 
 	const close = () => {
 		if (portal) portal.remove();
 		portal = null;
-	};
-	const scheduleClose = () => {
-		window.clearTimeout(closeTimer);
-		closeTimer = window.setTimeout(close, 120);
+		if (openCell) openCell.classList.remove("sheet-bs-cell--open");
+		openCell = null;
 	};
 	const open = (cell) => {
 		sheetBsStripNativeTitles(cell);
@@ -1331,8 +1353,9 @@ function bind_sheet_bs_audit_hovers(datatable) {
 			content = cell.querySelector(".sheet-bs-audit-hover");
 		}
 		if (!content) return;
-		window.clearTimeout(closeTimer);
 		close();
+		openCell = cell;
+		cell.classList.add("sheet-bs-cell--open");
 		portal = content.cloneNode(true);
 		portal.classList.add("sheet-bs-audit-hover--portal");
 		document.body.appendChild(portal);
@@ -1356,8 +1379,6 @@ function bind_sheet_bs_audit_hovers(datatable) {
 			portal.style.maxHeight = `${Math.max(48, spaceBelow)}px`;
 			portal.style.overflow = "auto";
 		}
-		portal.addEventListener("mouseenter", () => window.clearTimeout(closeTimer));
-		portal.addEventListener("mouseleave", scheduleClose);
 	};
 
 	sheetBsStripNativeTitles(wrapper);
@@ -1366,19 +1387,29 @@ function bind_sheet_bs_audit_hovers(datatable) {
 	stripObserver.observe(wrapper, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
 	datatable.__sheet_bs_title_stripper = stripObserver;
 
-	wrapper.addEventListener("mouseover", (event) => {
+	const toggle = (cell) => (cell === openCell ? close() : open(cell));
+
+	wrapper.addEventListener("click", (event) => {
+		// A link inside the cell (attendance, application) keeps doing its job.
+		if (event.target.closest("a")) return;
 		const cell = event.target.closest(".sheet-bs-audit-cell, .sheet-bs-hover-host");
-		if (cell && !cell.contains(event.relatedTarget)) open(cell);
+		if (!cell) return;
+		event.stopPropagation();
+		toggle(cell);
 	});
-	wrapper.addEventListener("mouseout", (event) => {
+	wrapper.addEventListener("keydown", (event) => {
+		if (event.key !== "Enter" && event.key !== " ") return;
 		const cell = event.target.closest(".sheet-bs-audit-cell, .sheet-bs-hover-host");
-		if (cell && !cell.contains(event.relatedTarget)) scheduleClose();
+		if (!cell) return;
+		event.preventDefault();
+		toggle(cell);
 	});
-	wrapper.addEventListener("focusin", (event) => {
-		const cell = event.target.closest(".sheet-bs-audit-cell, .sheet-bs-hover-host");
-		if (cell) open(cell);
+	document.addEventListener("click", (event) => {
+		if (portal && !portal.contains(event.target)) close();
 	});
-	wrapper.addEventListener("focusout", scheduleClose);
+	document.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") close();
+	});
 	if (datatable.bodyScrollable) {
 		datatable.bodyScrollable.addEventListener("scroll", close, { passive: true });
 	}
@@ -1542,21 +1573,23 @@ function getOtherHalfPillHTML(label, kind, attendance_doc) {
 	</div>${linkEnd}`;
 }
 
-function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind, poolPenalty, leaveSession) {
-	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym, poolPenalty, leaveSession);
+function getHalfDayPillsHTML(status, wh, targetAmount, attendance_doc, halfDayFlag, leaveAcronym, otherHalfLabel, otherHalfKind, poolPenalty, leaveSession, penaltyMark, penaltyKind, penaltySide) {
+	const main = getPillHTML(status, wh, targetAmount, false, false, attendance_doc, {}, halfDayFlag, leaveAcronym, poolPenalty, leaveSession, penaltyMark, penaltyKind);
 	const isHalfDay = isHalfDayCell(status, halfDayFlag, targetAmount);
 	if (!isHalfDay || !otherHalfLabel) {
 		return main;
 	}
 	const other = getOtherHalfPillHTML(otherHalfLabel, otherHalfKind, attendance_doc);
 	// The pills read left to right as the day did: morning, then afternoon. A
-	// leave on the first half puts its pill first.
-	return leaveSession === "First Half"
+	// leave on the first half puts its pill first; a half-day penalty sits on the
+	// half it charges (½L the morning, ½E the afternoon).
+	const mainIsSecond = poolPenalty === "half" ? penaltySide === "second" : leaveSession === "First Half";
+	return mainIsSecond
 		? `<div class="cnr-pill-row cnr-pill-row--dual">${other}${main}</div>`
 		: `<div class="cnr-pill-row cnr-pill-row--dual">${main}${other}</div>`;
 }
 
-function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym, poolPenalty, leaveSession) {
+function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_doc, appLinks, halfDayFlag, leaveAcronym, poolPenalty, leaveSession, penaltyMark, penaltyKind) {
 	appLinks = appLinks || {};
 	if (status === "NONE" || !status) {
 		return `<div style='height:8px;width:8px;border-radius:50%;background:#cbd5e1;'></div>`;
@@ -1572,10 +1605,11 @@ function getPillHTML(status, wh, targetAmount, lateEntry, earlyExit, attendance_
 		color = "#ffffff";
 		ringColor = SHEET_BS_INK;
 	} else if (poolPenalty === "half") {
-		text = "½P";
-		bgColor = SHEET_BS_INK;
+		const major = penaltyKind === "late" || penaltyKind === "early";
+		text = penaltyMark || "½P";
+		bgColor = major ? SHEET_BS_PENALTY_MAJOR : SHEET_BS_INK;
 		color = "#ffffff";
-		ringColor = SHEET_BS_INK;
+		ringColor = bgColor;
 	}
 	if (status === "Lv" && !poolPenalty) {
 		text = (leaveAcronym || "Lv").toString().slice(0, 3);

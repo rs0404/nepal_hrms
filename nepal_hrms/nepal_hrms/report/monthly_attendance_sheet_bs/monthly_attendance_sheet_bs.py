@@ -907,6 +907,38 @@ def _assign_report_pool_penalties(settings, employee_names, period_start, period
     }
 
 
+# A half-day penalty has two causes, and the sheet keeps them apart: the Nth
+# late / early inside max delay (the occurrence count limit) is ½P; a single
+# late / early beyond max delay, unexcused, is ½L / ½E on its own.
+HALF_PENALTY_KINDS = {
+    "pool": ("½P", "½P half-day penalty · count limit"),
+    "late": ("½L", "½L half-day penalty · late beyond max delay"),
+    "early": ("½E", "½E half-day penalty · early exit beyond max delay"),
+}
+
+
+def half_penalty_kind(att):
+    """'late' | 'early' when the half day is for a delay past max, else 'pool'."""
+    if att and cint(getattr(att, "custom_cnr_unexcused_late", 0) or 0):
+        return "late"
+    if att and cint(getattr(att, "custom_cnr_unexcused_early", 0) or 0):
+        return "early"
+    return "pool"
+
+
+def half_penalty_side(att, kind):
+    """Which half a half-day penalty charges: a late costs the morning, an early
+    exit the afternoon. A count-limit ½P follows the delay that put it in the pool."""
+    if kind == "late":
+        return "first"
+    if kind == "early":
+        return "second"
+    early_only = att and cint(getattr(att, "custom_cnr_early_in_pool", 0) or 0) and not cint(
+        getattr(att, "custom_cnr_late_in_pool", 0) or 0
+    )
+    return "second" if early_only else "first"
+
+
 def _apply_pool_penalty_to_day(day, penalty):
     """Reduce this day's paid_flag. Returns the amount deducted."""
     if penalty == "full":
@@ -1420,6 +1452,10 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             "occurrence_audit": occurrence_audits.get(emp.name, {}),
             "cnr_counts": _empty_cnr_counts(),
             "penalty_half_days": 0,
+            # penalty_half_days split by cause; see HALF_PENALTY_KINDS.
+            "penalty_half_pool_days": 0,
+            "penalty_half_late_days": 0,
+            "penalty_half_early_days": 0,
             "penalty_full_days": 0,
             "penalty_paid_deduction": 0,
         }
@@ -1600,6 +1636,7 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
             day_penalty = emp_penalties.get(curr) or (
                 getattr(att, "custom_cnr_pool_penalty", None) if att else None
             )
+            penalty_kind = half_penalty_kind(att) if day_penalty == "half" else ""
             day_classification = classify_attendance_day(
                 status=status,
                 half_day_status=getattr(att, "half_day_status", None) if att else None,
@@ -1628,8 +1665,11 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                         row["penalty_paid_deduction"] += 1
                     elif day_penalty == "half":
                         row["penalty_half_days"] += 1
+                        row[f"penalty_half_{penalty_kind}_days"] += 1
                         row["penalty_paid_deduction"] += 0.5
                 _accumulate_day(row, day_classification)
+                if penalty_kind:
+                    day_classification["penalty_half_note"] = _(HALF_PENALTY_KINDS[penalty_kind][1])
                 _collect_day_dates(row, curr, day_classification)
                 total_worked += wh
                 if count_cnr_day:
@@ -1754,7 +1794,9 @@ def get_data(filters, start_ad, end_ad, att_data, leave_types):
                 "sandwich": is_sandwich,
                 "paid_day_audit_included": include_in_paid_audit,
                 "pool_penalty": day_penalty or "",
-                "penalty_mark": penalty_mark(day_penalty),
+                "penalty_kind": penalty_kind,
+                "penalty_side": half_penalty_side(att, penalty_kind) if penalty_kind else "",
+                "penalty_mark": HALF_PENALTY_KINDS[penalty_kind][0] if penalty_kind else penalty_mark(day_penalty),
                 "late_grace": 1 if _delay_band(late_mins, grace_mins, max_delay_mins) == "grace" else 0,
                 "late_max": 1 if _delay_band(late_mins, grace_mins, max_delay_mins) == "max" else 0,
                 "early_grace": 1 if _delay_band(early_mins, grace_mins, max_delay_mins) == "grace" else 0,

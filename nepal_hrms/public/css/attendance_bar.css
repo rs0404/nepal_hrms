@@ -654,6 +654,18 @@
     z-index: 10020 !important;
 }
 
+/* Details open on click: say so, and mark the cell whose details are showing. */
+.sheet-bs-audit-cell,
+.sheet-bs-hover-host {
+    cursor: pointer;
+}
+
+.sheet-bs-cell--open {
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
+    border-radius: 6px;
+}
+
 .sheet-bs-audit-title {
     margin-bottom: 10px;
     padding-bottom: 8px;
