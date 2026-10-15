@@ -262,3 +262,80 @@ def submit_team_request(doctype, name):
 	doc.flags.ignore_permissions = True
 	doc.submit()
 	return {"name": doc.name, "status": doc.status, "docstatus": doc.docstatus}
+
+
+ATTENDANCE_FIELDS = (
+	"name",
+	"attendance_date",
+	"status",
+	"half_day_status",
+	"in_time",
+	"out_time",
+	"working_hours",
+	"shift",
+	"leave_type",
+	"late_entry",
+	"early_exit",
+	"custom_late_mins",
+	"custom_early_mins",
+	"docstatus",
+)
+CHECKIN_FIELDS = ("time", "log_type", "custom_attendance_type", "custom_reason", "device_id")
+MAX_EVIDENCE_DAYS = 31
+
+
+@frappe.whitelist()
+def get_attendance_request_evidence(name):
+	"""What already happened on each day an Attendance Request asks about.
+
+	The attendance record (if any) and every check-in, so the approver can see
+	whether the request is needed and what it would correct, without leaving
+	the request.
+	"""
+	from frappe.utils import add_days, date_diff, getdate
+
+	from nepal_hrms.custom_code.approval_authority import is_own
+
+	doc = frappe.get_doc("Attendance Request", name)
+	hr = set(frappe.get_roles()) & {"HR Manager", "HR User", "System Manager"}
+	if not (hr or is_own(doc.employee) or _can_decide(doc)):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	start = getdate(doc.from_date)
+	end = getdate(doc.to_date)
+	if date_diff(end, start) >= MAX_EVIDENCE_DAYS:
+		end = add_days(start, MAX_EVIDENCE_DAYS - 1)
+
+	att_meta = frappe.get_meta("Attendance")
+	attendance = {
+		getdate(row.attendance_date): row
+		for row in frappe.get_all(
+			"Attendance",
+			filters={
+				"employee": doc.employee,
+				"attendance_date": ["between", [start, end]],
+				"docstatus": ["<", 2],
+			},
+			fields=[f for f in ATTENDANCE_FIELDS if f in ("name", "docstatus") or att_meta.has_field(f)],
+			order_by="docstatus desc",
+		)
+	}
+	checkin_meta = frappe.get_meta("Employee Checkin")
+	checkins = {}
+	for row in frappe.get_all(
+		"Employee Checkin",
+		filters={
+			"employee": doc.employee,
+			"time": ["between", [f"{start} 00:00:00", f"{end} 23:59:59"]],
+		},
+		fields=[f for f in CHECKIN_FIELDS if f == "time" or checkin_meta.has_field(f)],
+		order_by="time asc",
+	):
+		checkins.setdefault(getdate(row.time), []).append(row)
+
+	days = []
+	day = start
+	while day <= end:
+		days.append({"date": str(day), "attendance": attendance.get(day), "checkins": checkins.get(day, [])})
+		day = add_days(day, 1)
+	return days

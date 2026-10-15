@@ -72,6 +72,11 @@
 					</ul>
 				</div>
 
+				<AttendanceRequestEvidence
+					v-if="props.modelValue.doctype === 'Attendance Request'"
+					:name="props.modelValue.name"
+				/>
+
 				<!-- Related applications (Attendance) -->
 				<div
 					v-if="relatedApplications?.length"
@@ -336,6 +341,7 @@ import {
 import FormattedField from "@/components/FormattedField.vue"
 import FilePreviewModal from "@/components/FilePreviewModal.vue"
 import WorkflowActionSheet from "@/components/WorkflowActionSheet.vue"
+import AttendanceRequestEvidence from "@/components/AttendanceRequestEvidence.vue"
 
 import { getCompanyCurrency } from "@/data/currencies"
 import { formatCurrency } from "@/utils/formatters"
