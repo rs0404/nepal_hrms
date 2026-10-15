@@ -1371,6 +1371,9 @@ class CustomSalarySlip(SalarySlip):
             return flt(row.amount), flt(row.additional_amount)
         return super().get_amount_based_on_payment_days(row)
 
+    # The form calls this on every amount edit and row add/remove; an override
+    # without the decorator is not whitelisted and every such call is refused.
+    @frappe.whitelist()
     def set_totals(self):
         super().set_totals()
         if self.salary_slip_based_on_timesheet:

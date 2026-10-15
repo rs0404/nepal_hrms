@@ -1,3 +1,13 @@
+// nepal_compliance's salary_slip.js recomputes the hidden taxable_salary on every
+// refresh and row edit from a hardcoded list of component names. Our components
+// carry variant suffixes ("Basic Salary - Salary"), so the figure never matches
+// what is stored and merely opening a slip leaves it "Not Saved". Frappe runs
+// every app's doctype_js for Salary Slip as one function body, so this later
+// declaration replaces theirs for all its callers. nepal_hrms does not use
+// taxable_salary; compat/nepal_compliance.py already drops their server copy.
+// eslint-disable-next-line no-unused-vars
+function calculate_selected_earnings(frm) {}
+
 frappe.ui.form.on("Salary Slip", {
 	onload(frm) {
 		frappe.require([
