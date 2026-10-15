@@ -17,6 +17,7 @@ frappe.ui.form.on("Salary Slip", {
 	},
 
 	refresh(frm) {
+		watch_duplicate_components(frm);
 		frm.set_df_property("absent_days", "read_only", 0);
 		frm.set_df_property(
 			"absent_days",
@@ -394,4 +395,86 @@ function attach_salary_slip_help(frm) {
 		include_sections: true,
 		hide_all_descriptions: false,
 	});
+}
+
+// The same component twice in one table is almost always two Additional
+// Salaries for one payment -- both are paid. Say so at the top of the slip and
+// colour the rows, so it is seen before the slip is submitted.
+const DUPLICATE_TABLES = { earnings: __("Earnings"), deductions: __("Deductions") };
+
+function duplicate_components(rows) {
+	const by_component = {};
+	for (const row of rows || []) {
+		if (!row.salary_component) continue;
+		(by_component[row.salary_component] = by_component[row.salary_component] || []).push(row);
+	}
+	return Object.fromEntries(
+		Object.entries(by_component).filter(([, list]) => list.length > 1)
+	);
+}
+
+function watch_duplicate_components(frm) {
+	if (!document.getElementById("nh-duplicate-component-style")) {
+		$("<style id='nh-duplicate-component-style'>").text(`
+			.grid-row.nh-duplicate-component > .data-row,
+			.grid-row.nh-duplicate-component > .data-row .static-area {
+				background: var(--bg-orange, #fff1e7);
+			}
+			.grid-row.nh-duplicate-component > .data-row {
+				box-shadow: inset 3px 0 0 var(--orange-500, #f97316);
+			}
+		`).appendTo(document.head);
+	}
+	for (const table of Object.keys(DUPLICATE_TABLES)) {
+		const grid = frm.fields_dict[table] && frm.fields_dict[table].grid;
+		// The grid fires "change" after every redraw: rows added, removed or
+		// re-rendered after a recalculation all come back through here.
+		if (grid && !grid.nh_duplicate_watch) {
+			grid.nh_duplicate_watch = true;
+			grid.wrapper.on("change", () => show_duplicate_components(frm));
+		}
+	}
+	show_duplicate_components(frm);
+}
+
+function show_duplicate_components(frm) {
+	const esc = frappe.utils.escape_html;
+	const notes = [];
+	for (const [table, label] of Object.entries(DUPLICATE_TABLES)) {
+		const duplicates = duplicate_components(frm.doc[table]);
+		const flagged = new Set();
+		for (const [component, rows] of Object.entries(duplicates)) {
+			rows.forEach((row) => flagged.add(row.name));
+			const sources = rows
+				.map((row) =>
+					row.additional_salary
+						? `<a href="/app/additional-salary/${encodeURIComponent(row.additional_salary)}">${esc(row.additional_salary)}</a>`
+						: __("salary structure")
+				)
+				.join(", ");
+			notes.push(
+				__("{0} appears {1} times in {2} (rows {3}), from {4}. Each row is paid.", [
+					`<b>${esc(component)}</b>`,
+					rows.length,
+					label,
+					rows.map((row) => row.idx).join(", "),
+					sources,
+				])
+			);
+		}
+		const grid = frm.fields_dict[table] && frm.fields_dict[table].grid;
+		for (const grid_row of (grid && grid.grid_rows) || []) {
+			if (grid_row && grid_row.wrapper && grid_row.doc) {
+				grid_row.wrapper.toggleClass("nh-duplicate-component", flagged.has(grid_row.doc.name));
+			}
+		}
+	}
+	// Only ever clear the banner this check put up; leave anyone else's alone.
+	if (notes.length) {
+		frm.nh_duplicate_banner = true;
+		frm.set_intro(notes.join("<br>"), "orange");
+	} else if (frm.nh_duplicate_banner) {
+		frm.nh_duplicate_banner = false;
+		frm.set_intro("");
+	}
 }
