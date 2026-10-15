@@ -485,6 +485,18 @@ def download_payroll_export(
 	provide_binary_file(filename, "xlsx", content)
 
 
+def mark_as_text(cell):
+	"""Text format, plus Excel's quote prefix when the value starts with 0.
+
+	The prefix is what Excel sets for a typed '0601...: shown as text, with
+	the 0 kept, while the stored value carries no apostrophe -- so the bank
+	never receives one.
+	"""
+	cell.number_format = "@"
+	if isinstance(cell.value, str) and cell.value.startswith("0"):
+		cell.quotePrefix = True
+
+
 def _bank_xlsx(rows):
 	from openpyxl import load_workbook
 
@@ -495,7 +507,10 @@ def _bank_xlsx(rows):
 		for col, value in enumerate(row, start=1):
 			cell = ws.cell(row=r, column=col, value=value)
 			# Bank code and account number are text: a leading 0 must survive.
-			cell.number_format = NP_MONEY_FORMAT if col == 1 else "@"
+			if col == 1:
+				cell.number_format = NP_MONEY_FORMAT
+			else:
+				mark_as_text(cell)
 	return _save(wb)
 
 
@@ -532,7 +547,7 @@ def _contribution_xlsx(pe, period, title, headers, rows, money_from):
 			if cell.row > header_row and cell.column > money_from:
 				cell.number_format = NP_MONEY_FORMAT
 			elif cell.row > header_row and cell.column > 1:
-				cell.number_format = "@"
+				mark_as_text(cell)
 	for cell in ws[last_row]:
 		cell.font = bold
 	for i, header in enumerate(headers, start=1):

@@ -192,6 +192,11 @@ class TestBankWorkbook(TestCase):
 		row = [ws.cell(row=BANK_FIRST_ROW, column=c).value for c in range(1, 7)]
 		self.assertEqual(row, [1234.5, "0401", "0010017501", "A Person", "Salary", "EMP-1"])
 		self.assertEqual(ws.cell(row=BANK_FIRST_ROW, column=2).number_format, "@")
+		# A leading 0 is kept and flagged the way Excel flags a typed '0...
+		self.assertTrue(ws.cell(row=BANK_FIRST_ROW, column=2).quotePrefix)
+		self.assertTrue(ws.cell(row=BANK_FIRST_ROW, column=3).quotePrefix)
+		self.assertFalse(ws.cell(row=BANK_FIRST_ROW, column=4).quotePrefix)
+		self.assertFalse(ws.cell(row=BANK_FIRST_ROW, column=3).value.startswith("'"))
 		self.assertEqual(ws.cell(row=BANK_FIRST_ROW, column=1).number_format, NP_MONEY_FORMAT)
 
 
