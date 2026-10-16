@@ -450,7 +450,7 @@ def _salary_sheet(ws, ctx):
 			if kind in ("money", "cap", "info"):
 				cell.number_format = NP_MONEY_FORMAT
 			elif kind == "days":
-				cell.number_format = "0.##"
+				cell.number_format = "General"  # 22, 22.5 -- "0.##" shows a whole number as "22."
 			header = ws.cell(row=head_row, column=c).value
 			if header in key_figures or (key == "tds" and header.endswith(_("(this)"))):
 				cell.font = st.Font(bold=True, color="1F4E79" if header == _("Net Pay") else "000000")
