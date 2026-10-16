@@ -2028,6 +2028,16 @@ def submit_salary_slips_for_employees(payroll_entry, salary_slips, publish_progr
 
 
 class CustomPayrollEntry(PayrollEntry):
+    def autoname(self):
+        """Name the entry for its BS period, e.g. "Shrawan 2083 Monthly".
+
+        See custom_code/payroll/payroll_entry_naming.py. Falls back to the
+        doctype's naming series when the dates cannot be read in BS.
+        """
+        from nepal_hrms.custom_code.payroll.payroll_entry_naming import name_payroll_entry
+
+        name_payroll_entry(self)
+
     @frappe.whitelist()
     def fill_employee_details(self):
         """Restrict the run to one salary structure when custom_salary_structure is set.
