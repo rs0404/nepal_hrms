@@ -80,3 +80,22 @@ class TestFormatting(TestCase):
 		months = fiscal_months("2026-07-17")
 		self.assertEqual(months[:3], ["Shrawan", "Bhadra", "Ashwin"])
 		self.assertEqual(months[-1], "Ashadh")
+
+
+class TestOtherExemptions(TestCase):
+	def test_itemised_lines_come_from_the_slip(self):
+		from nepal_hrms.api.salary_tax_sheet import other_exemptions_of
+
+		s = _dict(custom_tax_calculation_data='{"other_exemptions": [{"label": "Insurance", "amount": 24000, "note": "x"}]}')
+		self.assertEqual([(l.label, l.amount) for l in other_exemptions_of(s, 60000)], [("Insurance", 24000)])
+
+	def test_older_slips_get_one_total_that_still_adds_up(self):
+		from nepal_hrms.api.salary_tax_sheet import other_exemptions_of
+
+		s = _dict(
+			custom_tax_calculation_data='{"annual_taxable_amount": 1}',
+			deductions_before_tax_calculation=84000, tax_exemption_declaration=25000, standard_tax_exemption_amount=0,
+		)
+		self.assertEqual([(l.label, l.amount) for l in other_exemptions_of(s, 60000)], [("Other exemptions", 49000)])
+		s.deductions_before_tax_calculation, s.tax_exemption_declaration = 60000, 0
+		self.assertEqual(other_exemptions_of(s, 60000), [])

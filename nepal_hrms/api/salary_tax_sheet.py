@@ -17,6 +17,7 @@ tax differs (marginal relief, conditional slabs) the sheet says so instead of
 silently showing two numbers.
 """
 
+import json
 from collections import defaultdict
 
 import frappe
@@ -43,6 +44,7 @@ SLIP_FIELDS = (
 	"custom_one_third_assessable_income", "custom_annual_retirement_limit",
 	"custom_allowed_retirement_deduction", "custom_annual_taxable_deductions",
 	"annual_taxable_amount", "custom_projected_annual_tds", "total_income_tax",
+	"custom_tax_calculation_data", "tax_exemption_declaration", "deductions_before_tax_calculation",
 	"custom_tds_paid_till_date", "income_tax_deducted_till_date",
 	"custom_remaining_payroll_periods", "custom_current_period_tds", "current_month_income_tax",
 )
@@ -235,24 +237,49 @@ def _slabs_by_employee(slips):
 	return out
 
 
+def other_exemptions_of(s, allowed):
+	"""The slip's itemised non-retirement exemptions.
+
+	Slips calculated before they were itemised only stored totals; those get
+	one line for everything HRMS took off beyond retirement, so the sheet still
+	adds up to the slip's taxable income.
+	"""
+	try:
+		data = json.loads(s.get("custom_tax_calculation_data") or "{}")
+	except ValueError:
+		data = {}
+	lines = data.get("other_exemptions")
+	if lines is not None:
+		return [frappe._dict(line) for line in lines]
+	rest = flt(
+		flt(s.get("deductions_before_tax_calculation") or s.get("custom_annual_taxable_deductions"))
+		- flt(allowed)
+		+ flt(s.get("tax_exemption_declaration"))
+		+ flt(s.get("standard_tax_exemption_amount")),
+		2,
+	)
+	if rest > 0:
+		return [frappe._dict(label=_("Other exemptions"), amount=rest, note=_("insurance, declarations and other exemptions"))]
+	return []
+
+
 def _tax(s, tds_this_month):
 	"""The slip's annual tax working, falling back to stock HRMS fields."""
 	assessable = flt(s.custom_assessable_employment_income) or (
-		flt(s.total_earnings) + flt(s.income_from_other_sources)
-		- flt(s.non_taxable_earnings) - flt(s.standard_tax_exemption_amount)
+		flt(s.total_earnings) + flt(s.income_from_other_sources) - flt(s.non_taxable_earnings)
 	)
 	allowed = flt(s.custom_allowed_retirement_deduction)
-	deductions = flt(s.custom_annual_taxable_deductions)
+	others = other_exemptions_of(s, allowed)
 	return frappe._dict(
 		projected_earnings=flt(s.total_earnings) + flt(s.income_from_other_sources),
 		non_taxable=flt(s.non_taxable_earnings),
-		exemption=flt(s.standard_tax_exemption_amount),
 		assessable=flt(assessable, 2),
 		retirement=flt(s.custom_total_retirement_contribution),
 		one_third=flt(s.custom_one_third_assessable_income),
 		cap=flt(s.custom_annual_retirement_limit),
 		allowed=allowed,
-		other_deductions=flt(max(deductions - allowed, 0), 2),
+		other_exemptions=others,
+		other_total=flt(sum(flt(line.amount) for line in others), 2),
 		taxable=flt(s.annual_taxable_amount, 2),
 		annual_tax=flt(s.custom_projected_annual_tds or s.total_income_tax, 2),
 		paid=flt(s.custom_tds_paid_till_date or s.income_tax_deducted_till_date, 2),
@@ -396,6 +423,7 @@ def _salary_sheet(ws, ctx):
 			(_("1/3 of Income"), tax("one_third"), "money"),
 			(_("Annual Cap"), tax("cap"), "cap"),
 			(_("Allowed Deduction"), tax("allowed"), "money"),
+			(_("Other Exemptions"), tax("other_total"), "money"),
 			(_("Taxable Income"), tax("taxable"), "money"),
 			(_("Annual Tax"), tax("annual_tax"), "money"),
 			(_("TDS Paid Till Last Month"), tax("paid"), "money"),
@@ -492,8 +520,6 @@ def _tax_sheet(ws, ctx):
 			(_("Projected annual earnings"), t.projected_earnings, _("earned so far + this month + the rest of the year at this month's rate"), False),
 			(_("Less: non-taxable earnings"), t.non_taxable, "", False),
 		]
-		if t.exemption:
-			lines.append((_("Less: standard exemption"), t.exemption, "", False))
 		lines += [
 			(_("Assessable income"), t.assessable, _("projected earnings − non-taxable"), True),
 			(_("Retirement deduction"), None, None, False),
@@ -502,9 +528,11 @@ def _tax_sheet(ws, ctx):
 			(_("Annual cap"), t.cap, "", False),
 			(_("Allowed deduction"), t.allowed, _("smallest of the three"), True),
 		]
-		if t.other_deductions:
-			lines.append((_("Other taxable deductions"), t.other_deductions, _("insurance and other allowed deductions"), False))
-		lines.append((_("Taxable income"), t.taxable, _("assessable − deductions"), True))
+		if t.other_exemptions:
+			lines.append((_("Other exemptions"), None, None, False))
+			for line in t.other_exemptions:
+				lines.append((_("Less: {0}").format(line.label), line.amount, line.get("note") or "", False))
+		lines.append((_("Taxable income"), t.taxable, _("assessable − allowed deduction − other exemptions"), True))
 
 		for label, value, how, strong in lines:
 			a = ws.cell(row=r, column=1, value=label)

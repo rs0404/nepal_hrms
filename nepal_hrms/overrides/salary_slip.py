@@ -1939,12 +1939,36 @@ class CustomSalarySlip(SalarySlip):
         self.custom_remaining_payroll_periods = remaining_months
         self.custom_current_period_tds = current_tax
 
+        from nepal_hrms.custom_code.payroll.tax_exemptions import other_exemption_lines
+
+        other_exemptions = other_exemption_lines(self, allowed_retirement)
+        non_taxable = flt(self.get("non_taxable_earnings"))
+        non_taxable_components = sorted(
+            {
+                row.salary_component
+                for row in self.get("earnings") or []
+                if flt(row.amount)
+                and not cint(frappe.get_cached_value("Salary Component", row.salary_component, "is_tax_applicable"))
+            }
+        )
+        assessable_note = (
+            _("after leaving out non-taxable earnings of {0} ({1})").format(
+                frappe.utils.fmt_money(non_taxable), ", ".join(non_taxable_components) or _("non-taxable components")
+            )
+            if non_taxable
+            else None
+        )
+
         rows = [
-            ("Annual Assessable Employment Income", assessable, None),
+            ("Annual Assessable Employment Income", assessable, assessable_note),
             ("Projected SSF / PF / Gratuity / CIT", contributions, None),
             ("One-third of Assessable Income", one_third_limit, None),
             ("Annual Retirement Ceiling", annual_limit, None),
             ("Allowed Retirement Deduction", allowed_retirement, "min(actual, one-third, NPR 500,000)"),
+            *[
+                (_("Less: {0}").format(line["label"]), line["amount"], line["note"])
+                for line in other_exemptions
+            ],
             ("Annual Taxable Amount", annual_taxable, None),
             ("Total Annual Tax (Projected)", total_tax, None),
             ("Tax Deducted Till Date", tax_deducted, None),
@@ -1953,7 +1977,8 @@ class CustomSalarySlip(SalarySlip):
         detail_rows = "".join(
             (
                 "<tr>"
-                f"<td><b>{label}</b>{f'<br><small>{note}</small>' if note else ''}</td>"
+                f"<td><b>{frappe.utils.escape_html(label)}</b>"
+                f"{f'<br><small>{frappe.utils.escape_html(note)}</small>' if note else ''}</td>"
                 f"<td style=\"text-align: right;\">{frappe.utils.fmt_money(amount)}</td>"
                 "</tr>"
             )
@@ -1991,6 +2016,9 @@ class CustomSalarySlip(SalarySlip):
                 "annual_retirement_limit": annual_limit,
                 "allowed_retirement_deduction": allowed_retirement,
                 "annual_taxable_deductions": annual_deductions,
+                "other_exemptions": other_exemptions,
+                "non_taxable_earnings": non_taxable,
+                "non_taxable_components": non_taxable_components,
                 "annual_taxable_amount": annual_taxable,
                 "projected_annual_tax": total_tax,
                 "tax_deducted_till_date": tax_deducted,
