@@ -41,6 +41,7 @@ def bulk_assign_attendance_policy_escapes(
 	escape_absent_gross=0,
 	escape_applications=0,
 	escape_attendance_deduction=0,
+	escape_ssf_earned_scaling=0,
 	allow_self_approval=0,
 	allow_approve_all=0,
 	reason=None,
@@ -63,6 +64,7 @@ def bulk_assign_attendance_policy_escapes(
 		"escape_absent_gross": cint(escape_absent_gross),
 		"escape_applications": cint(escape_applications),
 		"escape_attendance_deduction": cint(escape_attendance_deduction),
+		"escape_ssf_earned_scaling": cint(escape_ssf_earned_scaling),
 		"allow_self_approval": cint(allow_self_approval),
 		"allow_approve_all": cint(allow_approve_all),
 	}

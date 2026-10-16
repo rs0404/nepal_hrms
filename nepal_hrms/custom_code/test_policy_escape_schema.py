@@ -18,8 +18,9 @@ OLD = [
 	"escape_continuous_lwp_gross",
 	"escape_absent_gross",
 	"escape_applications",
+	"escape_attendance_deduction",
 ]
-NEW = "escape_attendance_deduction"
+NEW = "escape_ssf_earned_scaling"
 
 
 class _StubDB:

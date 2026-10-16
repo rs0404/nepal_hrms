@@ -13,6 +13,7 @@ ESCAPE_FLAGS = (
 	"escape_absent_gross",
 	"escape_applications",
 	"escape_attendance_deduction",
+	"escape_ssf_earned_scaling",
 	"allow_self_approval",
 	"allow_approve_all",
 )

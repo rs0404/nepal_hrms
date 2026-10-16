@@ -367,6 +367,13 @@ CONTRIBUTION_DEDUCTIONS = (
     "Provident Fund Employer Deduction",
     "Gratuity Deduction",
 )
+# The three SSF rows. The offsetting deduction is named outright: _matches_component
+# matches a root or "root - <variant>", never "root Deduction".
+SSF_CONTRIBUTIONS = (
+    "Employer's Contribution SSF",
+    "Employee's Contribution SSF",
+    "Employer's Contribution SSF Deduction",
+)
 
 
 def _matches_component(name, roots):
@@ -929,6 +936,9 @@ def compute_nepal_hr_variables(doc, data):
         basic_remuneration,
         notes=[
             _("Contribution base for SSF, PF, gratuity, festival pay and overtime. Dearness Allowance and Other Allowances are included only when Nepal HRMS Settings says so."),
+            _("A policy escape keeps SSF on this fixed base: leave, absence and penalties reduce earnings but not SSF.")
+            if cint(period_escapes.get("escape_ssf_earned_scaling"))
+            else "",
         ],
     )
 
@@ -1031,6 +1041,7 @@ def compute_nepal_hr_variables(doc, data):
                 "penalty_dates": penalty_dates,
                 "total_absent_days": total_absent_days,
                 "escape_attendance_deduction": escape_attendance,
+                "escape_ssf_earned_scaling": cint(period_escapes.get("escape_ssf_earned_scaling")),
                 "period_leave_days": period_leave_days,
                 "is_period_leave_gross": is_period_leave_gross,
                 "rate_explanations": rate_explanations,
@@ -1635,7 +1646,7 @@ class CustomSalarySlip(SalarySlip):
             if fixed_amount <= 0:
                 continue
             row.amount = flt(
-                fixed_amount * ratio
+                fixed_amount * self._contribution_ratio(row, ratio)
                 + CustomSalarySlip._preserved_additional_amount(row),
                 row.precision("amount"),
             )
@@ -1652,6 +1663,31 @@ class CustomSalarySlip(SalarySlip):
             }
         )
 
+    def _ssf_independent_of_leave(self):
+        """Attendance Policy Escape "SSF Amount Independent of Leave" for this period."""
+        if not self.employee:
+            return False
+        from nepal_hrms.custom_code.policy_escape import get_policy_escapes_for_period
+
+        return bool(
+            cint(
+                get_policy_escapes_for_period(
+                    self.employee, self.start_date, self.end_date
+                ).get("escape_ssf_earned_scaling")
+            )
+        )
+
+    def _contribution_ratio(self, row, ratio):
+        """The earned/fixed ratio, or 1.0 for SSF rows of an escaped employee.
+
+        Earnings still carry the attendance deduction; only SSF stays on the
+        fixed contractual amount. PF and gratuity keep scaling.
+        """
+        if ratio != 1.0 and _matches_component(row.salary_component, SSF_CONTRIBUTIONS):
+            if self._ssf_independent_of_leave():
+                return 1.0
+        return ratio
+
     def _scale_contribution_deductions(self):
         result = getattr(self, "_earned_salary_result", None)
         if not result:
@@ -1667,7 +1703,7 @@ class CustomSalarySlip(SalarySlip):
             if fixed_amount <= 0:
                 continue
             row.amount = flt(
-                fixed_amount * ratio
+                fixed_amount * self._contribution_ratio(row, ratio)
                 + CustomSalarySlip._preserved_additional_amount(row),
                 row.precision("amount"),
             )

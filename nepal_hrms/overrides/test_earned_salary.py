@@ -36,12 +36,19 @@ class FakeMeta:
 
 
 class FakeSalarySlip:
+    ssf_escaped = False
+
     def __init__(self, deductions, result):
         self.deductions = deductions
         self._earned_salary_result = _dict(result)
 
     def get(self, fieldname):
         return getattr(self, fieldname, [])
+
+    def _ssf_independent_of_leave(self):
+        return self.ssf_escaped
+
+    _contribution_ratio = CustomSalarySlip._contribution_ratio
 
     _regular_component_amount = staticmethod(
         CustomSalarySlip._regular_component_amount
@@ -69,6 +76,8 @@ class FakeFixedAmountSlip:
 
 
 class FakeEarningSlip:
+    ssf_escaped = False
+
     def __init__(self, earnings, components, variables):
         self.earnings = earnings
         self._components = components
@@ -76,6 +85,11 @@ class FakeEarningSlip:
 
     def get(self, fieldname):
         return getattr(self, fieldname, [])
+
+    def _ssf_independent_of_leave(self):
+        return self.ssf_escaped
+
+    _contribution_ratio = CustomSalarySlip._contribution_ratio
 
     def _fixed_salary_components(self, _settings):
         return self._components, {
@@ -464,6 +478,59 @@ class TestEarnedSalaryRows(TestCase):
             slip._nepal_hr_vars["earned_basic_remuneration"],
             56_000,
         )
+
+
+class TestSsfIndependentOfLeave(TestCase):
+    """Attendance Policy Escape "SSF Amount Independent of Leave"."""
+
+    RESULT = {"fixed_contribution_base": 60_000, "earned_contribution_base": 56_000}
+
+    def deduction_rows(self):
+        return [
+            FakeSalaryRow(salary_component="Employee's Contribution SSF", amount=6_600, additional_amount=0),
+            FakeSalaryRow(salary_component="Employer's Contribution SSF Deduction", amount=12_000, additional_amount=0),
+            FakeSalaryRow(salary_component="Provident Fund Employee", amount=6_000, additional_amount=0),
+        ]
+
+    def test_escaped_employee_keeps_ssf_deductions_fixed_but_pf_scales(self):
+        rows = self.deduction_rows()
+        slip = FakeSalarySlip(rows, self.RESULT)
+        slip.ssf_escaped = True
+
+        CustomSalarySlip._scale_contribution_deductions(slip)
+
+        self.assertEqual([row.amount for row in rows], [6_600, 12_000, 5_600])
+        self.assertTrue(all(row.flags.nepal_earned_salary_adjusted for row in rows))
+
+    def test_without_the_escape_ssf_still_scales(self):
+        rows = self.deduction_rows()
+        CustomSalarySlip._scale_contribution_deductions(FakeSalarySlip(rows, self.RESULT))
+        self.assertEqual([row.amount for row in rows], [6_160, 11_200, 5_600])
+
+    @patch(
+        "nepal_hrms.custom_code.attendance_policy.get_hr_settings",
+        return_value={"proportionally_reduce_earnings_for_attendance_deductions": 1},
+    )
+    def test_escaped_employer_ssf_earning_stays_fixed_while_earnings_drop(self, _settings):
+        earnings = [
+            FakeSalaryRow(salary_component="Basic Salary - Salary", amount=60_000, additional_amount=0),
+            FakeSalaryRow(salary_component="Transport Allowance", amount=40_000, additional_amount=0),
+            FakeSalaryRow(salary_component="Employer's Contribution SSF - Salary", amount=12_000, additional_amount=0),
+        ]
+        slip = FakeEarningSlip(
+            earnings,
+            [component(0, 60_000, True), component(1, 40_000, False)],
+            {"leave_late_deduction_total": 6_666.67},
+        )
+        slip.ssf_escaped = True
+
+        CustomSalarySlip._apply_attendance_deduction_to_earnings(slip)
+
+        # Basic and the allowance still carry the attendance deduction...
+        self.assertEqual(earnings[0].amount, 56_000)
+        self.assertEqual(earnings[1].amount, 37_333.33)
+        # ...while employer SSF stays on the fixed amount, matching its offset.
+        self.assertEqual(earnings[2].amount, 12_000)
 
 
 class TestEarnedSalaryAccountingSources(FrappeTestCase):

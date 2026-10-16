@@ -100,6 +100,13 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 				description: __("Only LWP leave deducts; attendance does not affect pay"),
 			},
 			{
+				fieldname: "escape_ssf_earned_scaling",
+				label: __("SSF Amount Independent of Leave"),
+				fieldtype: "Check",
+				default: 0,
+				description: __("SSF stays on the fixed amount; leave and absence do not reduce it"),
+			},
+			{
 				fieldname: "allow_self_approval",
 				label: __("Allow Self-Approval"),
 				fieldtype: "Check",
@@ -144,6 +151,7 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 				values.escape_absent_gross,
 				values.escape_applications,
 				values.escape_attendance_deduction,
+				values.escape_ssf_earned_scaling,
 				values.allow_self_approval,
 				values.allow_approve_all,
 			];
@@ -164,6 +172,7 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 					escape_absent_gross: cint(values.escape_absent_gross),
 					escape_applications: cint(values.escape_applications),
 					escape_attendance_deduction: cint(values.escape_attendance_deduction),
+					escape_ssf_earned_scaling: cint(values.escape_ssf_earned_scaling),
 					allow_self_approval: cint(values.allow_self_approval),
 					allow_approve_all: cint(values.allow_approve_all),
 					reason: values.reason || "",

@@ -23,6 +23,7 @@
   "escape_absent_gross",
   "escape_applications",
   "escape_attendance_deduction",
+  "escape_ssf_earned_scaling",
   "allow_self_approval",
   "allow_approve_all",
   "section_reason",
@@ -148,6 +149,13 @@
    "label": "Escape Attendance-Based Deduction"
   },
   {
+   "default": "0",
+   "description": "SSF (employee 11%, employer 20% and its offsetting deduction) is calculated on the fixed contractual amount. Leave, absence and penalties still reduce earnings, but not SSF.",
+   "fieldname": "escape_ssf_earned_scaling",
+   "fieldtype": "Check",
+   "label": "SSF Amount Independent of Leave"
+  },
+  {
    "fieldname": "section_reason",
    "fieldtype": "Section Break",
    "label": "Notes"
@@ -175,7 +183,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-24 11:00:00.000000",
+ "modified": "2026-10-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Attendance Policy Escape",
