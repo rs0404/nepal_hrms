@@ -82,6 +82,9 @@ after_install = "nepal_hrms.install.install"
 after_migrate = [
 	"nepal_hrms.custom_field.create_custom_fields",
 	"nepal_hrms.notifications.raven_sync.seed_notification_rows_on_migrate",
+	# after_sync below runs on install only, never on migrate: roles added later
+	# (Payroll Journal Viewer) would otherwise never reach an existing site.
+	"nepal_hrms.setup_roles.setup_roles",
 ]
 after_sync = [
 	"nepal_hrms.custom_code.payroll.salary_structure.create_salary_structures",
