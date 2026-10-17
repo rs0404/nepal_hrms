@@ -142,7 +142,7 @@ function download_net_pay(frm) {
     }).then((r) => {
         const opts = r.message || {};
         return run_payroll_download({ payroll_entry: frm.doc.name, kind: "net_pay" }).then(() => {
-            if (opts.draft_count || (opts.no_account || []).length) {
+            if (opts.draft_count || (opts.no_account || []).length || (opts.no_bank_code || []).length) {
                 frappe.msgprint({
                     title: __("Net Pay downloaded · check these"),
                     indicator: "orange",
@@ -239,7 +239,7 @@ function payroll_download_checks_html(opts, kind) {
         notes.push(["orange", __("No bank account, so not in this file — pay separately: {0}", [names(opts.no_account)])]);
     }
     if (bank && (opts.no_bank_code || []).length) {
-        notes.push(["red", __("No NCHL bank code for bank {0}. Set it on the Bank record, or the download stops.", [names(opts.no_bank_code)])]);
+        notes.push(["orange", __("No NCHL bank code for bank {0}: the Bank Code column is left blank for them. Fill it in before uploading, or set it on the Bank record.", [names(opts.no_bank_code)])]);
     }
     if (kind === "ssf" && (opts.no_ssf_number || []).length) {
         notes.push(["orange", __("No SSF Number on the employee: {0}", [names(opts.no_ssf_number)])]);

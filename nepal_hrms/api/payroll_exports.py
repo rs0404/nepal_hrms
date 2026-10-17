@@ -177,8 +177,9 @@ def bank_rows(slips, amounts, codes_by_name, remarks):
 
 	amounts maps slip name -> amount to pay. A slip with nothing to pay, or with
 	no bank account (paid by cash or cheque), is left out; the download dialog
-	names the latter beforehand. A bank-paid slip that cannot be written in full
-	is reported, never written with a blank required column.
+	names the latter beforehand. A negative amount is reported. A missing NCHL
+	bank code is not: the row is written with that column blank, and the dialog
+	names the banks so it can be filled in before uploading.
 	"""
 	rows, problems = [], []
 	for slip in slips:
@@ -189,12 +190,10 @@ def bank_rows(slips, amounts, codes_by_name, remarks):
 			continue
 		if amount == 0 or not account:
 			continue
+		# A site may have no NCHL codes at all (no Bank.nchl_bank_code field, or
+		# codes not filled in). The row still goes out with the column blank; the
+		# dialog names the banks so the code can be typed in before uploading.
 		code = slip.get("bank_code") or bank_code_for(slip.bank_name, codes_by_name)
-		if not code:
-			problems.append(
-				(slip, _("No NCHL bank code for bank '{0}'").format(slip.bank_name or ""))
-			)
-			continue
 		rows.append(
 			[
 				amount,

@@ -147,12 +147,20 @@ class TestBankRows(TestCase):
 		)
 		self.assertEqual((rows, problems), ([], []))
 
-	def test_missing_bank_code_and_negative_amount_are_reported(self):
-		rows, problems = bank_rows(
-			[slip("S1", bank="Unknown Bank"), slip("S2")], {"S1": 10, "S2": -5}, CODES, "Salary"
-		)
-		self.assertEqual(rows, [])
-		self.assertEqual([p[0].name for p in problems], ["S1", "S2"])
+	def test_missing_bank_code_still_writes_the_row_blank(self):
+		rows, problems = bank_rows([slip("S1", bank="Unknown Bank")], {"S1": 10}, CODES, "Salary")
+		self.assertEqual(problems, [])
+		self.assertEqual(rows[0][:3], [10, "", "0010017501"])
+
+	def test_no_codes_on_the_site_at_all(self):
+		rows, problems = bank_rows([slip("S1"), slip("S2")], {"S1": 10, "S2": 20}, {}, "Salary")
+		self.assertEqual((len(rows), problems), (2, []))
+		self.assertEqual({row[1] for row in rows}, {""})
+
+	def test_negative_amount_is_still_reported(self):
+		rows, problems = bank_rows([slip("S1"), slip("S2")], {"S1": 10, "S2": -5}, CODES, "Salary")
+		self.assertEqual(len(rows), 1)
+		self.assertEqual([p[0].name for p in problems], ["S2"])
 
 
 class TestAccountFallback(TestCase):
