@@ -48,7 +48,7 @@ CIT_ROOT = "CIT"
 # no locale for it, so the lakh and crore commas are written into the format.
 NP_MONEY_FORMAT = '[>=10000000]##\\,##\\,##\\,##0.00;[>=100000]##\\,##\\,##0.00;#,##0.00'
 
-KINDS = ("net_pay", "component_net_pay", "components", "ssf", "cit", "jv", "salary_sheet")
+KINDS = ("net_pay", "component_net_pay", "components", "ssf", "cit", "jv", "salary_sheet", "calc_workbook")
 
 
 # --------------------------------------------------------------------------
@@ -467,6 +467,11 @@ def download_payroll_export(
 
 		title = _("Salary & Tax Sheet")
 		content = build_salary_tax_sheet(pe, period)
+	elif kind == "calc_workbook":
+		from nepal_hrms.api.payroll_workbook import build_payroll_workbook
+
+		title = _("Calculation Workbook")
+		content = build_payroll_workbook(pe, period)
 	elif kind == "jv":
 		from nepal_hrms.custom_code.payroll.journal_access import (
 			PAYROLL_JOURNAL_ROLE,
