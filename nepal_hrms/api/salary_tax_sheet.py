@@ -263,6 +263,18 @@ def other_exemptions_of(s, allowed):
 	return []
 
 
+def paid_before(s, tds_this_month):
+	"""TDS of the fiscal year's earlier months.
+
+	A slip the Nepal tax breakup ran on stores it, 0 included, so a 0 is not
+	"missing". Stock HRMS's income_tax_deducted_till_date already counts this
+	month, so on an older slip this month comes back off it.
+	"""
+	if s.get("custom_tax_calculation_data"):
+		return flt(s.get("custom_tds_paid_till_date"), 2)
+	return flt(flt(s.get("income_tax_deducted_till_date")) - flt(tds_this_month), 2)
+
+
 def _tax(s, tds_this_month):
 	"""The slip's annual tax working, falling back to stock HRMS fields."""
 	assessable = flt(s.custom_assessable_employment_income) or (
@@ -282,7 +294,7 @@ def _tax(s, tds_this_month):
 		other_total=flt(sum(flt(line.amount) for line in others), 2),
 		taxable=flt(s.annual_taxable_amount, 2),
 		annual_tax=flt(s.custom_projected_annual_tds or s.total_income_tax, 2),
-		paid=flt(s.custom_tds_paid_till_date or s.income_tax_deducted_till_date, 2),
+		paid=paid_before(s, tds_this_month),
 		remaining=cint(s.custom_remaining_payroll_periods),
 		this_month=flt(tds_this_month, 2),
 	)

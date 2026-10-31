@@ -8,6 +8,7 @@ from nepal_hrms.api.salary_tax_sheet import (
 	fiscal_months,
 	np_number,
 	ordered_roots,
+	paid_before,
 	slab_breakdown,
 )
 
@@ -99,3 +100,18 @@ class TestOtherExemptions(TestCase):
 		self.assertEqual([(l.label, l.amount) for l in other_exemptions_of(s, 60000)], [("Other exemptions", 49000)])
 		s.deductions_before_tax_calculation, s.tax_exemption_declaration = 60000, 0
 		self.assertEqual(other_exemptions_of(s, 60000), [])
+
+
+class TestPaidBefore(TestCase):
+	def test_nepal_slip_with_nothing_paid_earlier_is_zero(self):
+		# The first taxed month: HRMS's till-date figure is this month's TDS itself.
+		s = _dict(custom_tax_calculation_data="{}", custom_tds_paid_till_date=0, income_tax_deducted_till_date=2720.83)
+		self.assertEqual(paid_before(s, 2720.83), 0)
+
+	def test_nepal_slip_uses_its_stored_figure(self):
+		s = _dict(custom_tax_calculation_data="{}", custom_tds_paid_till_date=5441.66, income_tax_deducted_till_date=8162.49)
+		self.assertEqual(paid_before(s, 2720.83), 5441.66)
+
+	def test_older_slip_takes_this_month_off_the_till_date_figure(self):
+		s = _dict(income_tax_deducted_till_date=8162.49)
+		self.assertEqual(paid_before(s, 2720.83), 5441.66)
