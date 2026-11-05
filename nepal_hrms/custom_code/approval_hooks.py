@@ -33,8 +33,12 @@ def _prevent_self_leave_approval():
 def _prevent_self_shift_approval():
 	if not frappe.get_meta("Nepal HRMS Settings").has_field("prevent_self_shift_request_approval"):
 		return True
-	value = frappe.db.get_single_value("Nepal HRMS Settings", "prevent_self_shift_request_approval")
-	return True if value is None else bool(cint(value))
+	# get_single_value reads a never-saved Check as 0; never saved means the default, on.
+	value = frappe.db.sql(
+		"select value from `tabSingles` where doctype = %s and field = %s",
+		("Nepal HRMS Settings", "prevent_self_shift_request_approval"),
+	)
+	return True if not value else bool(cint(value[0][0]))
 
 
 def sync_self_leave_approval_from_hr_settings(doc, method=None):

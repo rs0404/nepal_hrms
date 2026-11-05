@@ -68,6 +68,19 @@ class TestShiftRequestSetting(TestCase):
 	def test_prevent_off_lets_self_approve(self):
 		self.assertTrue(self._submit(False))
 
+	def _read(self, rows):
+		meta = MagicMock()
+		meta.has_field.return_value = True
+		with patch("frappe.get_meta", return_value=meta), patch("frappe.db.sql", return_value=rows):
+			return approval_hooks._prevent_self_shift_approval()
+
+	def test_never_saved_setting_reads_as_on(self):
+		self.assertTrue(self._read(()))
+
+	def test_saved_setting_is_read(self):
+		self.assertFalse(self._read((("0",),)))
+		self.assertTrue(self._read((("1",),)))
+
 
 class TestLeaveSettingMirror(TestCase):
 	def test_hr_settings_change_is_mirrored(self):
