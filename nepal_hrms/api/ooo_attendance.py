@@ -1157,11 +1157,28 @@ def _assert_can_view_ooo_day(employee: str):
 	frappe.throw(_("Not permitted to view OOO details for this employee."), frappe.PermissionError)
 
 
+def _check_ooo_decision(doc):
+	"""Ticking Is Approved or OOO Rejected on a save is the decision
+	approve_ooo_checkins / reject_ooo_checkins make, so it takes the same rule.
+	Those two write with db.set_value and never reach here.
+	"""
+	if doc.flags.ignore_permissions:
+		return
+	for field in ("custom_is_approved", "custom_ooo_rejected"):
+		if not doc.meta.has_field(field) or not cint(doc.get(field)):
+			continue
+		if doc.is_new() or doc.has_value_changed(field):
+			_assert_is_leave_approver(doc.employee, getdate(doc.time) if doc.time else None)
+			return
+
+
 def validate_ooo_checkin(doc, method):
     """
     doc_events validate hook for Employee Checkin.
     Enforces strict transition rules and reason validation.
     """
+    _check_ooo_decision(doc)
+
     # Bypass validation if log is synced from biometric device
     if doc.device_id:
         return
