@@ -50,8 +50,10 @@
   "approval_policy_section",
   "prevent_self_attendance_request_approval",
   "prevent_self_ooo_checkin_approval",
+  "prevent_self_leave_application_approval",
   "column_break_approval",
   "prevent_self_cnr_application_approval",
+  "prevent_self_shift_request_approval",
   "pwa_boards_section",
   "pwa_live_board_roles",
   "column_break_pwa_boards",
@@ -437,6 +439,13 @@
    "label": "Prevent Self-Approval of OOO Check-ins"
   },
   {
+   "default": "1",
+   "description": "When enabled, employees cannot approve, reject, or submit their own Leave Application. The same setting as Prevent Self Leave Approval in HR Settings: changing either changes both.",
+   "fieldname": "prevent_self_leave_application_approval",
+   "fieldtype": "Check",
+   "label": "Prevent Self-Approval of Leave Applications"
+  },
+  {
    "fieldname": "column_break_approval",
    "fieldtype": "Column Break"
   },
@@ -446,6 +455,13 @@
    "fieldname": "prevent_self_cnr_application_approval",
    "fieldtype": "Check",
    "label": "Prevent Self-Approval of CNR Applications"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, employees cannot approve, reject, or submit their own Shift Request.",
+   "fieldname": "prevent_self_shift_request_approval",
+   "fieldtype": "Check",
+   "label": "Prevent Self-Approval of Shift Requests"
   },
   {
    "description": "Control which roles can use Nepal HRMS app attendance and leave-board features. Empty tables turn that feature off; Leave Board also inherits Live Attendance Board roles.",
@@ -1125,7 +1141,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-05 13:37:29.975110",
+ "modified": "2026-11-05 19:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Settings",

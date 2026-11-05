@@ -20,9 +20,30 @@ def _decision_changed(doc):
 	return doc.status in DECISIONS and (doc.is_new() or doc.has_value_changed("status"))
 
 
+# Leave's setting is stored in HR Settings, which Frappe HR's own form also
+# reads; Nepal HRMS Settings shows it as this field and keeps the two equal.
+LEAVE_SELF_APPROVAL_FIELD = "prevent_self_leave_application_approval"
+
+
 def _prevent_self_leave_approval():
 	value = frappe.db.get_single_value("HR Settings", "prevent_self_leave_approval")
 	return True if value is None else bool(cint(value))
+
+
+def _prevent_self_shift_approval():
+	if not frappe.get_meta("Nepal HRMS Settings").has_field("prevent_self_shift_request_approval"):
+		return True
+	value = frappe.db.get_single_value("Nepal HRMS Settings", "prevent_self_shift_request_approval")
+	return True if value is None else bool(cint(value))
+
+
+def sync_self_leave_approval_from_hr_settings(doc, method=None):
+	"""HR Settings on_update: mirror the box into Nepal HRMS Settings."""
+	if not frappe.get_meta("Nepal HRMS Settings").has_field(LEAVE_SELF_APPROVAL_FIELD):
+		return
+	frappe.db.set_single_value(
+		"Nepal HRMS Settings", LEAVE_SELF_APPROVAL_FIELD, cint(doc.prevent_self_leave_approval)
+	)
 
 
 def check_leave_application_approval(doc, on_submit=False):
@@ -47,13 +68,25 @@ def check_leave_application_approval(doc, on_submit=False):
 def validate_shift_request_approval(doc, method=None):
 	if doc.flags.ignore_permissions or not _decision_changed(doc):
 		return
-	assert_can_approve(doc.employee, _("Shift Request"), kind=SHIFT, on_date=doc.from_date)
+	assert_can_approve(
+		doc.employee,
+		_("Shift Request"),
+		kind=SHIFT,
+		on_date=doc.from_date,
+		site_allows_self=not _prevent_self_shift_approval(),
+	)
 
 
 def before_submit_shift_request(doc, method=None):
 	if doc.flags.ignore_permissions:
 		return
-	assert_can_approve(doc.employee, _("Shift Request"), kind=SHIFT, on_date=doc.from_date)
+	assert_can_approve(
+		doc.employee,
+		_("Shift Request"),
+		kind=SHIFT,
+		on_date=doc.from_date,
+		site_allows_self=not _prevent_self_shift_approval(),
+	)
 
 
 def before_submit_compensatory_leave_request(doc, method=None):

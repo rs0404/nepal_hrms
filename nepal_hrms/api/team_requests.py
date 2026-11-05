@@ -160,7 +160,11 @@ def _can_decide(doc):
 		return can_approve(
 			doc.employee, LEAVE, doc.from_date, site_allows_self=not _prevent_self_leave_approval()
 		)
-	return can_approve(doc.employee, SHIFT, doc.from_date)
+	from nepal_hrms.custom_code.approval_hooks import _prevent_self_shift_approval
+
+	return can_approve(
+		doc.employee, SHIFT, doc.from_date, site_allows_self=not _prevent_self_shift_approval()
+	)
 
 
 def _assert_can_decide(doc):

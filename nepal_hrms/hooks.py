@@ -185,6 +185,9 @@ doc_events = {
 	"Compensatory Leave Request": {
 		"before_submit": "nepal_hrms.custom_code.approval_hooks.before_submit_compensatory_leave_request",
 	},
+	"HR Settings": {
+		"on_update": "nepal_hrms.custom_code.approval_hooks.sync_self_leave_approval_from_hr_settings",
+	},
 	"Leave Application": {
 		"validate": [
 			"nepal_hrms.custom_code.leave_application_hooks.validate_leave_application_reason",

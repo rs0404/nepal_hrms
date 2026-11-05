@@ -17,6 +17,7 @@ SALARY_SLIP_ID_FIELD_TYPES = {"Data", "Link", "Dynamic Link", "Int"}
 class NepalHRMSSettings(Document):
 	def validate(self):
 		self.apply_defaults_to_never_saved_fields()
+		self.sync_self_leave_approval_to_hr_settings()
 		self.validate_payroll_period_start_day()
 		self.validate_period_leave_gross_lwp()
 		self.validate_salary_slip_print_settings()
@@ -61,6 +62,30 @@ class NepalHRMSSettings(Document):
 				continue
 			if self.get(df.fieldname) in (None, "", 0, "0"):
 				self.set(df.fieldname, df.default)
+
+	def sync_self_leave_approval_to_hr_settings(self):
+		"""Keep this box and HR Settings' Prevent Self Leave Approval one setting.
+
+		HR Settings stays the stored one because Frappe HR's form reads it. A box
+		never saved here takes HR Settings' value, not its default, so adding the
+		field cannot quietly change what the site already does.
+		"""
+		from nepal_hrms.custom_code.approval_hooks import LEAVE_SELF_APPROVAL_FIELD
+
+		if not self.meta.has_field(LEAVE_SELF_APPROVAL_FIELD):
+			return
+		current = frappe.db.get_single_value("HR Settings", "prevent_self_leave_approval")
+		current = 1 if current is None else cint(current)
+		saved = frappe.db.sql(
+			"select 1 from `tabSingles` where doctype = %s and field = %s",
+			(self.doctype, LEAVE_SELF_APPROVAL_FIELD),
+		)
+		if not saved:
+			self.set(LEAVE_SELF_APPROVAL_FIELD, current)
+		elif cint(self.get(LEAVE_SELF_APPROVAL_FIELD)) != current:
+			frappe.db.set_single_value(
+				"HR Settings", "prevent_self_leave_approval", cint(self.get(LEAVE_SELF_APPROVAL_FIELD))
+			)
 
 	def validate_salary_unlock_fields(self):
 		if not self.meta.has_field("salary_unlock_fields") or not self.salary_unlock_fields:
