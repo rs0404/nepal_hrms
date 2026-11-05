@@ -23,9 +23,13 @@ const props = defineProps({
 	doctype: { type: String, required: false },
 })
 
+// Ionic keeps this page mounted after navigating away, when route.name names
+// the new page; read it once so the doctype cannot flip to the fallback.
+const routeName = String(route.name || "")
+
 const doctype = computed(() => {
 	if (props.doctype) return props.doctype
-	const name = route.name || ""
+	const name = routeName
 	if (name.startsWith("LateEntryApplication")) return "Late Entry Application"
 	if (name.startsWith("EarlyExitApplication")) return "Early Exit Application"
 	if (name.startsWith("OutOfOfficeApplication")) return "Out of Office Application"
