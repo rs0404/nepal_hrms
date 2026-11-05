@@ -74,9 +74,11 @@
 </template>
 
 <script setup>
-import { computed } from "vue"
+import { computed, inject } from "vue"
 import { formatNepaliMonthYearPeriod } from "@/utils/nepali_date"
 import { OUTCOME } from "@/utils/attendance_colors"
+
+const __ = inject("$translate")
 
 const props = defineProps({
 	// A createResource on nepal_hrms.api.attendance_calendar.get_attendance_period_summary
