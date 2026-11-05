@@ -38,7 +38,7 @@ class AttendancePolicyEscape(Document):
 		self._set_defaults_from_employee()
 		self._validate_dates()
 		self._validate_flags()
-		self._validate_approve_all_grant()
+		self._validate_approval_grants()
 		self._validate_no_overlap()
 
 	def on_update(self):
@@ -68,29 +68,32 @@ class AttendancePolicyEscape(Document):
 		if not any(cint(self.get(f)) for f in ESCAPE_FLAGS):
 			frappe.throw(_("Select at least one escape rule"))
 
-	# Fields that decide who holds an Allow Approving Everyone grant, and when.
-	GRANT_FIELDS = ("allow_approve_all", "employee", "is_active", "from_date", "to_date")
+	# Approval grants, and the fields that decide who holds one and when.
+	GRANTS = {"allow_approve_all": "Allow Approving Everyone", "allow_self_approval": "Allow Self-Approval"}
+	GRANT_FIELDS = ("employee", "is_active", "from_date", "to_date")
 
-	def _validate_approve_all_grant(self):
-		"""Allow Approving Everyone is System Manager's to give, move or extend.
+	def _validate_approval_grants(self):
+		"""Approval grants are System Manager's to give, move or extend.
 
-		The field is permlevel 1, but an HR Manager can still edit the rest of the
-		row: point it at another employee, stretch its dates, reactivate it. Any
-		of those on a row carrying the grant needs System Manager too.
+		The fields are permlevel 1, but an HR Manager can still edit the rest of
+		the row: point it at another employee (themself), stretch its dates,
+		reactivate it. Any of those on a row carrying a grant needs System Manager
+		too.
 		"""
-		before = self.get_doc_before_save()
-		carries_grant = cint(self.get("allow_approve_all")) or (
-			before and cint(before.get("allow_approve_all"))
-		)
-		if not carries_grant or "System Manager" in frappe.get_roles():
+		if "System Manager" in frappe.get_roles():
 			return
-		if self.is_new() or any(
-			str(self.get(f) or "") != str(before.get(f) or "") for f in self.GRANT_FIELDS
-		):
-			frappe.throw(
-				_("Only a System Manager can set Allow Approving Everyone, or change who holds it and when."),
-				frappe.PermissionError,
-			)
+		before = self.get_doc_before_save()
+		for flag, label in self.GRANTS.items():
+			carries_grant = cint(self.get(flag)) or (before and cint(before.get(flag)))
+			if not carries_grant:
+				continue
+			if self.is_new() or any(
+				str(self.get(f) or "") != str(before.get(f) or "") for f in (flag, *self.GRANT_FIELDS)
+			):
+				frappe.throw(
+					_("Only a System Manager can set {0}, or change who holds it and when.").format(_(label)),
+					frappe.PermissionError,
+				)
 
 	def _validate_no_overlap(self):
 		if not cint(self.is_active) or not self.employee:

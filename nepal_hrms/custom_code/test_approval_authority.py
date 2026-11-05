@@ -78,8 +78,8 @@ class TestApprovalAuthority(TestCase):
 			self.assertEqual(aa.approver_chain("lead@x.com"), ["lead@x.com", "head@x.com"])
 
 
-class TestApproveEveryoneGrant(TestCase):
-	"""Only a System Manager may give, move or extend Allow Approving Everyone."""
+class TestApprovalGrants(TestCase):
+	"""Only a System Manager may give, move or extend Allow Approving Everyone or Allow Self-Approval."""
 
 	def _escape(self, before=None, **values):
 		doc = frappe.get_doc(
@@ -94,7 +94,7 @@ class TestApproveEveryoneGrant(TestCase):
 
 	def _check(self, doc, roles):
 		with patch("frappe.get_roles", return_value=roles):
-			doc._validate_approve_all_grant()
+			doc._validate_approval_grants()
 
 	def test_hr_manager_cannot_grant_it(self):
 		with self.assertRaises(frappe.PermissionError):
@@ -115,3 +115,15 @@ class TestApproveEveryoneGrant(TestCase):
 	def test_hr_manager_may_edit_the_reason_on_a_grant(self):
 		before = frappe._dict(allow_approve_all=1, employee="EMP-HR", is_active=1, reason="old")
 		self._check(self._escape(before, allow_approve_all=1, reason="new"), ["HR Manager"])
+
+	def test_hr_manager_cannot_grant_self_approval(self):
+		with self.assertRaises(frappe.PermissionError):
+			self._check(self._escape(allow_self_approval=1), ["HR Manager"])
+
+	def test_system_manager_can_grant_self_approval(self):
+		self._check(self._escape(allow_self_approval=1), ["System Manager"])
+
+	def test_hr_manager_cannot_move_self_approval_onto_themself(self):
+		before = frappe._dict(allow_self_approval=1, employee="EMP-STAFF", is_active=1)
+		with self.assertRaises(frappe.PermissionError):
+			self._check(self._escape(before, allow_self_approval=1), ["HR Manager"])

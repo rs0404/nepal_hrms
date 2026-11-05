@@ -111,7 +111,8 @@ nepal_hrms.attendance_policy_escape.open_bulk_dialog = function () {
 				label: __("Allow Self-Approval"),
 				fieldtype: "Check",
 				default: 0,
-				description: __("They may approve their own applications and requests"),
+				description: __("They may approve their own applications and requests. System Manager only."),
+				hidden: !frappe.user.has_role("System Manager"),
 			},
 			{
 				fieldname: "allow_approve_all",

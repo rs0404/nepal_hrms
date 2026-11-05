@@ -167,10 +167,11 @@
   },
   {
    "default": "0",
-   "description": "Let this employee approve their own Late Entry, Early Exit, Out of Office, OOO check-ins, Attendance Requests, Leave and Shift Requests. Without it only their approver, or someone above the approver in Reports To, can.",
+   "description": "Let this employee approve their own Late Entry, Early Exit, Out of Office, OOO check-ins, Attendance Requests, Leave and Shift Requests. Without it only their approver, or someone above the approver in Reports To, can. Only a System Manager can set this, or change an escape that has it.",
    "fieldname": "allow_self_approval",
    "fieldtype": "Check",
-   "label": "Allow Self-Approval"
+   "label": "Allow Self-Approval",
+   "permlevel": 1
   },
   {
    "default": "0",
@@ -183,7 +184,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-16 12:00:00.000000",
+ "modified": "2026-11-05 19:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Attendance Policy Escape",
