@@ -137,7 +137,7 @@ def get_recently_approved_team_requests(limit=20):
 		)
 		for row in rows:
 			row["doctype"] = doctype
-		requests.append(row)
+			requests.append(row)
 
 	for doctype in CNR_DOCTYPES:
 		fields = list(CNR_FIELDS)
@@ -165,7 +165,7 @@ def get_recently_approved_team_requests(limit=20):
 		)
 		for row in rows:
 			row["doctype"] = doctype
-		requests.append(row)
+			requests.append(row)
 
 	requests.sort(
 		key=lambda row: str(row.get("modified") or row.get("creation") or ""),
