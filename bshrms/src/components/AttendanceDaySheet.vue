@@ -319,6 +319,7 @@ import { formatNepaliDate, formatDaysFromToday } from "@/utils/nepali_date"
 import { dayCodeClass, dayCodes } from "@/utils/attendance_colors"
 import { appStatusClass, normalizeAppStatus } from "@/utils/app_status"
 import { leaveSpanLabel } from "@/utils/leave_marks"
+import { doctypeRouteName } from "@/utils/route_names"
 import LeaveSpanMark from "@/components/LeaveSpanMark.vue"
 
 const props = defineProps({
@@ -607,7 +608,7 @@ function openForm(action) {
 }
 
 function openRelatedApplication(app) {
-	const routeName = app.route_name || `${String(app.doctype).replace(/\s+/g, "")}DetailView`
+	const routeName = app.route_name || doctypeRouteName(app.doctype, "DetailView")
 	modalController.dismiss()
 	router.push({ name: routeName, params: { id: app.name } })
 }

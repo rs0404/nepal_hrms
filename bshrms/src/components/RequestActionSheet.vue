@@ -349,6 +349,7 @@ import { formatCurrency } from "@/utils/formatters"
 import useWorkflow from "@/composables/workflow"
 import { myLeaves, leaveBalance } from "@/data/leaves"
 import { isAwaitingSubmit, isFinalDraft } from "@/utils/request_status"
+import { doctypeRouteName } from "@/utils/route_names"
 
 const __ = inject("$translate")
 const employee = inject("$employee")
@@ -414,7 +415,7 @@ async function loadRelatedApplications() {
 
 function openRelatedApplication(app) {
 	const routeName =
-		app.route_name || `${String(app.doctype).replace(/\s+/g, "")}DetailView`
+		app.route_name || doctypeRouteName(app.doctype, "DetailView")
 	modalController.dismiss()
 	router.push({ name: routeName, params: { id: app.name } })
 }
@@ -749,7 +750,7 @@ const updateDocumentStatus = ({ status = "", docstatus = 0 }) => {
 const openFormView = () => {
 	modalController.dismiss()
 	router.push({
-		name: `${props.modelValue.doctype.replace(/\s+/g, "")}DetailView`,
+		name: doctypeRouteName(props.modelValue.doctype, "DetailView"),
 		params: { id: props.modelValue.name },
 	})
 }

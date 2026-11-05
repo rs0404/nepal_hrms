@@ -4,10 +4,11 @@
 // Sharing an application with its approver: the link, and the clipboard.
 //
 // The link is built from the router rather than by stitching strings, so the
-// PWA base (/hr) and the doctype -> route mapping stay in one place -- the same
-// `${doctype without spaces}DetailView` convention ListView already relies on.
+// PWA base (/hr) and the doctype -> route mapping stay in one place -- via
+// doctypeRouteName, as ListView does.
 
 import router from "@/router"
+import { doctypeRouteName } from "@/utils/route_names"
 
 // Application types an employee raises from the PWA and may want to share.
 // Must stay in step with APPROVER_EVENT in api/application_share.py.
@@ -25,7 +26,7 @@ export function isShareable(doctype) {
 }
 
 export function detailRouteName(doctype) {
-	return `${(doctype || "").replace(/\s+/g, "")}DetailView`
+	return doctypeRouteName(doctype, "DetailView")
 }
 
 // Absolute, because the point of the link is to leave the device.

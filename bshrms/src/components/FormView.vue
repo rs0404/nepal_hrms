@@ -462,6 +462,7 @@ import { markAttendanceRefresh } from "@/utils/attendance_refresh"
 import CopyLinkButton from "@/components/CopyLinkButton.vue"
 import NotifyApproverButton from "@/components/NotifyApproverButton.vue"
 import { isShareable } from "@/utils/application_share"
+import { doctypeRouteName } from "@/utils/route_names"
 
 const props = defineProps({
 	doctype: {
@@ -718,7 +719,7 @@ const docList = createListResource({
 			}
 
 			router.replace({
-				name: `${props.doctype.replace(/\s+/g, "")}DetailView`,
+				name: doctypeRouteName(props.doctype, "DetailView"),
 				params: { id: data.name },
 			})
 		},
@@ -902,7 +903,7 @@ function confirmCnrDraftDialog() {
 	pendingCnrDetailId.value = null
 	if (id) {
 		router.replace({
-			name: `${props.doctype.replace(/\s+/g, "")}DetailView`,
+			name: doctypeRouteName(props.doctype, "DetailView"),
 			params: { id },
 		})
 	}

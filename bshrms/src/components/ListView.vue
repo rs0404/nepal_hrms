@@ -163,6 +163,7 @@ import {
 
 import useWorkflow from "@/composables/workflow"
 import { useListUpdate } from "@/composables/realtime"
+import { doctypeRouteName } from "@/utils/route_names"
 
 const READ_ONLY_DOCTYPES = ["Employee Checkin", "Attendance"]
 
@@ -245,11 +246,11 @@ const isTeamRequest = computed(() => {
 })
 
 const formViewRoute = computed(() => {
-	return `${props.doctype.replace(/\s+/g, "")}FormView`
+	return doctypeRouteName(props.doctype, "FormView")
 })
 
 const detailViewRoute = computed(() => {
-	return `${props.doctype.replace(/\s+/g, "")}DetailView`
+	return doctypeRouteName(props.doctype, "DetailView")
 })
 
 const defaultFilters = computed(() => {

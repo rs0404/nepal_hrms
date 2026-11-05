@@ -104,6 +104,7 @@ import { createResource, FeatherIcon } from "frappe-ui"
 import { computed, inject, onMounted, ref } from "vue"
 import EmployeeAvatar from "@/components/EmployeeAvatar.vue"
 import EmptyState from "@/components/EmptyState.vue"
+import { doctypeRouteName } from "@/utils/route_names"
 
 import {
 	unreadNotificationsCount,
@@ -155,7 +156,7 @@ function getItemRoute(item) {
 	// to nothing and router-link throws while rendering the whole list. Fall
 	// back to a real route instead of losing the page.
 	const type = item.reference_document_type || ""
-	const name = `${type.replace(/\s+/g, "")}DetailView`
+	const name = doctypeRouteName(type, "DetailView")
 
 	if (!type || !item.reference_document_name || !router.hasRoute(name)) {
 		return FALLBACK_ROUTE_BY_TYPE[type] || { name: "Home" }

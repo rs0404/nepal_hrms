@@ -1515,7 +1515,7 @@ def get_attendance_related_applications(employee=None, attendance_date=None, att
 				"status": status,
 				"reason": _reason_text(row),
 				"rejection_reason": (row or {}).get("custom_rejection_reason") or "",
-				"route_name": doctype.replace(" ", "") + "DetailView",
+				"route_name": "".join(w[:1].upper() + w[1:] for w in doctype.split()) + "DetailView",
 			}
 		)
 
