@@ -394,7 +394,7 @@ function calculateTotalAdvance() {
 
 function setFormReadOnly() {
 	if (props.id && expenseClaim.value.expense_approver !== currEmployee.value) return
-	formFields.data.map((field) => (field.read_only = true))
+	formFields.data?.forEach((field) => (field.read_only = true))
 	isReadOnly.value = true
 }
 

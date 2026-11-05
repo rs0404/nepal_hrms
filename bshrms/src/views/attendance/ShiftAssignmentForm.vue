@@ -67,7 +67,7 @@ watch(
 
 // helper functions
 function setFormReadOnly() {
-	formFields.data.map((field) => (field.read_only = true))
+	formFields.data?.forEach((field) => (field.read_only = true))
 }
 
 function validateDates(start_date, end_date) {
@@ -75,8 +75,8 @@ function validateDates(start_date, end_date) {
 
 	const error_message = start_date > end_date ? __("End Date cannot be before Start Date") : ""
 
-	const start_date_field = formFields.data.find((field) => field.fieldname === "start_date")
-	start_date_field.error_message = error_message
+	const start_date_field = formFields.data?.find((field) => field.fieldname === "start_date")
+	if (start_date_field) start_date_field.error_message = error_message
 }
 
 function validateForm() {

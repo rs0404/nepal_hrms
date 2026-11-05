@@ -112,14 +112,14 @@ watch(
 watch(
 	() => attendanceRequest.value.half_day,
 	(half_day) => {
-		const half_day_date = formFields.data.find((field) => field.fieldname === "half_day_date")
-		half_day_date.hidden = !half_day
+		const half_day_date = formFields.data?.find((field) => field.fieldname === "half_day_date")
+		if (half_day_date) half_day_date.hidden = !half_day
 	}
 )
 
 // helper functions
 function setFormReadOnly() {
-	formFields.data.map((field) => (field.read_only = true))
+	formFields.data?.forEach((field) => (field.read_only = true))
 }
 
 function validateDates(from_date, to_date) {
@@ -127,8 +127,8 @@ function validateDates(from_date, to_date) {
 
 	const error_message = from_date > to_date ? __("To Date cannot be before From Date") : ""
 
-	const from_date_field = formFields.data.find((field) => field.fieldname === "from_date")
-	from_date_field.error_message = error_message
+	const from_date_field = formFields.data?.find((field) => field.fieldname === "from_date")
+	if (from_date_field) from_date_field.error_message = error_message
 }
 
 function validateForm() {

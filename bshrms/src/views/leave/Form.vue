@@ -344,7 +344,7 @@ watch(
 watch(
 	() => leaveApplication.value.leave_approver,
   	(newApprover) => {
-			const approverField = formFields.data.find(f => f.fieldname === "leave_approver")
+			const approverField = formFields.data?.find(f => f.fieldname === "leave_approver")
 			const selected = approverField?.documentList?.find(opt => opt.value === newApprover)
 			leaveApplication.value.leave_approver_name = selected?.label?.split(" : ")[1] || ""
   }
@@ -392,7 +392,7 @@ function moveReasonBeforeDates(fields) {
 
 function setFormReadOnly() {
 	if (leaveApplication.value.leave_approver === sessionEmployee.data.user_id) return
-	formFields.data.map((field) => (field.read_only = true))
+	formFields.data?.forEach((field) => (field.read_only = true))
 }
 
 function validateDates(from_date, to_date) {
