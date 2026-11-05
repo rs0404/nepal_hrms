@@ -130,6 +130,20 @@ watch(
 // Estimated times are to the minute; nobody plans an absence to the second.
 const MINUTE_ONLY_FIELDS = ["estimated_from_time", "estimated_to_time"]
 
+function minutes(value) {
+	const [hours, mins, seconds] = String(value)
+		.split(":")
+		.map((part) => Number(part) || 0)
+	return hours * 60 + mins + seconds / 60
+}
+
+// Mirrors the server check, so a 1:30 AM picked for 1:30 PM shows up before save.
+const estimatedTimeError = computed(() => {
+	const { estimated_from_time: from, estimated_to_time: to } = application.value
+	if (!from || !to || minutes(to) >= minutes(from)) return ""
+	return __("Estimated To Time must be after Estimated From Time.")
+})
+
 const displayFields = computed(() => {
 	const fields = formFields.data
 	if (!fields) return fields
@@ -137,6 +151,9 @@ const displayFields = computed(() => {
 	return fields.map((field) => {
 		if (target && field.fieldname === target && timeWindow.data) {
 			return { ...field, timeWindow: timeWindow.data }
+		}
+		if (field.fieldname === "estimated_to_time") {
+			return { ...field, noSeconds: true, error_message: estimatedTimeError.value }
 		}
 		if (MINUTE_ONLY_FIELDS.includes(field.fieldname)) return { ...field, noSeconds: true }
 		return field
@@ -263,12 +280,6 @@ watch(
 			application.value.estimated_from_time &&
 			application.value.estimated_to_time
 		) {
-			const minutes = (value) => {
-				const [hours, mins, seconds] = String(value)
-					.split(":")
-					.map((part) => Number(part) || 0)
-				return hours * 60 + mins + seconds / 60
-			}
 			const duration =
 				(minutes(application.value.estimated_to_time) -
 					minutes(application.value.estimated_from_time)) /
