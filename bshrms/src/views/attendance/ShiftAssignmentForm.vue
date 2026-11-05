@@ -22,6 +22,7 @@ import { ref, watch, inject } from "vue"
 import FormView from "@/components/FormView.vue"
 
 const employee = inject("$employee")
+const __ = inject("$translate")
 
 const props = defineProps({
 	id: {
