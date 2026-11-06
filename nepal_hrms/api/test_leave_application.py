@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 from nepal_hrms.api.leave_application import (
+	applications_in_period,
 	build_leave_balance_summary,
 	build_frequent_leave_type_list,
 	group_contiguous_dates,
@@ -175,3 +176,20 @@ class TestLeaveBalanceSummary(FrappeTestCase):
 		)
 		self.assertEqual(summary["Sick Leave"]["left"], 0)
 		self.assertEqual(summary["Sick Leave"]["used"], 1.5)
+
+
+class TestLeaveTypeHistory(FrappeTestCase):
+	ROWS = [
+		{"name": "a", "leave_type": "Sick Leave", "from_date": "2026-07-10", "to_date": "2026-07-10"},
+		{"name": "b", "leave_type": "Sick Leave", "from_date": "2026-09-01", "to_date": "2026-09-02"},
+		{"name": "c", "leave_type": "Annual Leave", "from_date": "2026-09-05", "to_date": "2026-09-05"},
+		{"name": "d", "leave_type": "Sick Leave", "from_date": "2026-07-15", "to_date": "2026-07-17"},
+	]
+
+	def test_keeps_the_type_within_the_period_latest_first(self):
+		rows = applications_in_period(self.ROWS, "Sick Leave", "2026-07-16", "2027-07-15")
+		self.assertEqual([row["name"] for row in rows], ["b", "d"])
+
+	def test_without_a_period_keeps_every_row_of_the_type(self):
+		rows = applications_in_period(self.ROWS, "Sick Leave")
+		self.assertEqual([row["name"] for row in rows], ["b", "d", "a"])

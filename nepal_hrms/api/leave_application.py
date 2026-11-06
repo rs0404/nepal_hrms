@@ -200,9 +200,53 @@ def get_leave_balance_summary():
 	employee = _session_employee()
 	if not employee:
 		return {}
-	allocation = get_leave_details(employee, getdate()).get("leave_allocation") or {}
+	today = getdate()
+	allocation = get_leave_details(employee, today).get("leave_allocation") or {}
 	pending = {leave_type: get_open_leave_days(employee, leave_type) for leave_type in allocation}
-	return build_leave_balance_summary(allocation, pending)
+	summary = build_leave_balance_summary(allocation, pending)
+	# The allocation's own dates, so the PWA can list the leave these numbers count.
+	for leave_type, row in summary.items():
+		period = frappe.db.get_value(
+			"Leave Allocation",
+			{
+				"employee": employee,
+				"leave_type": leave_type,
+				"docstatus": 1,
+				"from_date": ["<=", today],
+				"to_date": [">=", today],
+			},
+			["from_date", "to_date"],
+			as_dict=True,
+			order_by="from_date desc",
+		)
+		row["from_date"] = period.from_date if period else None
+		row["to_date"] = period.to_date if period else None
+	return summary
+
+
+def applications_in_period(applications, leave_type, from_date=None, to_date=None) -> list:
+	"""This type's applications that touch [from_date, to_date], latest first."""
+	start = getdate(from_date) if from_date else None
+	end = getdate(to_date) if to_date else None
+	rows = [
+		row
+		for row in applications
+		if row.get("leave_type") == leave_type
+		and (not end or getdate(row.get("from_date")) <= end)
+		and (not start or getdate(row.get("to_date")) >= start)
+	]
+	return sorted(rows, key=lambda row: getdate(row.get("from_date")), reverse=True)
+
+
+@frappe.whitelist()
+def get_leave_type_history(leave_type: str, from_date: str | None = None, to_date: str | None = None):
+	"""The session employee's applications of one leave type, for its balance card."""
+	from nepal_hrms.overrides.hrms_api import get_leave_applications
+
+	employee = _session_employee()
+	if not employee or not leave_type:
+		return []
+	return applications_in_period(get_leave_applications(employee), leave_type, from_date, to_date)
 
 
 def group_contiguous_dates(dates: list | None) -> list[dict]:

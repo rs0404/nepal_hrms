@@ -3,7 +3,7 @@ import { employeeResource } from "./employee"
 
 import { formatNepaliPeriod } from "@/utils/nepali_date"
 
-const transformLeaveData = (data) => {
+export const transformLeaveData = (data) => {
 	return data.map((leave) => {
 		leave.leave_dates = getLeaveDates(leave)
 		leave.doctype = "Leave Application"
