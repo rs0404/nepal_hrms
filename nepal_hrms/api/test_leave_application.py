@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 from nepal_hrms.api.leave_application import (
+	build_leave_balance_summary,
 	build_frequent_leave_type_list,
 	group_contiguous_dates,
 	has_available_leave,
@@ -147,3 +148,30 @@ class TestCombinedLeaveBalance(FrappeTestCase):
 		self.assertTrue(skip_leave_balance_check("Leave Without Pay"))
 		if frappe.db.exists("Leave Type", "Annual/Home Leave"):
 			self.assertFalse(skip_leave_balance_check("Annual/Home Leave"))
+
+
+class TestLeaveBalanceSummary(FrappeTestCase):
+	def test_open_applications_come_off_what_is_left(self):
+		summary = build_leave_balance_summary(
+			{
+				"Annual Leave": {
+					"total_leaves": 18,
+					"leaves_taken": 6,
+					"expired_leaves": 0,
+					"remaining_leaves": 12,
+				}
+			},
+			{"Annual Leave": 1},
+		)
+		self.assertEqual(
+			summary["Annual Leave"],
+			{"allocated": 18, "used": 6, "pending": 1, "expired": 0, "left": 11},
+		)
+
+	def test_left_never_goes_below_zero(self):
+		summary = build_leave_balance_summary(
+			{"Sick Leave": {"total_leaves": 2, "leaves_taken": 1.5, "remaining_leaves": 0.5}},
+			{"Sick Leave": 1},
+		)
+		self.assertEqual(summary["Sick Leave"]["left"], 0)
+		self.assertEqual(summary["Sick Leave"]["used"], 1.5)

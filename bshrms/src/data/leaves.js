@@ -46,18 +46,9 @@ export const teamLeaves = createResource({
 	},
 })
 
+// Allocated, used, pending (Open applications) and left per leave type.
 export const leaveBalance = createResource({
-	url: "hrms.api.get_leave_balance_map",
+	url: "nepal_hrms.api.leave_application.get_leave_balance_summary",
 	auto: false,
-	cache: "hrms:leave_balance",
-	transform: (data) => {
-		// Calculate balance percentage for each leave type
-		return Object.fromEntries(
-			Object.entries(data).map(([leave_type, allocation]) => {
-				allocation.balance_percentage =
-					(allocation.balance_leaves / allocation.allocated_leaves) * 100
-				return [leave_type, allocation]
-			})
-		)
-	},
+	cache: "nepal_hrms:leave_balance_summary",
 })

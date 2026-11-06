@@ -172,6 +172,39 @@ def get_leave_type_balances(employee=None, date=None):
 	return leave_type_balance_map(employee, date)
 
 
+def build_leave_balance_summary(leave_allocation: dict | None, pending_by_type: dict | None) -> dict:
+	"""Leave type -> allocated / used / pending / expired / left, in days.
+
+	Left is what can still be applied for, so Open applications come off it the
+	same way they do in the leave picker.
+	"""
+	result = {}
+	for leave_type, details in (leave_allocation or {}).items():
+		details = details or {}
+		pending = flt((pending_by_type or {}).get(leave_type))
+		result[leave_type] = {
+			"allocated": _format_remaining(flt(details.get("total_leaves"))),
+			"used": _format_remaining(flt(details.get("leaves_taken"))),
+			"pending": _format_remaining(pending),
+			"expired": _format_remaining(flt(details.get("expired_leaves"))),
+			"left": _format_remaining(max(0, flt(details.get("remaining_leaves")) - pending)),
+		}
+	return result
+
+
+@frappe.whitelist()
+def get_leave_balance_summary():
+	"""The session employee's allocated leave, split into used, pending and left."""
+	from hrms.hr.doctype.leave_application.leave_application import get_leave_details
+
+	employee = _session_employee()
+	if not employee:
+		return {}
+	allocation = get_leave_details(employee, getdate()).get("leave_allocation") or {}
+	pending = {leave_type: get_open_leave_days(employee, leave_type) for leave_type in allocation}
+	return build_leave_balance_summary(allocation, pending)
+
+
 def group_contiguous_dates(dates: list | None) -> list[dict]:
 	"""Group YYYY-MM-DD dates into stretches of adjacent calendar days.
 
