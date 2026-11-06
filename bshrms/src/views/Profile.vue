@@ -1,7 +1,7 @@
 <template>
 	<ion-page>
 		<ion-content class="ion-padding">
-			<div class="flex flex-col h-screen w-screen">
+			<div class="flex flex-col h-screen w-full">
 				<div class="w-full sm:w-96">
 					<header
 						class="flex flex-row bg-white shadow-sm py-4 px-3 items-center justify-between border-b sticky top-0 z-10"
@@ -112,6 +112,11 @@
 							</template>
 							{{ __("Log Out") }}
 						</Button>
+
+						<div class="mt-6 mb-2 text-center text-xs text-gray-400">
+							<div>{{ __("Nepal HRMS v{0}", [APP_VERSION]) }}</div>
+							<div>{{ __("Build {0}", [APP_BUILD]) }}</div>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -164,6 +169,9 @@ import { arePushNotificationsEnabled } from "@/data/notifications"
 if (!arePushNotificationsEnabled.data) arePushNotificationsEnabled.reload()
 
 const DOCTYPE = "Employee"
+// Stamped by vite.config.js at build time.
+const APP_VERSION = __APP_VERSION__
+const APP_BUILD = __APP_BUILD__
 
 const socket = inject("$socket")
 const session = inject("$session")

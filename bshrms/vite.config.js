@@ -5,8 +5,14 @@ import frappeui from "frappe-ui/vite"
 
 import path from "path"
 import fs from "fs"
+import { execSync } from "child_process"
 
 export default defineConfig({
+	// Shown on the Profile page, so support can tell which build a phone is running.
+	define: {
+		__APP_VERSION__: JSON.stringify(getAppVersion()),
+		__APP_BUILD__: JSON.stringify(getBuildId()),
+	},
 	server: {
 		port: 8080,
 		proxy: getProxyOptions(),
@@ -94,4 +100,19 @@ function getCommonSiteConfig() {
 		currentDir = path.resolve(currentDir, "..")
 	}
 	return null
+}
+
+function getAppVersion() {
+	const init = fs.readFileSync(path.resolve(__dirname, "../nepal_hrms/__init__.py"), "utf8")
+	return (init.match(/__version__\s*=\s*["']([^"']+)["']/) || [])[1] || ""
+}
+
+function getBuildId() {
+	const date = new Date().toISOString().slice(0, 10)
+	try {
+		const commit = execSync("git rev-parse --short HEAD", { cwd: __dirname }).toString().trim()
+		return `${commit} · ${date}`
+	} catch (e) {
+		return date
+	}
 }
