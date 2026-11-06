@@ -158,6 +158,7 @@ import { FeatherIcon, createDocumentResource, createResource } from "frappe-ui"
 
 import { showErrorAlert } from "@/utils/dialogs"
 import { formatCurrency } from "@/utils/formatters"
+import { formatNepaliDateLong } from "@/utils/nepali_date"
 
 import ProfileInfoModal from "@/components/ProfileInfoModal.vue"
 import PushNotificationToggle from "@/components/PushNotificationToggle.vue"
@@ -169,9 +170,18 @@ import { arePushNotificationsEnabled } from "@/data/notifications"
 if (!arePushNotificationsEnabled.data) arePushNotificationsEnabled.reload()
 
 const DOCTYPE = "Employee"
-// Stamped by vite.config.js at build time.
+// Stamped by vite.config.js at build time. The date is the phone's local day of
+// the build, in BS like every other date in the app.
 const APP_VERSION = __APP_VERSION__
-const APP_BUILD = __APP_BUILD__
+const APP_BUILD = [__APP_COMMIT__, formatNepaliDateLong(localDay(__APP_BUILT_AT__))]
+	.filter(Boolean)
+	.join(" · ")
+
+function localDay(iso) {
+	const d = new Date(iso)
+	const pad = (n) => String(n).padStart(2, "0")
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 const socket = inject("$socket")
 const session = inject("$session")

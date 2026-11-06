@@ -11,7 +11,8 @@ export default defineConfig({
 	// Shown on the Profile page, so support can tell which build a phone is running.
 	define: {
 		__APP_VERSION__: JSON.stringify(getAppVersion()),
-		__APP_BUILD__: JSON.stringify(getBuildId()),
+		__APP_COMMIT__: JSON.stringify(getCommit()),
+		__APP_BUILT_AT__: JSON.stringify(new Date().toISOString()),
 	},
 	server: {
 		port: 8080,
@@ -107,12 +108,10 @@ function getAppVersion() {
 	return (init.match(/__version__\s*=\s*["']([^"']+)["']/) || [])[1] || ""
 }
 
-function getBuildId() {
-	const date = new Date().toISOString().slice(0, 10)
+function getCommit() {
 	try {
-		const commit = execSync("git rev-parse --short HEAD", { cwd: __dirname }).toString().trim()
-		return `${commit} · ${date}`
+		return execSync("git rev-parse --short HEAD", { cwd: __dirname }).toString().trim()
 	} catch (e) {
-		return date
+		return ""
 	}
 }
