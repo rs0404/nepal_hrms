@@ -56,7 +56,7 @@
 				<ion-refresher-content></ion-refresher-content>
 			</ion-refresher>
 			<!-- Re-keyed on refresh so the page's own resources load again too. -->
-			<div :key="refreshKey" class="flex flex-col h-screen w-screen sm:w-96">
+			<div :key="refreshKey" class="flex flex-col h-screen w-full sm:w-96">
 				<slot name="body"></slot>
 			</div>
 		</ion-content>

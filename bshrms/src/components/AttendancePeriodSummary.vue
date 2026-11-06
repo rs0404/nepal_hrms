@@ -32,7 +32,7 @@
 			>
 		</div>
 
-		<div class="grid grid-cols-6 gap-1">
+		<div class="grid grid-cols-3 gap-x-1 gap-y-2 [@media(min-width:400px)]:grid-cols-6">
 			<div v-for="tile in tiles" :key="tile.key" class="flex flex-col gap-0.5">
 				<div class="flex flex-row gap-1 items-center">
 					<span

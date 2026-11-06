@@ -1,7 +1,7 @@
 <template>
 	<ion-page>
 		<ion-content class="ion-padding">
-			<div class="flex h-screen w-screen flex-col justify-center bg-white">
+			<div class="flex h-screen w-full flex-col justify-center bg-white">
 				<Dialog
 					:options="{
 						title: __('Login Failed'),
