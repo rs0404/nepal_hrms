@@ -40,9 +40,10 @@ def _attendance_absent_days(doc):
 	half_day_units = flt(settings.daily_wages_fraction_for_half_day) or 0.5
 	consider_on_holidays = cint(settings.consider_marked_attendance_on_holidays)
 
-	# Both HRMS helpers read self.start_date, so the BS tail extension has to be in
-	# force here too or the sync would disagree with the slip it just recalculated.
-	with doc._bs_extended_period():
+	# Both HRMS helpers read self.start_date, so the slip's counting period has to
+	# be in force here too or the sync would disagree with the slip it just
+	# recalculated.
+	with doc._counting_period():
 		holidays = doc.get_holidays_for_employee(doc.start_date, doc.end_date)
 		_lwp, absent = doc.calculate_lwp_ppl_and_absent_days_based_on_attendance(
 			holidays, half_day_units, consider_on_holidays

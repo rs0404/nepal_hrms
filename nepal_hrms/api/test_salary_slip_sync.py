@@ -37,7 +37,7 @@ class _Slip:
 		return getattr(self, field, default)
 
 	@contextmanager
-	def _bs_extended_period(self):
+	def _counting_period(self):
 		# Real slips may widen the period to the BS tail; the stub has one period.
 		yield
 

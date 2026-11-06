@@ -5,8 +5,16 @@ from unittest.mock import patch
 
 from frappe.utils import flt
 
-from nepal_hrms.custom_code.payroll.employment_window import dates_outside_employment
-from nepal_hrms.overrides.salary_slip import CustomSalarySlip, days_outside_employment
+from nepal_hrms.custom_code.payroll.employment_window import (
+	dates_outside_employment,
+	payroll_window as window,
+)
+from nepal_hrms.overrides.salary_slip import (
+	CustomSalarySlip,
+	days_outside_employment,
+	payroll_window,
+	slip_daily_divisor,
+)
 
 # Period 14 Sep - 14 Oct 2026 with its Sat/Sun weekly offs.
 START, END = date(2026, 9, 14), date(2026, 10, 14)
@@ -155,3 +163,114 @@ class TestCountDaysOutsideEmploymentAsAbsent(TestCase):
 			change = self.count(slip)
 		self.assertEqual(change, 0.0)
 		self.assertEqual((flt(slip.absent_days), flt(slip.payment_days)), (1.0, 19.0))
+
+
+JOINED = date(2026, 9, 23)
+RELIEVED = date(2026, 10, 9)
+
+
+def period(start=START, end=END):
+	return patch(
+		"nepal_hrms.custom_code.payroll.period.period_containing",
+		return_value=(start, end, (end - start).days + 1),
+	)
+
+
+class TestPayrollWindow(TestCase):
+	def test_slip_dated_from_the_joining_day_goes_back_to_the_period(self):
+		self.assertEqual(window(JOINED, END, START, END, joining_date=JOINED), (START, END))
+
+	def test_slip_dated_to_the_relieving_day_runs_to_the_period_end(self):
+		self.assertEqual(
+			window(START, RELIEVED, START, END, relieving_date=RELIEVED), (START, END)
+		)
+
+	def test_joined_and_relieved_inside_a_stub(self):
+		self.assertEqual(
+			window(JOINED, RELIEVED, START, END, JOINED, RELIEVED), (START, END)
+		)
+
+	def test_a_full_period_slip_is_left_alone(self):
+		self.assertEqual(window(START, END, START, END, JOINED, RELIEVED), (START, END))
+
+	def test_a_late_start_employment_does_not_explain_keeps_its_dates(self):
+		# Joined long before: the slip was cut short for some other reason.
+		self.assertEqual(
+			window(JOINED, END, START, END, joining_date=date(2020, 1, 1)), (JOINED, END)
+		)
+
+	def test_a_slip_outside_one_period_keeps_its_dates(self):
+		start = date(2026, 9, 1)
+		self.assertEqual(window(start, END, START, END, joining_date=start), (start, END))
+
+	def test_no_period_known(self):
+		self.assertEqual(window(JOINED, END, None, None, joining_date=JOINED), (JOINED, END))
+
+
+class TestPayrollWindowOfSlip(TestCase):
+	def test_joiner_stub_resolves_to_the_period(self):
+		slip = FakeSlip(start_date=JOINED, joining_date=JOINED, relieving_date=None)
+		with period():
+			self.assertEqual(payroll_window(slip), (START, END))
+
+	def test_regular_employee_never_looks_up_the_period(self):
+		slip = FakeSlip(relieving_date=None)
+		with patch("nepal_hrms.custom_code.payroll.period.period_containing") as lookup:
+			self.assertEqual(payroll_window(slip), (START, END))
+		lookup.assert_not_called()
+
+
+class DivisorSlip(FakeSlip):
+	def __init__(self, **kwargs):
+		defaults = dict(
+			relieving_date=None,
+			company="Test Co",
+			total_working_days=22.0,
+			custom_daily_divisor_used=0.0,
+			custom_daily_divisor_basis=None,
+		)
+		defaults.update(kwargs)
+		super().__init__(**defaults)
+
+
+def divisor_by_span():
+	"""resolve_daily_divisor stand-in returning the span it was handed, in days."""
+	return patch(
+		"nepal_hrms.custom_code.payroll.period.resolve_daily_divisor",
+		side_effect=lambda start, end, **_k: (float((end - start).days + 1), "days in payroll period"),
+	)
+
+
+class TestSlipDailyDivisor(TestCase):
+	def test_joiner_stub_gets_the_regular_divisor(self):
+		regular = DivisorSlip()
+		joiner = DivisorSlip(start_date=JOINED, joining_date=JOINED)
+		with period(), divisor_by_span():
+			self.assertEqual(slip_daily_divisor(regular)[0], 31.0)
+			self.assertEqual(slip_daily_divisor(joiner)[0], 31.0)
+		self.assertEqual(joiner.custom_daily_divisor_used, 31.0)
+
+	def test_leaver_stub_gets_the_regular_divisor(self):
+		leaver = DivisorSlip(end_date=RELIEVED, relieving_date=RELIEVED)
+		with period(), divisor_by_span():
+			self.assertEqual(slip_daily_divisor(leaver)[0], 31.0)
+
+	def test_a_snapshot_is_kept(self):
+		slip = DivisorSlip(custom_daily_divisor_used=30.0)
+		with divisor_by_span() as resolve:
+			self.assertEqual(slip_daily_divisor(slip), (30.0, "snapshot on slip"))
+		resolve.assert_not_called()
+
+
+class TestCountingPeriod(TestCase):
+	def test_joiner_stub_counts_over_the_period_and_keeps_its_dates(self):
+		slip = FakeSlip(start_date=JOINED, joining_date=JOINED, relieving_date=None)
+		with period(), patch(
+			"nepal_hrms.custom_code.payroll.bs_period.extension_enabled", return_value=False
+		):
+			with CustomSalarySlip._counting_period(slip):
+				self.assertEqual((slip.start_date, slip.end_date), (START, END))
+				with settings():
+					# The days before joining are charged like any period-start slip's.
+					self.assertEqual(days_outside_employment(slip), 7.0)
+		self.assertEqual((slip.start_date, slip.end_date), (JOINED, END))

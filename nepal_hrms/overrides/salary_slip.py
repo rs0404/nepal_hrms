@@ -693,8 +693,6 @@ def compute_nepal_hr_variables(doc, data):
     # `doc`: Salary Slip has no `base` field and BaseDocument has no __getattr__,
     # so `doc.base` raises AttributeError. `doc.gross_pay` is also still 0 here --
     # this runs while the earnings table is being built.
-    from nepal_hrms.custom_code.payroll.period import resolve_daily_divisor
-
     ssa_base = flt(data.get("base"))
     basic_remuneration = flt(data.get("custom_basic_remuneration"))
     total_fixed = flt(data.get("custom_total_fixed_remuneration")) or ssa_base
@@ -765,24 +763,7 @@ def compute_nepal_hr_variables(doc, data):
     absent_monthly_base = resolve_base(absent_base_name)
     penalty_monthly_base = resolve_base(penalty_base_name)
 
-    # Snapshot the divisor onto the slip the first time it is calculated. A later
-    # Nepal Payroll Period Override must not restate pay that already exists, so
-    # a slip that carries a snapshot keeps using it.
-    snapshot = flt(getattr(doc, "custom_daily_divisor_used", 0))
-    if snapshot > 0:
-        working_days, divisor_basis = snapshot, "snapshot on slip"
-    else:
-        working_days, divisor_basis = resolve_daily_divisor(
-            doc.start_date,
-            doc.end_date,
-            working_days=doc.total_working_days,
-            company=doc.company,
-            created_on=getattr(doc, "creation", None) or frappe.utils.today(),
-        )
-        if hasattr(doc, "custom_daily_divisor_used"):
-            doc.custom_daily_divisor_used = flt(working_days)
-    if hasattr(doc, "custom_daily_divisor_basis"):
-        doc.custom_daily_divisor_basis = divisor_basis
+    working_days, divisor_basis = slip_daily_divisor(doc)
 
     basic_daily = flt(basic_remuneration) / working_days if working_days else 0.0
     gross_daily = flt(total_fixed) / working_days if working_days else 0.0
@@ -1116,6 +1097,58 @@ def days_outside_employment(doc):
     return flt(len(dates))
 
 
+def payroll_window(doc):
+    """The whole payroll period behind a slip dated to a joining or relieving day.
+
+    Every other slip keeps its own dates. See employment_window.payroll_window.
+    """
+    from nepal_hrms.custom_code.payroll.employment_window import payroll_window as window
+
+    start, end = getdate(doc.start_date), getdate(doc.end_date)
+    joining = getattr(doc, "joining_date", None)
+    relieving = getattr(doc, "relieving_date", None)
+    # Only someone joining on or after the slip's start, or leaving by its end,
+    # can widen it, so nobody else pays for the calendar lookup.
+    if not (
+        (joining and getdate(joining) >= start) or (relieving and getdate(relieving) <= end)
+    ):
+        return start, end
+
+    from nepal_hrms.custom_code.payroll.period import period_containing
+
+    period_start, period_end, _days = period_containing(start)
+    return window(start, end, period_start, period_end, joining, relieving)
+
+
+def slip_daily_divisor(doc):
+    """(divisor, basis) for a slip's per-day rates, snapshotted on first calculation.
+
+    A later Nepal Payroll Period Override must not restate pay that already
+    exists, so a slip that carries a snapshot keeps using it.
+    """
+    from nepal_hrms.custom_code.payroll.period import resolve_daily_divisor
+
+    snapshot = flt(getattr(doc, "custom_daily_divisor_used", 0))
+    if snapshot > 0:
+        working_days, divisor_basis = snapshot, "snapshot on slip"
+    else:
+        # The whole period, not a joiner's stub: the divisor must match the one
+        # every other slip in the period gets; only the payable days differ.
+        period_start, period_end = payroll_window(doc)
+        working_days, divisor_basis = resolve_daily_divisor(
+            period_start,
+            period_end,
+            working_days=doc.total_working_days,
+            company=doc.company,
+            created_on=getattr(doc, "creation", None) or frappe.utils.today(),
+        )
+        if hasattr(doc, "custom_daily_divisor_used"):
+            doc.custom_daily_divisor_used = flt(working_days)
+    if hasattr(doc, "custom_daily_divisor_basis"):
+        doc.custom_daily_divisor_basis = divisor_basis
+    return working_days, divisor_basis
+
+
 def apply_manual_absent_days(doc, manual_absent, calculated_absent):
     """Keep user-edited absent days and adjust payment days by the delta."""
     manual_absent = max(flt(manual_absent), 0.0)
@@ -1178,29 +1211,39 @@ class CustomSalarySlip(SalarySlip):
             )
 
     @contextmanager
-    def _bs_extended_period(self):
-        """Run a block with start_date moved back to BS day 29 of the prior month.
+    def _counting_period(self):
+        """Run a block over the full span this slip's days are counted on.
 
-        HRMS derives working days, holidays and attendance from self.start_date, so
-        the span has to move for the whole calculation, not just our own scans. The
-        stored start_date is restored afterwards: it names the document and belongs
-        to the Payroll Entry.
+        A slip dated from a mid-period joining day (or to a relieving day) goes
+        back to its whole payroll period, so its working days match everyone
+        else's and the days outside employment are charged. The fiscal year's
+        opening period also moves back to BS day 29 of the prior month.
+
+        HRMS derives working days, holidays and attendance from self.start_date
+        and end_date, so the span has to move for the whole calculation, not just
+        our own scans. The stored dates are restored afterwards: they name the
+        document and belong to the Payroll Entry.
         """
         from nepal_hrms.custom_code.payroll.bs_period import effective_start_date
 
-        original = self.start_date
-        extended = effective_start_date(self)
-        if getdate(extended) == getdate(original):
+        original = (self.start_date, self.end_date)
+        start, end = payroll_window(self)
+        self.start_date, self.end_date = start, end
+        try:
+            start = effective_start_date(self)
+        finally:
+            self.start_date, self.end_date = original
+        if getdate(start) == getdate(original[0]) and getdate(end) == getdate(original[1]):
             yield
             return
-        self.start_date = extended
+        self.start_date, self.end_date = start, end
         try:
             yield
         finally:
-            self.start_date = original
+            self.start_date, self.end_date = original
 
     def get_working_days_details(self, lwp=None, for_preview=0):
-        with self._bs_extended_period():
+        with self._counting_period():
             return self._get_working_days_details(lwp=lwp, for_preview=for_preview)
 
     def _get_working_days_details(self, lwp=None, for_preview=0):

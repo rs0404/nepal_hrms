@@ -35,5 +35,30 @@ def dates_outside_employment(start_date, end_date, joining_date=None, relieving_
 	return dates
 
 
+def payroll_window(
+	start_date, end_date, period_start, period_end, joining_date=None, relieving_date=None
+):
+	"""(start, end) of the payroll period a slip cut short by employment belongs to.
+
+	A late joiner's slip is sometimes dated from the joining day, or a leaver's to
+	the relieving day. HRMS then counts over that stub, so the daily divisor and
+	total working days fall short of everyone else's in the period and the days
+	outside employment are never charged. The slip goes back to the whole period
+	only on a side employment explains; a slip that does not sit inside one period,
+	or starts late for any other reason, keeps its own dates.
+	"""
+	start, end = getdate(start_date), getdate(end_date)
+	if not (period_start and period_end):
+		return start, end
+	period_start, period_end = getdate(period_start), getdate(period_end)
+	if not (period_start <= start <= end <= period_end):
+		return start, end
+	if joining_date and start > period_start and getdate(joining_date) >= start:
+		start = period_start
+	if relieving_date and end < period_end and getdate(relieving_date) <= end:
+		end = period_end
+	return start, end
+
+
 def _span(first, last):
 	return [first + timedelta(days=i) for i in range((last - first).days + 1)]

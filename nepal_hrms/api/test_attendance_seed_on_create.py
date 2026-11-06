@@ -26,7 +26,7 @@ class _Slip:
 		return getattr(self, field, default)
 
 	@contextmanager
-	def _bs_extended_period(self):
+	def _counting_period(self):
 		yield
 
 	def get_holidays_for_employee(self, _s, _e):
