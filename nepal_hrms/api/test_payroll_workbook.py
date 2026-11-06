@@ -45,6 +45,10 @@ class TestBuildOnSite(TestCase):
 		self.assertEqual(wb.sheetnames, ["Payroll", "Settings", "How to read"])
 		ws = wb["Payroll"]
 		heads = {ws.cell(row=6, column=c).value: c for c in range(1, ws.max_column + 1)}
+		self.assertEqual(
+			[ws.cell(row=6, column=c).value for c in range(1, 7)],
+			["S.N.", "Employee ID", "Employee Name", "Branch", "Department", "Salary Structure"],
+		)
 		for header in ("Gross Pay", "Total Deductions", "Net Pay", "Net Pay Difference"):
 			self.assertIn(header, heads)
 			self.assertTrue(str(ws.cell(row=7, column=heads[header]).value).startswith("="), header)

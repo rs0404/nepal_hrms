@@ -34,7 +34,7 @@ from nepal_hrms.api.payroll_exports import (
 from nepal_hrms.custom_code.payroll.component_variant import structure_variant
 
 SLIP_FIELDS = (
-	"name", "employee", "employee_name", "department", "designation", "salary_structure",
+	"name", "employee", "employee_name", "branch", "department", "designation", "salary_structure",
 	"start_date", "end_date", "docstatus",
 	"total_working_days", "payment_days", "absent_days", "custom_penalty_days", "leave_without_pay",
 	"gross_pay", "total_deduction", "net_pay",

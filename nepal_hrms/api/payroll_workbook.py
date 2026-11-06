@@ -677,6 +677,13 @@ class Context(frappe._dict):
 	pass
 
 
+def _department_name(department):
+	"""The name without the " - ABBR" company suffix ERPNext adds to the ID."""
+	if not department:
+		return department
+	return frappe.get_cached_value("Department", department, "department_name") or department
+
+
 def _context(pe, slips):
 	from nepal_hrms.custom_code.attendance_policy import get_hr_settings
 	from nepal_hrms.custom_code.payroll.salary_breakdown import get_allowance_rows
@@ -857,7 +864,8 @@ def _payroll_sheet(ws, ctx, grid, period_label):
 
 	fixed = [
 		("emp:sn", _("S.N.")), ("emp:employee", _("Employee ID")),
-		("emp:name", _("Employee Name")), ("emp:structure", _("Salary Structure")),
+		("emp:name", _("Employee Name")), ("emp:branch", _("Branch")),
+		("emp:department", _("Department")), ("emp:structure", _("Salary Structure")),
 	]
 	keys = [k for k, _l in fixed] + grid.ordered()
 	labels = dict(fixed)
@@ -891,7 +899,8 @@ def _payroll_sheet(ws, ctx, grid, period_label):
 		r = first + n
 		values = {
 			"emp:sn": n + 1, "emp:employee": s.employee,
-			"emp:name": s.employee_name, "emp:structure": s.salary_structure,
+			"emp:name": s.employee_name, "emp:branch": s.branch,
+			"emp:department": _department_name(s.department), "emp:structure": s.salary_structure,
 		}
 		for i, key in enumerate(keys, start=1):
 			cell = ws.cell(row=r, column=i)
@@ -938,7 +947,10 @@ def _payroll_sheet(ws, ctx, grid, period_label):
 			ref = f"{letter[key]}{first}:{letter[key]}{last}"
 			ws.conditional_formatting.add(ref, FormulaRule(formula=[f"ABS({letter[key]}{first})>1"], fill=red))
 
-	widths = {"emp:sn": 5, "emp:employee": 12, "emp:name": 24, "emp:structure": 22}
+	widths = {
+		"emp:sn": 5, "emp:employee": 12, "emp:name": 24,
+		"emp:branch": 16, "emp:department": 20, "emp:structure": 22,
+	}
 	for key in keys:
 		ws.column_dimensions[letter[key]].width = widths.get(key, 13)
 	ws.row_dimensions[HEAD_ROW].height = 60
