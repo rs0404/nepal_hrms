@@ -92,3 +92,37 @@ class TestReportSeesMajorAsPenalty(TestCase):
 		self.assertEqual(day["penalty_half"], 0.0)
 		self.assertEqual(day["absent_half"], 0.5)
 		self.assertEqual(day["present_half"], 0.5)
+
+
+class TestStrandedPenaltyHalfDay(TestCase):
+	"""An application approved after the night's run clears the ½P mark; the day
+	must still go back to Present when the punches make it a full day."""
+
+	def _check(self, hours_status, **kwargs):
+		from unittest.mock import patch
+
+		from nepal_hrms.custom_code import attendance_policy as ap
+
+		doc = _att(status="Half Day", half_day_status="Absent", employee="EMP-1", attendance_date="2026-11-06", **kwargs)
+		with patch(
+			"nepal_hrms.overrides.attendance_override.compute_day_hours_from_checkins",
+			return_value=frappe._dict(status=hours_status),
+		):
+			return ap._stranded_penalty_half_day(doc)
+
+	def test_excused_early_exit_with_full_hours_is_restored(self):
+		self.assertTrue(self._check("Present", early_exit=1))
+
+	def test_short_hours_half_day_stays(self):
+		self.assertFalse(self._check("Half Day", early_exit=1))
+
+	def test_half_day_with_no_delay_is_not_ours(self):
+		self.assertFalse(self._check("Present"))
+
+	def test_leave_half_day_is_not_ours(self):
+		self.assertFalse(self._check("Present", early_exit=1, leave_type="Sick Leave"))
+
+	def test_restore_writes_present(self):
+		doc = _att(status="Half Day", half_day_status="Absent")
+		_apply_pool_or_major_status(doc, "", unexcused=0, was_cnr_half_day=True)
+		self.assertEqual((doc.status, doc.half_day_status), ("Present", None))

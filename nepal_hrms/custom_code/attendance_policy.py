@@ -211,6 +211,23 @@ def _looks_like_cnr_penalty(doc):
 	)
 
 
+def _stranded_penalty_half_day(doc):
+	"""A late/early Half Day that lost its ½P mark: an application approved later
+	cleared the mark without restoring the day, so nothing recognised it as ours.
+
+	Penalties are written with half_day_status "Absent", which the Present-only
+	check misses. Restored only when the punches on their own make it a full day,
+	so a Half Day earned by short hours stays.
+	"""
+	if (doc.status or "") != "Half Day" or (getattr(doc, "half_day_status", None) or "") != "Absent":
+		return False
+	if not _looks_like_cnr_penalty(doc):
+		return False
+	from nepal_hrms.overrides.attendance_override import compute_day_hours_from_checkins
+
+	return compute_day_hours_from_checkins(doc.employee, doc.attendance_date).status == "Present"
+
+
 def _late_early_escaped_dates(employee, start, end):
 	from nepal_hrms.custom_code.policy_escape import escaped_dates
 
@@ -583,6 +600,8 @@ def apply_late_early_to_attendance(doc, apply_unexcused_status=True):
 			or cint(getattr(doc, "early_exit", 0))
 		)
 	)
+	if not was_cnr_half_day:
+		was_cnr_half_day = _stranded_penalty_half_day(doc)
 
 	# Half-day leave with scaling on: the worked half is judged as a half-length
 	# day -- halved grace and max delay, measured against that half, not the
