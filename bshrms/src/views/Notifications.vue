@@ -99,7 +99,7 @@
 <script setup>
 import { IonContent, IonPage } from "@ionic/vue"
 import { useRouter } from "vue-router"
-import { createResource, FeatherIcon } from "frappe-ui"
+import { call, createResource, FeatherIcon } from "frappe-ui"
 
 import { computed, inject, onMounted, ref } from "vue"
 import EmployeeAvatar from "@/components/EmployeeAvatar.vue"
@@ -139,15 +139,16 @@ const markAllAsRead = createResource({
 	},
 })
 
+// Not notifications.setValue: no role may write PWA Notification, so that 403s.
 function markAsRead(name) {
-	notifications.setValue.submit(
-		{ name, read: 1 },
-		{
-			onSuccess: () => {
-				unreadNotificationsCount.reload()
-			},
-		}
-	)
+	const item = notifications.data?.find((n) => n.name === name)
+	if (!item || item.read) return
+	call("nepal_hrms.api.pwa_notifications.mark_notification_as_read", { name })
+		.then(() => {
+			item.read = 1
+			unreadNotificationsCount.reload()
+		})
+		.catch(() => {})
 }
 
 function getItemRoute(item) {
