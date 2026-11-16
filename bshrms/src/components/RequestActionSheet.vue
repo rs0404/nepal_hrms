@@ -73,8 +73,9 @@
 				</div>
 
 				<AttendanceRequestEvidence
-					v-if="props.modelValue.doctype === 'Attendance Request'"
+					v-if="isCnrOrAttendanceRequest || props.modelValue.doctype === 'Leave Application'"
 					:name="props.modelValue.name"
+					:doctype="props.modelValue.doctype"
 				/>
 
 				<!-- Related applications (Attendance) -->

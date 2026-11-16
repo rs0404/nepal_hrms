@@ -1,8 +1,10 @@
 <template>
-	<div v-if="evidence.data?.length" class="flex flex-col gap-2 w-full">
-		<div class="text-gray-600 text-base">{{ __("Attendance on These Days") }}</div>
+	<div v-if="days.length" class="flex flex-col gap-2 w-full">
+		<div class="text-gray-600 text-base">
+			{{ days.length === 1 ? __("Attendance on This Day") : __("Attendance on These Days") }}
+		</div>
 		<div
-			v-for="day in evidence.data"
+			v-for="day in days"
 			:key="day.date"
 			class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 flex flex-col gap-2"
 		>
@@ -49,29 +51,66 @@
 				</span>
 			</div>
 			<div v-else class="text-xs text-gray-400">{{ __("No check-ins") }}</div>
+
+			<div
+				v-for="leave in day.leaves || []"
+				:key="leave.name"
+				class="text-xs rounded-md bg-blue-50 border border-blue-100 px-2 py-1 text-blue-900 flex flex-wrap items-center gap-x-1.5"
+			>
+				<FeatherIcon name="calendar" class="h-3 w-3 text-blue-600" />
+				<span class="font-medium">{{ __(leave.leave_type) }}</span>
+				<span v-if="isHalfDay(leave, day.date)">· {{ __("Half Day") }}</span>
+				<span
+					class="ml-auto font-semibold"
+					:class="leave.status === 'Approved' ? 'text-green-700' : leave.status === 'Rejected' ? 'text-rose-700' : 'text-amber-700'"
+				>
+					{{ leaveStatus(leave) }}
+				</span>
+			</div>
 		</div>
 	</div>
 </template>
 
 <script setup>
-import { inject } from "vue"
-import { createResource } from "frappe-ui"
+import { computed, inject } from "vue"
+import { createResource, FeatherIcon } from "frappe-ui"
 
 import { formatDualDate, timeFromDatetime } from "@/utils/nepali_date"
 
 const __ = inject("$translate")
-const props = defineProps({ name: { type: String, required: true } })
+const props = defineProps({
+	name: { type: String, required: true },
+	doctype: { type: String, default: "Attendance Request" },
+})
 
 // What already happened on each day the request asks about, so the approver
 // can verify it here instead of opening the calendar.
 const evidence = createResource({
 	url: "nepal_hrms.api.team_requests.get_attendance_request_evidence",
-	params: { name: props.name },
+	params: { name: props.name, doctype: props.doctype },
 	auto: true,
+})
+
+// A leave mostly covers days nobody worked; show only the days with something
+// on them, such as the worked half of a half-day leave.
+const days = computed(() => {
+	const all = evidence.data || []
+	if (props.doctype !== "Leave Application") return all
+	return all.filter((d) => d.attendance || d.checkins.length || d.leaves?.length)
 })
 
 function clock(dt) {
 	return (timeFromDatetime(dt) || "").slice(0, 5)
+}
+
+function isHalfDay(leave, date) {
+	if (!Number(leave.half_day)) return false
+	return !leave.half_day_date || leave.half_day_date === date || leave.from_date === leave.to_date
+}
+
+function leaveStatus(leave) {
+	if (Number(leave.docstatus) === 0 && leave.status === "Open") return __("Pending")
+	return __(leave.status)
 }
 
 function statusLabel(att) {

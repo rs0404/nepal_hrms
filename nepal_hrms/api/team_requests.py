@@ -288,25 +288,45 @@ CHECKIN_FIELDS = ("time", "log_type", "custom_attendance_type", "custom_reason",
 MAX_EVIDENCE_DAYS = 31
 
 
-@frappe.whitelist()
-def get_attendance_request_evidence(name):
-	"""What already happened on each day an Attendance Request asks about.
+LEAVE_FIELDS = (
+	"name",
+	"leave_type",
+	"from_date",
+	"to_date",
+	"half_day",
+	"half_day_date",
+	"total_leave_days",
+	"status",
+	"docstatus",
+)
 
-	The attendance record (if any) and every check-in, so the approver can see
-	whether the request is needed and what it would correct, without leaving
-	the request.
+
+@frappe.whitelist()
+def get_attendance_request_evidence(name, doctype="Attendance Request"):
+	"""What already happened on each day a request asks about.
+
+	The attendance record (if any), every check-in and any leave application,
+	so the approver can see whether the request is needed and what it would
+	correct, without leaving the request. Works for Attendance Requests, Leave
+	Applications (a half-day leave's worked half shows here) and the single-day
+	Late Entry / Early Exit / Out of Office applications.
 	"""
 	from frappe.utils import add_days, date_diff, getdate
 
 	from nepal_hrms.custom_code.approval_authority import is_own
 
-	doc = frappe.get_doc("Attendance Request", name)
+	if doctype not in ("Attendance Request", "Leave Application") and doctype not in CNR_DOCTYPES:
+		frappe.throw(_("Unsupported document type"))
+	doc = frappe.get_doc(doctype, name)
 	hr = set(frappe.get_roles()) & {"HR Manager", "HR User", "System Manager"}
 	if not (hr or is_own(doc.employee) or _can_decide(doc)):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
-	start = getdate(doc.from_date)
-	end = getdate(doc.to_date)
+	if doctype in CNR_DOCTYPES:
+		start = end = getdate(doc.attendance_date)
+	else:
+		start = getdate(doc.from_date)
+		end = getdate(doc.to_date)
 	if date_diff(end, start) >= MAX_EVIDENCE_DAYS:
 		end = add_days(start, MAX_EVIDENCE_DAYS - 1)
 
@@ -337,9 +357,34 @@ def get_attendance_request_evidence(name):
 	):
 		checkins.setdefault(getdate(row.time), []).append(row)
 
+	leave_meta = frappe.get_meta("Leave Application")
+	leaves = frappe.get_all(
+		"Leave Application",
+		filters={
+			"employee": doc.employee,
+			"from_date": ["<=", end],
+			"to_date": [">=", start],
+			"docstatus": ["<", 2],
+			"status": ["!=", "Cancelled"],
+			# A leave's own card would only repeat the request being decided.
+			"name": ["!=", name if doctype == "Leave Application" else ""],
+		},
+		fields=[f for f in LEAVE_FIELDS if f in ("name", "docstatus") or leave_meta.has_field(f)],
+		order_by="from_date asc",
+	)
+
 	days = []
 	day = start
 	while day <= end:
-		days.append({"date": str(day), "attendance": attendance.get(day), "checkins": checkins.get(day, [])})
+		days.append(
+			{
+				"date": str(day),
+				"attendance": attendance.get(day),
+				"checkins": checkins.get(day, []),
+				"leaves": [
+					row for row in leaves if getdate(row.from_date) <= day <= getdate(row.to_date)
+				],
+			}
+		)
 		day = add_days(day, 1)
 	return days
