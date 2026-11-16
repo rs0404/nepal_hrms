@@ -268,6 +268,55 @@ def submit_team_request(doctype, name):
 	return {"name": doc.name, "status": doc.status, "docstatus": doc.docstatus}
 
 
+MAX_BULK = 100
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_decide_team_requests(requests, status, rejection_reason=None):
+	"""Approve or reject several requests and submit each in the same go.
+
+	The PWA asks for confirmation first, which stands in for the separate Submit
+	step. Each request is decided on its own, so one that fails (no authority,
+	a validation error) is rolled back and reported without stopping the rest.
+	"""
+	requests = frappe.parse_json(requests) or []
+	if len(requests) > MAX_BULK:
+		frappe.throw(_("Select at most {0} requests at a time.").format(MAX_BULK))
+
+	done, failed = [], []
+	for i, item in enumerate(requests):
+		doctype, name = item.get("doctype"), item.get("name")
+		savepoint = f"bulk_decide_{i}"
+		frappe.db.savepoint(savepoint)
+		try:
+			result = decide_team_request(doctype, name, status, rejection_reason)
+			if result["awaiting_submit"]:
+				result = submit_team_request(doctype, name)
+			done.append({"doctype": doctype, "name": name, "status": result["status"]})
+		except Exception as e:
+			frappe.db.rollback(save_point=savepoint)
+			messages = [m.get("message") if isinstance(m, dict) else m for m in _drain_messages()]
+			error = frappe.utils.strip_html(" ".join(filter(None, messages)) or str(e))
+			failed.append({"doctype": doctype, "name": name, "error": error})
+		else:
+			_drain_messages()
+	return {"done": done, "failed": failed}
+
+
+def _drain_messages():
+	"""Take the queued msgprints so a bulk run does not pop one dialog per request."""
+	import json
+
+	messages = []
+	for raw in frappe.local.message_log or []:
+		try:
+			messages.append(json.loads(raw) if isinstance(raw, str) else raw)
+		except ValueError:
+			messages.append(raw)
+	frappe.local.message_log = []
+	return messages
+
+
 ATTENDANCE_FIELDS = (
 	"name",
 	"attendance_date",

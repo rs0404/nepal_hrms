@@ -3,9 +3,22 @@
 		<div
 			class="flex flex-row px-1 py-3.5 items-center justify-between border-b border-gray-100 last:border-b-0 cursor-pointer active:bg-gray-50"
 			v-for="link in props.items"
-			:key="link.name"
-			@click="openRequestModal(link)"
+			:key="link.doctype + link.name"
+			@click="onRowClick(link)"
 		>
+			<div
+				v-if="props.selecting"
+				class="mr-3 flex h-5 w-5 shrink-0 items-center justify-center rounded border"
+				:class="
+					!isSelectable(link)
+						? 'border-gray-200 bg-gray-50'
+						: isSelected(link)
+							? 'border-gray-900 bg-gray-900'
+							: 'border-gray-400 bg-white'
+				"
+			>
+				<FeatherIcon v-if="isSelected(link)" name="check" class="h-3.5 w-3.5 text-white" />
+			</div>
 			<component
 				:is="props.component || link.component"
 				:doc="link"
@@ -44,6 +57,7 @@
 <script setup>
 import { ref, inject } from "vue"
 import { IonModal } from "@ionic/vue"
+import { FeatherIcon } from "frappe-ui"
 import RequestActionSheet from "@/components/RequestActionSheet.vue"
 
 import {
@@ -79,7 +93,35 @@ const props = defineProps({
 		type: String,
 		default: "",
 	},
+	// Bulk selection: while selecting, a tap toggles a selectable row instead
+	// of opening it. Rows that cannot be selected still open.
+	selecting: {
+		type: Boolean,
+		default: false,
+	},
+	selectable: {
+		type: Function,
+		default: () => false,
+	},
+	selectedKeys: {
+		type: Set,
+		default: () => new Set(),
+	},
 })
+const emit = defineEmits(["toggle"])
+
+function isSelectable(request) {
+	return props.selecting && props.selectable(request)
+}
+
+function isSelected(request) {
+	return props.selectedKeys.has(`${request.doctype}::${request.name}`)
+}
+
+function onRowClick(request) {
+	if (isSelectable(request)) emit("toggle", request)
+	else openRequestModal(request)
+}
 
 const fieldsMap = {
 	"Leave Application": LEAVE_FIELDS,

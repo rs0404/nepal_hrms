@@ -29,7 +29,94 @@
 			</details>
 		</div>
 		<div v-else-if="activeTab == 'Team Requests'" class="flex flex-col gap-5">
-			<details open class="request-section mt-4">
+			<!-- Filters, and the switch into bulk selection -->
+			<div class="mt-4 flex flex-col gap-2">
+				<div class="grid grid-cols-2 gap-2">
+					<select v-model="filters.employee" class="filter-select col-span-2">
+						<option value="">{{ __("All Employees") }}</option>
+						<option v-for="e in employeeOptions" :key="e.value" :value="e.value">
+							{{ e.label }}
+						</option>
+					</select>
+					<select
+						v-model="filters.doctype"
+						class="filter-select"
+						:class="filters.doctype === 'Leave Application' ? '' : 'col-span-2'"
+					>
+						<option value="">{{ __("All Types") }}</option>
+						<option v-for="dt in doctypeOptions" :key="dt" :value="dt">{{ __(dt) }}</option>
+					</select>
+					<select
+						v-if="filters.doctype === 'Leave Application'"
+						v-model="filters.leave_type"
+						class="filter-select"
+					>
+						<option value="">{{ __("All Leave Types") }}</option>
+						<option v-for="lt in leaveTypeOptions" :key="lt" :value="lt">{{ __(lt) }}</option>
+					</select>
+				</div>
+				<div class="flex items-center justify-between gap-2">
+					<button
+						v-if="hasFilters"
+						type="button"
+						class="text-sm text-gray-600 underline"
+						@click="clearFilters"
+					>
+						{{ __("Clear filters") }}
+					</button>
+					<span v-else />
+					<Button
+						v-if="selectableRequests.length"
+						size="sm"
+						:variant="selecting ? 'solid' : 'subtle'"
+						@click="toggleSelecting"
+					>
+						<template #prefix>
+							<FeatherIcon :name="selecting ? 'x' : 'check-square'" class="w-4" />
+						</template>
+						{{ selecting ? __("Done") : __("Select") }}
+					</Button>
+				</div>
+			</div>
+
+			<!-- Bulk actions -->
+			<div
+				v-if="selecting"
+				class="sticky top-0 z-10 -mx-1 flex flex-col gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
+			>
+				<div class="flex items-center justify-between text-sm">
+					<span class="font-semibold text-gray-800">
+						{{ __("{0} selected", [selectedKeys.size]) }}
+					</span>
+					<button type="button" class="text-gray-600 underline" @click="toggleSelectAll">
+						{{ allSelected ? __("Select none") : __("Select all ({0})", [selectableRequests.length]) }}
+					</button>
+				</div>
+				<div class="flex gap-2">
+					<Button
+						class="w-full"
+						variant="subtle"
+						theme="red"
+						:disabled="!selectedKeys.size"
+						@click="openBulkDialog('Rejected')"
+					>
+						<template #prefix><FeatherIcon name="x" class="w-4" /></template>
+						{{ __("Reject") }}
+					</Button>
+					<Button
+						class="w-full"
+						variant="solid"
+						theme="green"
+						:disabled="!selectedKeys.size"
+						@click="openBulkDialog('Approved')"
+					>
+						<template #prefix><FeatherIcon name="check" class="w-4" /></template>
+						{{ __("Approve") }}
+					</Button>
+				</div>
+			</div>
+
+			<details open class="request-section">
 				<summary class="request-section-title">
 					<span>{{ __("Assigned to Me") }}</span>
 					<span class="request-count">{{ assignedToMe.length }}</span>
@@ -37,6 +124,10 @@
 				<RequestList
 					:items="assignedToMe"
 					:teamRequests="true"
+					:selecting="selecting"
+					:selectable="isBulkSelectable"
+					:selectedKeys="selectedKeys"
+					@toggle="toggleSelected"
 					:emptyStateMessage="__('Nothing is waiting for your approval')"
 				/>
 			</details>
@@ -48,6 +139,10 @@
 				<RequestList
 					:items="underMyApprovers"
 					:teamRequests="true"
+					:selecting="selecting"
+					:selectable="isBulkSelectable"
+					:selectedKeys="selectedKeys"
+					@toggle="toggleSelected"
 					:emptyStateMessage="__('Nothing is waiting with the approvers who report to you')"
 				/>
 			</details>
@@ -62,6 +157,60 @@
 					:emptyStateMessage="__('No recently approved team requests')"
 				/>
 			</details>
+
+			<Dialog v-model="bulkDialog.open">
+				<template #body-title>
+					<h2 class="text-lg font-bold">
+						{{
+							bulkDialog.status === "Approved"
+								? __("Approve {0} requests?", [selectedKeys.size])
+								: __("Reject {0} requests?", [selectedKeys.size])
+						}}
+					</h2>
+				</template>
+				<template #body-content>
+					<div class="flex flex-col gap-3">
+						<p class="text-sm text-gray-600">
+							{{ __("Each request is decided and submitted at once. This cannot be changed afterwards.") }}
+						</p>
+						<ul class="max-h-40 overflow-auto text-sm text-gray-700 flex flex-col gap-1">
+							<li v-for="r in selectedRequests" :key="r.doctype + r.name" class="truncate">
+								{{ r.employee_name || r.employee }} · {{ __(r.leave_type || r.doctype) }}
+							</li>
+						</ul>
+						<textarea
+							v-if="bulkDialog.status === 'Rejected'"
+							v-model="bulkDialog.reason"
+							rows="3"
+							class="w-full border border-gray-300 rounded-lg p-3 text-sm text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
+							:placeholder="__('Rejection reason (sent with every request)')"
+						/>
+						<div v-if="bulkDialog.failed.length" class="rounded-lg bg-red-50 p-2 text-xs text-red-800 flex flex-col gap-1">
+							<div class="font-semibold">{{ __("These could not be done:") }}</div>
+							<div v-for="f in bulkDialog.failed" :key="f.doctype + f.name">
+								{{ f.name }}: {{ f.error }}
+							</div>
+						</div>
+					</div>
+				</template>
+				<template #actions>
+					<div class="flex gap-2 w-full">
+						<Button class="flex-1" variant="outline" @click="bulkDialog.open = false">
+							{{ __("Back") }}
+						</Button>
+						<Button
+							class="flex-1"
+							variant="solid"
+							:theme="bulkDialog.status === 'Approved' ? 'green' : 'red'"
+							:loading="bulkDialog.running"
+							:disabled="!selectedKeys.size || (bulkDialog.status === 'Rejected' && !bulkDialog.reason.trim())"
+							@click="runBulk"
+						>
+							{{ bulkDialog.status === "Approved" ? __("Approve & Submit") : __("Reject & Submit") }}
+						</Button>
+					</div>
+				</template>
+			</Dialog>
 		</div>
 		<div v-else-if="activeTab == 'OOO Approvals'" class="flex flex-col gap-5">
 			<details open class="request-section mt-4">
@@ -91,7 +240,8 @@
 </template>
 
 <script setup>
-import { ref, inject, onMounted, computed, markRaw, watch } from "vue"
+import { ref, reactive, inject, onMounted, computed, markRaw, watch } from "vue"
+import { Dialog, FeatherIcon, call, toast } from "frappe-ui"
 
 import TabButtons from "@/components/TabButtons.vue"
 import RequestList from "@/components/RequestList.vue"
@@ -134,6 +284,7 @@ function savedTab() {
 }
 const activeTab = ref(savedTab())
 const socket = inject("$socket")
+const __ = inject("$translate")
 
 const TAB_BUTTONS = ["My Requests", "Team Requests", "OOO Approvals"]
 
@@ -151,13 +302,19 @@ const myRequests = computed(() =>
 
 // Expense Claims follow the claim's own approver, so they are always "mine".
 const teamRequests = computed(() => {
-	const claims = (teamClaims.data || []).map((claim) => ({ ...claim, assigned_to_me: true }))
+	const claims = (teamClaims.data || []).map((claim) => ({
+		...claim,
+		doctype: claim.doctype || "Expense Claim",
+		assigned_to_me: true,
+	}))
 	return updateRequestDetails({ data: teamPendingRequests.data || [] }, { data: claims })
 })
 
-const assignedToMe = computed(() => teamRequests.value.filter((r) => r.assigned_to_me))
+const filteredTeamRequests = computed(() => applyFilters(teamRequests.value))
 
-const underMyApprovers = computed(() => teamRequests.value.filter((r) => !r.assigned_to_me))
+const assignedToMe = computed(() => filteredTeamRequests.value.filter((r) => r.assigned_to_me))
+
+const underMyApprovers = computed(() => filteredTeamRequests.value.filter((r) => !r.assigned_to_me))
 
 const myPendingRequests = computed(() =>
 	getSortedRequests(myRequests.value.filter((request) => isPendingRequest(request)))
@@ -167,11 +324,174 @@ const myApprovedRequests = computed(() =>
 	getSortedRequests(myRequests.value.filter((request) => isApprovedRequest(request)))
 )
 
-const teamApprovedRequests = computed(() =>
-	getSortedRequests(
-		updateRequestDetails({ data: [...(recentlyApprovedTeamRequests.data || [])] })
-	)
+const allTeamApproved = computed(() =>
+	updateRequestDetails({ data: [...(recentlyApprovedTeamRequests.data || [])] })
 )
+
+const teamApprovedRequests = computed(() =>
+	getSortedRequests(applyFilters(allTeamApproved.value))
+)
+
+// --- Team Requests filters ---------------------------------------------------
+const filters = reactive({ employee: "", doctype: "", leave_type: "" })
+
+const teamRows = computed(() => [...teamRequests.value, ...allTeamApproved.value])
+
+const employeeOptions = computed(() => {
+	const seen = new Map()
+	teamRows.value.forEach((r) => {
+		if (r.employee && !seen.has(r.employee)) {
+			seen.set(r.employee, { value: r.employee, label: r.employee_name || r.employee })
+		}
+	})
+	return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
+})
+
+const doctypeOptions = computed(() =>
+	[...new Set(teamRows.value.map((r) => r.doctype).filter(Boolean))].sort()
+)
+
+const leaveTypeOptions = computed(() =>
+	[
+		...new Set(
+			teamRows.value
+				.filter((r) => r.doctype === "Leave Application" && r.leave_type)
+				.map((r) => r.leave_type)
+		),
+	].sort()
+)
+
+const hasFilters = computed(() => !!(filters.employee || filters.doctype || filters.leave_type))
+
+function applyFilters(list) {
+	return list.filter(
+		(r) =>
+			(!filters.employee || r.employee === filters.employee) &&
+			(!filters.doctype || r.doctype === filters.doctype) &&
+			(!filters.leave_type || r.leave_type === filters.leave_type)
+	)
+}
+
+function clearFilters() {
+	filters.employee = ""
+	filters.doctype = ""
+	filters.leave_type = ""
+}
+
+watch(
+	() => filters.doctype,
+	(doctype) => {
+		if (doctype !== "Leave Application") filters.leave_type = ""
+	}
+)
+
+// --- Bulk approve / reject ---------------------------------------------------
+// Expense Claims follow their own approver flow, and a rejected Attendance
+// Request is already final, so neither can be bulk-decided.
+const BULK_DOCTYPES = [
+	"Leave Application",
+	"Attendance Request",
+	"Shift Request",
+	"Late Entry Application",
+	"Early Exit Application",
+	"Out of Office Application",
+]
+
+const selecting = ref(false)
+const selectedKeys = ref(new Set())
+const bulkDialog = reactive({ open: false, status: "", reason: "", running: false, failed: [] })
+
+const requestKey = (r) => `${r.doctype}::${r.name}`
+
+function isBulkSelectable(r) {
+	return BULK_DOCTYPES.includes(r.doctype) && Number(r.docstatus) === 0 && !isFinalDraft(r)
+}
+
+const selectableRequests = computed(() =>
+	[...assignedToMe.value, ...underMyApprovers.value].filter(isBulkSelectable)
+)
+
+const selectedRequests = computed(() =>
+	selectableRequests.value.filter((r) => selectedKeys.value.has(requestKey(r)))
+)
+
+const allSelected = computed(
+	() =>
+		selectableRequests.value.length > 0 &&
+		selectableRequests.value.every((r) => selectedKeys.value.has(requestKey(r)))
+)
+
+// A filter change hides rows; keep only what is still on screen selected.
+watch(selectableRequests, (rows) => {
+	const visible = new Set(rows.map(requestKey))
+	const kept = [...selectedKeys.value].filter((k) => visible.has(k))
+	if (kept.length !== selectedKeys.value.size) selectedKeys.value = new Set(kept)
+})
+
+function toggleSelecting() {
+	selecting.value = !selecting.value
+	selectedKeys.value = new Set()
+}
+
+function toggleSelected(r) {
+	const next = new Set(selectedKeys.value)
+	const key = requestKey(r)
+	next.has(key) ? next.delete(key) : next.add(key)
+	selectedKeys.value = next
+}
+
+function toggleSelectAll() {
+	selectedKeys.value = allSelected.value
+		? new Set()
+		: new Set(selectableRequests.value.map(requestKey))
+}
+
+function openBulkDialog(status) {
+	Object.assign(bulkDialog, { open: true, status, reason: "", failed: [] })
+}
+
+async function runBulk() {
+	bulkDialog.running = true
+	try {
+		const result = await call("nepal_hrms.api.team_requests.bulk_decide_team_requests", {
+			requests: selectedRequests.value.map((r) => ({ doctype: r.doctype, name: r.name })),
+			status: bulkDialog.status,
+			rejection_reason: bulkDialog.status === "Rejected" ? bulkDialog.reason.trim() : null,
+		})
+		const done = result?.done || []
+		const failed = result?.failed || []
+		if (done.length) {
+			toast({
+				title: __("Success"),
+				text:
+					bulkDialog.status === "Approved"
+						? __("{0} approved and submitted", [done.length])
+						: __("{0} rejected", [done.length]),
+				icon: "check-circle",
+				position: "bottom-center",
+				iconClasses: "text-green-500",
+			})
+		}
+		// Keep the failures selected and listed so they can be looked at one by one.
+		selectedKeys.value = new Set(failed.map(requestKey))
+		bulkDialog.failed = failed
+		if (!failed.length) {
+			bulkDialog.open = false
+			selecting.value = false
+		}
+		reloadAll([teamPendingRequests, recentlyApprovedTeamRequests])
+	} catch (error) {
+		toast({
+			title: __("Error"),
+			text: error?.messages?.join?.(" ") || error?.message || __("Bulk action failed"),
+			icon: "alert-circle",
+			position: "bottom-center",
+			iconClasses: "text-red-500",
+		})
+	} finally {
+		bulkDialog.running = false
+	}
+}
 
 const oooApprovals = computed(() => {
 	const approvals = [...(pendingOOOApprovals.data || [])]
@@ -316,6 +636,10 @@ onMounted(() => {
 <style scoped>
 .request-section-title {
 	@apply flex cursor-pointer select-none items-center gap-2 text-sm font-semibold text-gray-700;
+}
+
+.filter-select {
+	@apply w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300;
 }
 
 .request-count {
