@@ -504,8 +504,11 @@ function setLeaveApprovers(data) {
 	const leave_approver = formFields.data?.find(
 		(field) => field.fieldname === "leave_approver"
 	)
+	// A prefilled form sets the employee at once, so these details can land
+	// before the fields do. formFields' onSuccess fetches them again.
+	if (!leave_approver) return
 	leave_approver.reqd = data?.is_mandatory
-	leave_approver.documentList = data?.department_approvers.map((approver) => ({
+	leave_approver.documentList = (data?.department_approvers || []).map((approver) => ({
 		label: approver.full_name
 			? `${approver.name} : ${approver.full_name}`
 			: approver.name,
