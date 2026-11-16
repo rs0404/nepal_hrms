@@ -72,8 +72,17 @@
 						:disabled="checkin.is_approved || checkin.is_rejected"
 						class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
 					/>
-					<div v-if="checkin.reason" class="text-xs text-gray-500 mt-1">
-						{{ checkin.reason }}
+					<!-- The reason is what the approver judges, so it reads first, not as a footnote. -->
+					<div
+						v-if="checkin.reason"
+						class="mt-2 rounded-md border-l-4 border-amber-400 bg-amber-50 px-3 py-2"
+					>
+						<div class="text-xs font-semibold uppercase tracking-wide text-amber-800">
+							{{ __("Reason") }}
+						</div>
+						<div class="mt-0.5 whitespace-pre-line break-words text-base font-medium text-gray-900">
+							{{ checkin.reason }}
+						</div>
 					</div>
 					<div
 						v-if="checkin.distance_from_shift_location_m != null"
