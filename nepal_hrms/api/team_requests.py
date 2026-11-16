@@ -212,7 +212,10 @@ def get_team_pending_requests(limit=50):
 			row.assigned_to_me = _same_user(approver_of[key], user)
 			row.awaiting_submit = row.status in spec["decided"]
 			rows.append(row)
-	return rows
+
+	from nepal_hrms.api.request_comments import attach_comment_counts
+
+	return attach_comment_counts(rows)
 
 
 @frappe.whitelist()

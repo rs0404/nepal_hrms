@@ -171,7 +171,9 @@ def get_recently_approved_team_requests(limit=20):
 		key=lambda row: str(row.get("modified") or row.get("creation") or ""),
 		reverse=True,
 	)
-	return requests[:limit]
+	from nepal_hrms.api.request_comments import attach_comment_counts
+
+	return attach_comment_counts(requests[:limit])
 
 
 # What an employee may withdraw from the PWA: their own requests nobody has

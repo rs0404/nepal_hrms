@@ -78,6 +78,13 @@
 					:doctype="props.modelValue.doctype"
 				/>
 
+				<RequestComments
+					v-if="COMMENTABLE_DOCTYPES.includes(props.modelValue.doctype)"
+					:doctype="props.modelValue.doctype"
+					:name="props.modelValue.name"
+					@count="(n) => (props.modelValue.comment_count = n)"
+				/>
+
 				<!-- Related applications (Attendance) -->
 				<div
 					v-if="relatedApplications?.length"
@@ -343,6 +350,7 @@ import FormattedField from "@/components/FormattedField.vue"
 import FilePreviewModal from "@/components/FilePreviewModal.vue"
 import WorkflowActionSheet from "@/components/WorkflowActionSheet.vue"
 import AttendanceRequestEvidence from "@/components/AttendanceRequestEvidence.vue"
+import RequestComments from "@/components/RequestComments.vue"
 
 import { getCompanyCurrency } from "@/data/currencies"
 import { formatCurrency } from "@/utils/formatters"
@@ -453,6 +461,15 @@ const canApproveCnr = createResource({
 		employee: document.doc?.employee || props.modelValue.employee,
 	}),
 })
+
+// Same list as nepal_hrms.api.request_comments.COMMENTABLE.
+const COMMENTABLE_DOCTYPES = [
+	"Leave Application",
+	"Attendance Request",
+	"Shift Request",
+	"Expense Claim",
+	...CNR_DOCTYPES,
+]
 
 // Decided in two steps (Approve / Reject, then Submit) through team_requests,
 // which checks the approver chain itself. Expense Claims, and doctypes running

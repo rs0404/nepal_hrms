@@ -11,6 +11,7 @@
 		:isTeamRequest="props.isTeamRequest"
 		:employee="props.doc.employee"
 		:employeeName="props.doc.employee_name"
+		:commentCount="Number(props.doc.comment_count) || 0"
 		:cancellable="Number(props.doc.docstatus) === 0 && status.label === 'Pending'"
 		:doctype="props.doc.doctype"
 		:name="props.doc.name"

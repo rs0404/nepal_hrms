@@ -300,12 +300,30 @@ const myRequests = computed(() =>
 	)
 )
 
+// Expense Claims come from stock HRMS without comment counts; fetch them here.
+const claimCommentCounts = ref({})
+watch(
+	() => teamClaims.data,
+	async (claims) => {
+		if (!claims?.length) return
+		try {
+			claimCommentCounts.value = await call(
+				"nepal_hrms.api.request_comments.get_comment_counts",
+				{ requests: claims.map((c) => ({ doctype: "Expense Claim", name: c.name })) }
+			)
+		} catch (e) {
+			// The badge is a hint; the list works without it.
+		}
+	}
+)
+
 // Expense Claims follow the claim's own approver, so they are always "mine".
 const teamRequests = computed(() => {
 	const claims = (teamClaims.data || []).map((claim) => ({
 		...claim,
 		doctype: claim.doctype || "Expense Claim",
 		assigned_to_me: true,
+		comment_count: claimCommentCounts.value[`Expense Claim::${claim.name}`] || 0,
 	}))
 	return updateRequestDetails({ data: teamPendingRequests.data || [] }, { data: claims })
 })

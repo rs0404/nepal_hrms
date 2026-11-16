@@ -9,6 +9,7 @@
 		:isTeamRequest="props.isTeamRequest"
 		:employee="props.doc.employee"
 		:employeeName="props.doc.employee_name"
+		:commentCount="Number(props.doc.comment_count) || 0"
 		:cancellable="status.label === 'Open'"
 		doctype="Leave Application"
 		:name="props.doc.name"

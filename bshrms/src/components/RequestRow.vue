@@ -3,6 +3,7 @@
 		:isTeamRequest="props.isTeamRequest"
 		:employee="props.employee"
 		:employeeName="props.employeeName"
+		:commentCount="props.commentCount"
 		wideIcon
 	>
 		<template #left>
@@ -99,6 +100,7 @@ const props = defineProps({
 	isTeamRequest: { type: Boolean, default: false },
 	employee: String,
 	employeeName: String,
+	commentCount: { type: Number, default: 0 },
 	// A draft nobody has decided, of a type the employee may withdraw. The row
 	// still checks it is their own; the server checks everything again.
 	cancellable: { type: Boolean, default: false },
