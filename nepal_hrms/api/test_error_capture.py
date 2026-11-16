@@ -64,5 +64,15 @@ class TestLogAppErrors(TestCase):
 		self.assertNotIn("cmd", args)
 		self.assertLess(len(args["doc"]), 2100)
 
+	def test_denied_read_is_a_warning_not_a_log(self):
+		form = {"cmd": "frappe.client.get_list", "doctype": "Payroll Period"}
+		with patch.object(ec.frappe, "logger") as logger:
+			self._log(status=403, form=form, exc_type="PermissionError").assert_not_called()
+		logger.return_value.warning.assert_called_once()
+
+	def test_denied_write_is_still_logged(self):
+		form = {"cmd": "frappe.client.set_value", "doctype": "PWA Notification", "name": "1"}
+		self._log(status=403, form=form, exc_type="PermissionError").assert_called_once()
+
 	def test_its_own_rate_limit_is_not_logged(self):
 		self._log(status=429, form={"cmd": "nepal_hrms.api.error_capture.log_client_error"}).assert_not_called()

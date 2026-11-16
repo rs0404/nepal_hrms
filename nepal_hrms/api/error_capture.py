@@ -25,6 +25,16 @@ from frappe.utils import cstr, strip_html
 # on every request until the user logs in again.
 SKIP_STATUS = {401}
 SKIP_EXC_TYPES = {"AuthenticationError", "CSRFTokenError", "SessionStopped", "SessionExpired"}
+# A page probing data the user's roles do not cover (Payroll Period on the
+# salary slips page) copes without it; worth a warning line, not an Error Log row.
+READ_METHODS = {
+	"frappe.client.get_list",
+	"frappe.client.get_count",
+	"frappe.client.get_value",
+	"frappe.client.get",
+	"frappe.desk.reportview.get",
+	"frappe.desk.reportview.get_count",
+}
 SECRET_HINTS = ("password", "pwd", "token", "secret", "api_key", "otp")
 MAX_VALUE = 2000
 
@@ -84,6 +94,11 @@ def log_app_errors(response=None, request=None):
 		if method.endswith("error_capture.log_client_error"):
 			return
 		shown = _shown_messages() or [exc_type or f"HTTP {status}"]
+		if exc_type == "PermissionError" and method in READ_METHODS:
+			frappe.logger("nepal_hrms").warning(
+				"App read denied: %s %s (%s)", frappe.session.user, method, shown[0]
+			)
+			return
 		details = {
 			"user": frappe.session.user,
 			"method": method,

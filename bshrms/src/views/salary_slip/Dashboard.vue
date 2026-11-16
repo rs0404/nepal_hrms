@@ -26,7 +26,14 @@
 						</span>
 					</div>
 
+					<div
+						v-if="periodsUnavailable"
+						class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800"
+					>
+						{{ __("Payroll periods are not available to you, so all your salary slips are shown.") }}
+					</div>
 					<Autocomplete
+						v-else
 						:label="__('Payroll Period')"
 						class="w-full"
 						:placeholder="__('Select Payroll Period')"
@@ -102,9 +109,22 @@ const payrollPeriods = createListResource({
 		})
 	},
 	onSuccess: (data) => {
-		selectedPeriod.value = data[0]
+		if (data?.length) selectedPeriod.value = data[0]
+		else showAllSlips()
+	},
+	// No read access to Payroll Period: the slips are still the employee's own.
+	onError: () => {
+		periodsUnavailable.value = true
+		showAllSlips()
 	},
 })
+
+const periodsUnavailable = ref(false)
+
+function showAllSlips() {
+	delete documents.filters.start_date
+	documents.reload()
+}
 
 const documents = createListResource({
 	doctype: "Salary Slip",
