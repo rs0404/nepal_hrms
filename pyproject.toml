@@ -21,3 +21,9 @@ known_erpnext = "erpnext"
 known_hrms = "hrms"
 no_lines_before = ["ERPNEXT"]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FRAPPE", "ERPNEXT", "HRMS", "FIRSTPARTY", "LOCALFOLDER"]
+
+# This branch targets Frappe / ERPNext / HRMS version 16. bench refuses to
+# install it next to an older framework instead of failing later at runtime.
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<17.0.0"
+erpnext = ">=16.0.0,<17.0.0"

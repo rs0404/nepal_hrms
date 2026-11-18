@@ -58,13 +58,13 @@ def get_permission_query_conditions(user=None, doctype=None):
 def has_permission(doc, ptype=None, user=None, debug=False):
 	"""Refuse a payroll Journal Entry opened by link; defer on everything else.
 
-	None leaves the decision to the usual role permissions; only False is final.
+	Frappe v16 reads anything but True as a denial (v15 took None as "no
+	opinion"). True does not grant access: role permissions are still checked
+	separately, so it only means this hook does not object.
 	"""
 	if can_see_payroll_journals(user):
-		return None
-	if is_payroll_journal(doc):
-		return False
-	return None
+		return True
+	return not is_payroll_journal(doc)
 
 
 def ensure_role():

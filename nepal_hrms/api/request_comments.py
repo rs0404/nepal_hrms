@@ -83,7 +83,8 @@ def attach_comment_counts(rows):
 				"reference_doctype": doctype,
 				"reference_name": ["in", names],
 			},
-			fields=["reference_name", "count(name) as n"],
+			# v16 rejects SQL functions written as strings in get_all fields
+			fields=["reference_name", {"COUNT": "name", "as": "n"}],
 			group_by="reference_name",
 			as_list=True,
 		):
