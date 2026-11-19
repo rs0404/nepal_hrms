@@ -67,7 +67,6 @@ doctype_js = {
 doctype_list_js = {
 	"Salary Component": "public/js/custom_button.js",
 	"Salary Slip": "public/js/salary_slip_list.js",
-	"Leave Allocation": "public/js/leave_allocation.js",
 	"Attendance": "public/js/attendance_list_cnr.js",
 	"Attendance Policy Escape": "public/js/attendance_policy_escape_list.js",
 	"Late Entry Application": "public/js/cnr_application_list.js",
@@ -99,7 +98,6 @@ override_doctype_class = {
 	"Employee Benefit Claim": "nepal_hrms.overrides.employee_benefit_claim.CustomEmployeeBenefitClaim",
 	"Salary Slip": "nepal_hrms.overrides.salary_slip.CustomSalarySlip",
 	"Payroll Entry": "nepal_hrms.overrides.salary_slip.CustomPayrollEntry",
-	"Leave Policy Assignment": "nepal_hrms.custom_code.leave_allocation.monthly_leave_bs.LeavePolicyAssignment",
 	"Employee Checkin": "nepal_hrms.overrides.employee_checkin.CustomEmployeeCheckin",
 	"Shift Type": "nepal_hrms.overrides.shift_type.NepalShiftType",
 	"Attendance Request": "nepal_hrms.overrides.attendance_request.CustomAttendanceRequest",
@@ -214,7 +212,6 @@ override_whitelisted_methods = {
 
 scheduler_events = {
 	"daily": [
-		"nepal_hrms.custom_code.leave_allocation.scheduled_tasks.run_daily_bs_tasks",
 		"nepal_hrms.api.ooo_attendance.cleanup_old_path_logs",
 		"nepal_hrms.custom_code.payroll.scheduled_payroll.run_scheduled_payroll",
 	]

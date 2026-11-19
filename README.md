@@ -273,8 +273,7 @@ See [docs/attendance.md](docs/attendance.md) and [docs/ooo_attendance_flow.md](d
 ### Leave
 
 - Default types: Annual Home Leave (18), Annual Sick Leave (12, carry/encash)
-- Leave Type flag `allocate_leave_on_start_of_bs_month` with amount; scheduler runs on BS day 1
-- Leave Policy Assignment override for BS-aware assignment
+- Monthly BS leave allocation (Leave Type flag, daily scheduler, list button, Leave Policy Assignment override) is left to nepal_compliance
 - Sandwich validation on Leave Application (warn or block)
 - Open/draft applications consume remaining balance (except LWP)
 - Frequent leave types on the PWA
