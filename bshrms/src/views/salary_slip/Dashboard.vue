@@ -72,7 +72,7 @@
 
 <script setup>
 import { inject, ref, computed, watch, onMounted, onBeforeUnmount } from "vue"
-import { Autocomplete, FeatherIcon, createListResource } from "frappe-ui"
+import { Autocomplete, FeatherIcon, createListResource, createResource } from "frappe-ui"
 
 import BaseLayout from "@/components/BaseLayout.vue"
 import EmptyState from "@/components/EmptyState.vue"
@@ -91,13 +91,10 @@ const dayjs = inject("$dayjs")
 const socket = inject("$socket")
 const __ = inject("$translate")
 
-const payrollPeriods = createListResource({
-	doctype: "Payroll Period",
-	fields: ["name", "start_date", "end_date"],
-	filters: {
-		company: employee.data?.company,
-	},
-	orderBy: "start_date desc",
+// From the server, not the doctype: an Employee often has only "select" on
+// Payroll Period, which returns names without the dates the filter needs.
+const payrollPeriods = createResource({
+	url: "nepal_hrms.api.payroll_periods.get_my_payroll_periods",
 	auto: true,
 	transform(data) {
 		return data.map((period) => {
@@ -108,9 +105,15 @@ const payrollPeriods = createListResource({
 			}
 		})
 	},
+	// onSuccess gets the raw rows, not the transformed options, so build the
+	// option here. Default to the period containing today, else the latest.
 	onSuccess: (data) => {
-		if (data?.length) selectedPeriod.value = data[0]
-		else showAllSlips()
+		if (!data?.length) return showAllSlips()
+		const today = dayjs().format("YYYY-MM-DD")
+		const current =
+			data.find((period) => period.start_date <= today && today <= period.end_date) ||
+			data[0]
+		selectedPeriod.value = { label: getPeriodLabel(current), value: current.name }
 	},
 	// No read access to Payroll Period: the slips are still the employee's own.
 	onError: () => {
