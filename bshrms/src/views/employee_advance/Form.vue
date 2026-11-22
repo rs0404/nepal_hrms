@@ -55,7 +55,6 @@ const formFields = createResource({
 	},
 	onSuccess(_) {
 		employeeCurrency.reload()
-		advanceAccount.reload()
 	},
 })
 formFields.reload()
@@ -65,36 +64,29 @@ const employeeCurrency = createResource({
 	params: { employee: employee.data.name },
 	onSuccess(data) {
 		employeeAdvance.value.currency = data
-		setExchangeRate()
 	},
 })
 
-const exchangeRate = createResource({
-	url: "erpnext.setup.utils.get_exchange_rate",
-	onSuccess(data) {
-		employeeAdvance.value.exchange_rate = data
-	},
-})
-
-const advanceAccount = createResource({
-	url: "hrms.api.get_advance_account",
-	params: { company: employeeAdvance.value.company },
-	onSuccess(data) {
-		employeeAdvance.value.advance_account = data
-	},
-})
+// HRMS 16: hrms.api.get_advance_account is gone and nothing replaces it on the
+// client. The server fills Advance Account itself -- from the employee's own
+// advance account, else the company default when the advance is submitted --
+// so the field is left for the user to set only when they need another one.
+// The Exchange Rate field is gone too: the paid amount in company currency is
+// worked out on the server from the payment (base_paid_amount).
 
 // form scripts
 watch(
 	() => employeeAdvance.value.currency,
-	() => setExchangeRate()
+	() => {
+		if (formFields.data) applyFilters(formFields.data)
+	}
 )
 
 // helper functions
 function getFilteredFields(fields) {
 	// reduce noise from the form view by excluding unnecessary fields
 	// eg: employee and other details can be fetched from the session user
-	const excludeFields = ["naming_series"]
+	const excludeFields = ["naming_series", "base_paid_amount"]
 	const extraFields = [
 		"employee",
 		"employee_name",
@@ -127,24 +119,6 @@ function applyFilters(fields) {
 
 		return field
 	})
-}
-
-function setExchangeRate() {
-	if (!employeeAdvance.value.currency) return
-	const exchange_rate_field = formFields.data?.find(
-		(field) => field.fieldname === "exchange_rate"
-	)
-
-	if (employeeAdvance.value.currency === companyCurrency.value) {
-		employeeAdvance.value.exchange_rate = 1
-		exchange_rate_field.hidden = 1
-	} else {
-		exchangeRate.fetch({
-			from_currency: employeeAdvance.value.currency,
-			to_currency: companyCurrency.value,
-		})
-		exchange_rate_field.hidden = 0
-	}
 }
 
 function validateForm() {}

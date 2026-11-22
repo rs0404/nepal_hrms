@@ -68,9 +68,10 @@ def exempt_deduction_lines(doc):
 		if cint(row.exempted_from_income_tax) and _is_other_exempt(row.salary_component):
 			totals[row.salary_component] = totals.get(row.salary_component, 0.0) + flt(row.amount)
 
-	structure = getattr(doc, "_salary_structure_doc", None)
+	# HRMS 16 keeps the structure rows on the slip as _evaluated_components.
+	components = getattr(doc, "_evaluated_components", None)
 	months_after = max(ceil(flt(getattr(doc, "remaining_sub_periods", 0))) - 1, 0)
-	for row in (structure.get("deductions") if structure else None) or []:
+	for row in (components.get("deductions") if components else None) or []:
 		if not (cint(row.exempted_from_income_tax) and _is_other_exempt(row.salary_component)):
 			continue
 		if cint(row.amount_based_on_formula):

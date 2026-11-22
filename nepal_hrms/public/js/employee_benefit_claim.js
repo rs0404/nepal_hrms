@@ -14,7 +14,8 @@ frappe.ui.form.on('Employee Benefit Claim', {
     employee: function(frm) {
         frm.trigger('fetch_max_eligible');
     },
-    claim_date: function(frm) {
+    // HRMS 16 dates the claim by payroll_date; claim_date no longer exists.
+    payroll_date: function(frm) {
         frm.trigger('fetch_max_eligible');
     },
     earning_component: function(frm) {
@@ -30,14 +31,14 @@ frappe.ui.form.on('Employee Benefit Claim', {
         if (
             frm.doc.claim_festival_allowance &&
             frm.doc.employee &&
-            frm.doc.claim_date &&
+            frm.doc.payroll_date &&
             frm.doc.earning_component
         ) {
             frappe.call({
                 method: 'nepal_hrms.api.employee_benefit_claim.get_max_amount_eligible',
                 args: {
                     employee: frm.doc.employee,
-                    claim_date: frm.doc.claim_date
+                    claim_date: frm.doc.payroll_date
                 },
                 callback: function(r) {
                     if (!r.exc && r.message !== undefined) {

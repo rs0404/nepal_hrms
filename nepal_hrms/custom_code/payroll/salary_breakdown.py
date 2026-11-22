@@ -261,8 +261,15 @@ def get_allowance_map(salary_structure_assignment):
 	"""
 	if not salary_structure_assignment:
 		return {OTHER_ALLOWANCE_FORMULA_KEY: 0.0, "total_other_allowances": 0.0}
-	rows = get_allowance_rows(salary_structure_assignment)
+	return allowance_map_from_rows(get_allowance_rows(salary_structure_assignment))
 
+
+def allowance_map_from_rows(rows):
+	"""get_allowance_map() for rows already in hand: Earning rows of the table.
+
+	The Salary Structure Assignment evaluates formulas while it is being saved
+	(HRMS 16), when its rows are on the document and not yet in the database.
+	"""
 	out = {}
 	total = 0.0
 	for r in rows:

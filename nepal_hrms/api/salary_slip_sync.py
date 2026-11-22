@@ -43,12 +43,22 @@ def _attendance_absent_days(doc):
 	# Both HRMS helpers read self.start_date, so the slip's counting period has to
 	# be in force here too or the sync would disagree with the slip it just
 	# recalculated.
+	#
+	# Holidays are split the way HRMS 16's get_working_days_details splits them:
+	# a holiday marked half day is half a working day, so it is left out of the
+	# full-day list and an absence on it counts for half.
 	with doc._counting_period():
 		holidays = doc.get_holidays_for_employee(doc.start_date, doc.end_date)
-		_lwp, absent = doc.calculate_lwp_ppl_and_absent_days_based_on_attendance(
-			holidays, half_day_units, consider_on_holidays
+		half_day_holidays = (
+			[]
+			if cint(settings.include_holidays_in_total_working_days)
+			else doc.get_half_day_holidays_for_employee(doc.start_date, doc.end_date)
 		)
-		half_absent = doc.get_half_absent_days(consider_on_holidays, holidays)
+		full_day_holidays = [day for day in holidays if day not in half_day_holidays]
+		_lwp, absent = doc.calculate_lwp_ppl_and_absent_days_based_on_attendance(
+			full_day_holidays, half_day_holidays, half_day_units, consider_on_holidays
+		)
+		half_absent = doc.get_half_absent_days(consider_on_holidays, full_day_holidays)
 	return flt(absent) + flt(half_absent) * half_day_units
 
 

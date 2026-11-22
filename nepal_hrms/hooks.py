@@ -95,6 +95,7 @@ before_uninstall = "nepal_hrms.uninstall.cleanup_salary_structures"
 
 override_doctype_class = {
 	"Salary Structure": "nepal_hrms.overrides.salary_structure.CustomSalaryStructure",
+	"Salary Structure Assignment": "nepal_hrms.overrides.salary_structure_assignment.CustomSalaryStructureAssignment",
 	"Employee Benefit Claim": "nepal_hrms.overrides.employee_benefit_claim.CustomEmployeeBenefitClaim",
 	"Salary Slip": "nepal_hrms.overrides.salary_slip.CustomSalarySlip",
 	"Payroll Entry": "nepal_hrms.overrides.salary_slip.CustomPayrollEntry",

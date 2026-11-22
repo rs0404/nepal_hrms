@@ -5,6 +5,10 @@ import frappe, traceback
 from frappe import _
 from hrms.payroll.doctype.salary_slip.salary_slip import SalarySlip, get_salary_component_data
 from hrms.payroll.doctype.salary_slip.salary_slip import make_loan_repayment_entry
+from hrms.payroll.doctype.salary_structure_assignment.salary_structure_assignment import (
+    SALARY_COMPONENT_FLAGS,
+)
+from hrms.payroll.utils import COMPONENT_PARENTFIELDS, sanitize_expression
 from frappe.utils import cint, flt, getdate, add_days
 from typing import Optional
 from frappe.model.document import Document
@@ -435,6 +439,26 @@ def _skips_tax_projection(component):
     )
 
 
+def _unevaluated_row(struct_row):
+    """A Salary Structure row in the shape HRMS 16 hands to the salary slip.
+
+    Same keys as SalaryStructureAssignment._evaluate_component_table, with no
+    full-cycle amount worked out: condition_met = False tells the slip to
+    evaluate default_amount itself. A fresh dict, never the cached structure row.
+    """
+    row = frappe._dict(
+        default_amount=0,
+        amount=flt(struct_row.amount),
+        condition_met=False,
+        condition=sanitize_expression(struct_row.condition),
+        formula=sanitize_expression(struct_row.formula),
+        precision=struct_row.precision("amount"),
+    )
+    for field in SALARY_COMPONENT_FLAGS:
+        row[field] = struct_row.get(field)
+    return row
+
+
 def _show_only(row):
     """Keep a deduction row on the slip without it counting anywhere."""
     row.do_not_include_in_total = 1
@@ -527,6 +551,55 @@ def allocate_attendance_deduction(components, deduction_amount, proportional=Fal
         "fixed_contribution_base": fixed_contribution_base,
         "earned_contribution_base": earned_contribution_base,
     }
+
+
+# Every name compute_nepal_hr_variables() puts into the formula context. Keep the
+# two in step: a Salary Structure formula may use any of them, and HRMS 16 also
+# evaluates those formulas on the Salary Structure Assignment, where there is no
+# salary slip to compute them from (see neutral_nepal_hr_variables).
+NEPAL_HR_NUMERIC_VARIABLES = (
+    "late_entry_half_days",
+    "early_exit_half_days",
+    "out_of_office_half_days",
+    "late_entry_full_days",
+    "early_exit_full_days",
+    "lwp_days",
+    "unapproved_absent_days",
+    "penalty_days",
+    "total_absent_days",
+    "lwp_deduction_rate",
+    "unapproved_absent_rate",
+    "penalty_deduction_rate",
+    "late_deduction_rate",
+    "gross_lwp_days",
+    "normal_lwp_days",
+    "gross_lwp_rate",
+    "max_continuous_lwp_days",
+    "is_continuous_lwp_gross",
+    "is_period_leave_gross",
+    "period_leave_days",
+    "calculate_attendance_deductions_through_earned_salary",
+    "proportionally_reduce_earnings_for_attendance_deductions",
+    "leave_late_deduction_total",
+)
+NEPAL_HR_TEXT_VARIABLES = (
+    "half_day_deduction_base",
+    "lwp_deduction_base",
+    "unapproved_absence_deduction_base",
+    "penalty_deduction_base",
+)
+
+
+def neutral_nepal_hr_variables():
+    """The formula variables for a full period with no leave, absence or penalty.
+
+    Used where formulas are evaluated without a salary slip: the Salary Structure
+    Assignment works out a full-cycle amount per component for its CTC and gross
+    figures, and a name it cannot resolve stops the assignment from saving.
+    """
+    variables = dict.fromkeys(NEPAL_HR_NUMERIC_VARIABLES, 0.0)
+    variables.update(dict.fromkeys(NEPAL_HR_TEXT_VARIABLES, ""))
+    return variables
 
 
 def compute_nepal_hr_variables(doc, data):
@@ -1242,17 +1315,23 @@ class CustomSalarySlip(SalarySlip):
         finally:
             self.start_date, self.end_date = original
 
-    def get_working_days_details(self, lwp=None, for_preview=0):
+    def get_working_days_details(self, lwp=None, for_preview=0, lwp_days_corrected=None):
         with self._counting_period():
-            return self._get_working_days_details(lwp=lwp, for_preview=for_preview)
+            return self._get_working_days_details(
+                lwp=lwp, for_preview=for_preview, lwp_days_corrected=lwp_days_corrected
+            )
 
-    def _get_working_days_details(self, lwp=None, for_preview=0):
+    def _get_working_days_details(self, lwp=None, for_preview=0, lwp_days_corrected=None):
         use_manual_absent = _manual_absent_override_enabled(self)
         # A resave starts from the full bucket, not the narrowed absent_days the
         # previous run left behind -- otherwise every save sheds the penalties.
         manual_absent = flt(_total_unpaid_days(self)) if use_manual_absent else None
 
-        super().get_working_days_details(lwp=lwp, for_preview=for_preview)
+        # lwp_days_corrected is HRMS 16's Payroll Correction hand-back; stock adds
+        # it to payment_days itself, after verifying it against the corrections.
+        super().get_working_days_details(
+            lwp=lwp, for_preview=for_preview, lwp_days_corrected=lwp_days_corrected
+        )
 
         if not for_preview:
             change = self._count_days_outside_employment_as_absent()
@@ -1352,7 +1431,7 @@ class CustomSalarySlip(SalarySlip):
         self.calculate_net_pay()
 
     def calculate_lwp_or_ppl_based_on_leave_application(
-        self, holidays, working_days_list, daily_wages_fraction_for_half_day
+        self, holidays, half_day_holidays, working_days_list, daily_wages_fraction_for_half_day
     ):
         """Let Leave Type.include_holiday decide, as the setting promises.
 
@@ -1362,6 +1441,10 @@ class CustomSalarySlip(SalarySlip):
         and a holiday inside an LWP stretch is silently free. Hand the holidays back
         and that test does its job -- leave types that exclude holidays still skip
         them, and the Monthly Attendance Sheet BS and the slip agree on the count.
+
+        HRMS 16 passes full-day holidays here and half-day holidays separately. A
+        half-day holiday is still in working_days_list (it is half a working day),
+        so only the full-day ones need handing back.
         """
         start = getdate(self.start_date)
         end = getdate(self.actual_end_date or self.end_date)
@@ -1374,15 +1457,25 @@ class CustomSalarySlip(SalarySlip):
         days.sort()
 
         return super().calculate_lwp_or_ppl_based_on_leave_application(
-            holidays, days, daily_wages_fraction_for_half_day
+            holidays, half_day_holidays, days, daily_wages_fraction_for_half_day
         )
 
     def calculate_lwp_ppl_and_absent_days_based_on_attendance(
-        self, holidays, daily_wages_fraction_for_half_day, consider_marked_attendance_on_holidays
+        self,
+        holidays,
+        half_day_holidays,
+        daily_wages_fraction_for_half_day,
+        consider_marked_attendance_on_holidays,
     ):
         lwp, absent = super().calculate_lwp_ppl_and_absent_days_based_on_attendance(
-            holidays, daily_wages_fraction_for_half_day, consider_marked_attendance_on_holidays
+            holidays,
+            half_day_holidays,
+            daily_wages_fraction_for_half_day,
+            consider_marked_attendance_on_holidays,
         )
+        # `holidays` is full-day holidays only in HRMS 16. Stock already counts an
+        # Absent on a half-day holiday (as half a day), so the sandwich top-up is
+        # still owed for exactly the days in this list.
         extra = count_sandwich_holiday_absents(
             self.employee,
             self.get_employee_attendance(self.start_date, self.actual_end_date),
@@ -1392,6 +1485,37 @@ class CustomSalarySlip(SalarySlip):
             ),
         )
         return lwp, flt(absent) + extra
+
+    def _set_evaluated_components(self):
+        """Hand stock the structure rows unevaluated, so the slip works them out.
+
+        HRMS 16 asks the Salary Structure Assignment for each component's
+        full-cycle amount and reuses it as the slip row's default_amount. The
+        assignment has no payroll period, though, and Nepal amounts depend on
+        one: overtime hours, the CIT election in force, the leave and late
+        deduction, the amounts typed in the assignment's table. Tax projects the
+        rest of the year from default_amount, so a period-blind figure there
+        changes the TDS.
+
+        Stock already re-evaluates, against the slip's own context, any row whose
+        condition the assignment could not settle (condition_met is false). Every
+        row is handed over that way, which is how HRMS 15 computed default_amount.
+        """
+        structure = frappe.get_cached_doc("Salary Structure", self.salary_structure)
+        self._evaluated_components = frappe._dict(
+            (parentfield, [_unevaluated_row(row) for row in structure.get(parentfield) or []])
+            for parentfield in COMPONENT_PARENTFIELDS
+        )
+
+    def get_data_for_eval(self):
+        data, default_data = super().get_data_for_eval()
+        # default_data is the full, un-prorated cycle. HRMS 15 reset these here;
+        # HRMS 16 left that to the assignment's own evaluation, which this class
+        # does not use for slip rows (see _set_evaluated_components).
+        default_data.payment_days = default_data.total_working_days
+        default_data.leave_without_pay = 0
+        default_data.absent_days = 0
+        return data, default_data
 
     def add_structure_components(self, component_type):
         super().add_structure_components(component_type)
@@ -1593,12 +1717,12 @@ class CustomSalarySlip(SalarySlip):
         return self._nepal_allowance_component_names
 
     def _has_attendance_deduction_component(self):
-        structure = getattr(self, "_salary_structure_doc", None)
-        if not structure:
+        components = getattr(self, "_evaluated_components", None)
+        if not components:
             return False
         return any(
             _is_attendance_deduction(row.salary_component)
-            for row in (structure.get("deductions") or [])
+            for row in (components.get("deductions") or [])
         )
 
     def _fixed_salary_components(self, settings):
@@ -1888,7 +2012,7 @@ class CustomSalarySlip(SalarySlip):
 
         Stock then applies the row's condition, sets data[abbr] and handles the
         tax and payment-days flags exactly as for a fixed amount. A copy, because
-        the Salary Structure document is cached and shared between slips.
+        the same row is evaluated again for default_amount and for tax projection.
         """
         from nepal_hrms.custom_code.payroll.salary_breakdown import get_assignment_amount
 
@@ -1915,7 +2039,7 @@ class CustomSalarySlip(SalarySlip):
         # through their own slip rows.
         masked = [
             row
-            for row in (getattr(self, "_salary_structure_doc", None) or frappe._dict()).get("deductions") or []
+            for row in (getattr(self, "_evaluated_components", None) or frappe._dict()).get("deductions") or []
             if cint(row.exempted_from_income_tax) and _skips_tax_projection(row.salary_component)
         ]
         for row in masked:
@@ -1948,6 +2072,8 @@ class CustomSalarySlip(SalarySlip):
                 self.email_salary_slip()
 
         self.update_payment_status_for_gratuity_and_leave_encashment()
+        # HRMS 16: accruals and payouts of flexible benefits go to the benefit ledger.
+        self.create_benefits_ledger_entry()
 
     def compute_income_tax_breakup(self):
         super().compute_income_tax_breakup()
@@ -2070,7 +2196,6 @@ class CustomSalarySlip(SalarySlip):
         )
 
 from nepal_hrms.custom_code.payroll.accrual_jv import (
-    PARTY_ONLY_DEDUCTION,
     is_party_tracked_component,
     partition_advance_entries,
 )
@@ -2197,7 +2322,67 @@ class CustomPayrollEntry(PayrollEntry):
 
         return create(self)
 
-    def get_advance_deduction(self, component_type: str, item: dict) -> str | None:
+    def get_salary_component_total(
+        self,
+        component_type=None,
+        employee_wise_accounting_enabled=False,
+    ):
+        """Stock's loop over the accrual rows, with two per-row decisions put back.
+
+        HRMS 15 asked two methods about every row -- should_add_component_to_accrual_jv
+        and get_advance_deduction -- and this class overrode both. HRMS 16 folded
+        them into this loop (one query resolves every Employee Advance up front),
+        so there is nothing left to override but the loop itself. Apart from the
+        two marked lines it is stock, and should be kept in step with it.
+        """
+        salary_components = self.get_salary_components(component_type)
+        if not salary_components:
+            return None
+
+        component_dict = {}
+        advance_deductions = self.get_advance_deductions(component_type, salary_components)
+
+        for item in salary_components:
+            # ours: show-only and statistical components never reach the books
+            if not self._posts_to_accrual_jv(item):
+                continue
+
+            employee_cost_centers = self.get_payroll_cost_centers_for_employee(
+                item.employee, item.salary_structure
+            )
+            # ours: a deduction on a Receivable / Payable account needs its employee
+            employee_advance = advance_deductions.get(
+                item.additional_salary
+            ) or self._party_only_deduction(component_type, item)
+
+            for cost_center, percentage in employee_cost_centers.items():
+                amount_against_cost_center = flt(item.amount) * percentage / 100
+
+                if employee_advance:
+                    self.add_advance_deduction_entry(
+                        item, amount_against_cost_center, cost_center, employee_advance
+                    )
+                else:
+                    key = (item.salary_component, cost_center)
+                    component_dict[key] = component_dict.get(key, 0) + amount_against_cost_center
+
+                if employee_wise_accounting_enabled:
+                    self.set_employee_based_payroll_payable_entries(
+                        component_type, item.employee, amount_against_cost_center
+                    )
+
+        return self.get_account(component_dict=component_dict)
+
+    def _posts_to_accrual_jv(self, item) -> bool:
+        do_not_include_in_accounts, statistical_component = frappe.get_cached_value(
+            "Salary Component",
+            item["salary_component"],
+            ["do_not_include_in_accounts", "statistical_component"],
+        ) or (0, 0)
+
+        return not (cint(do_not_include_in_accounts) or cint(statistical_component))
+
+    def _party_only_deduction(self, component_type: str, item) -> dict | None:
         """Send party-tracked deductions down the per-employee path.
 
         ERPNext refuses a Receivable/Payable journal row without a party, and
@@ -2211,22 +2396,26 @@ class CustomPayrollEntry(PayrollEntry):
         The salary slip knows whose deduction it is either way, so route those
         rows through the same per-employee path, just with no document to
         reference. That also gives the advance account a real subledger.
-        """
-        advance = super().get_advance_deduction(component_type, item)
-        if advance:
-            return advance
 
-        if component_type == "deductions" and is_party_tracked_component(
+        Returns what stock's get_advance_deductions() holds for a linked
+        advance, with no Employee Advance named and the component's own account
+        (stock takes the account from the Employee Advance, and there is none).
+        """
+        if component_type != "deductions" or not is_party_tracked_component(
             self.company, item.salary_component
         ):
-            return PARTY_ONLY_DEDUCTION
+            return None
 
-        return None
+        return frappe._dict(
+            additional_salary=item.additional_salary,
+            employee_advance=None,
+            advance_account=self.get_salary_component_account(item.salary_component),
+        )
 
     def add_advance_deduction_entry(self, item, amount, cost_center, employee_advance) -> None:
         super().add_advance_deduction_entry(item, amount, cost_center, employee_advance)
 
-        if employee_advance == PARTY_ONLY_DEDUCTION:
+        if not employee_advance.get("employee_advance"):
             # No Employee Advance to point at; the employee is the whole point.
             self._advance_deduction_entries[-1].update(
                 {"reference_type": None, "reference_name": None}
@@ -2276,22 +2465,6 @@ class CustomPayrollEntry(PayrollEntry):
 
         return payable_amount
 
-    def should_add_component_to_accrual_jv(self, component_type: str, item: dict) -> bool:
-        add_component = super().should_add_component_to_accrual_jv(component_type, item)
-        if not add_component:
-            return False
-
-        do_not_include_in_accounts, statistical_component = frappe.get_cached_value(
-            "Salary Component",
-            item["salary_component"],
-            ["do_not_include_in_accounts", "statistical_component"],
-        ) or (0, 0)
-
-        if cint(do_not_include_in_accounts) or cint(statistical_component):
-            return False
-
-        return True
-
     @frappe.whitelist()
     def submit_salary_slips(self):
         self.check_permission("write")
@@ -2322,69 +2495,49 @@ class CustomPayrollEntry(PayrollEntry):
 
     @frappe.whitelist()
     def make_bank_entry(self, for_withheld_salaries: bool = False) -> Optional[Document]:
+        """Stock's bank entry, except that a negative total is still paid out.
+
+        Stock skips the entry unless the total is above zero. Salary slips with
+        a negative net pay can be submitted here (see CustomSalarySlip.on_submit),
+        so a run can net out below zero and still has to be settled.
+
+        The per-row rule is HRMS 16's: every earning and deduction that is not
+        statistical counts. HRMS 15 also set flexible benefits aside by three
+        Salary Component fields that no longer exist (only_tax_impact,
+        pay_against_benefit_claim, create_separate_payment_entry_against_benefit_claim);
+        benefits now reach the slip as ordinary earnings or stay in the ledger.
+        """
         self.check_permission("write")
         self.employee_based_payroll_payable_entries = {}
         employee_wise_accounting_enabled = frappe.db.get_single_value(
-        "Payroll Settings", "process_payroll_accounting_entry_based_on_employee"
-    )
+            "Payroll Settings", "process_payroll_accounting_entry_based_on_employee"
+        )
 
         salary_slip_total = 0
         salary_details = self.get_salary_slip_details(for_withheld_salaries)
 
         for sd in salary_details:
-            if not sd.salary_component:
+            if not sd.salary_component or sd.parentfield not in ("earnings", "deductions"):
                 continue
 
-            if sd.parentfield == "earnings":
-                result = frappe.db.get_value(
-                "Salary Component",
-                sd.salary_component,
-                (
-                    "is_flexible_benefit",
-                    "only_tax_impact",
-                    "create_separate_payment_entry_against_benefit_claim",
-                    "statistical_component",
-                ),
-                cache=True,
+            statistical_component = frappe.db.get_value(
+                "Salary Component", sd.salary_component, "statistical_component", cache=True
             )
+            if statistical_component:
+                continue
 
-                if result:
-                    is_flexible_benefit, only_tax_impact, create_separate_je, statistical_component = result
-                else:
-                    is_flexible_benefit = only_tax_impact = create_separate_je = statistical_component = 0
+            if employee_wise_accounting_enabled:
+                self.set_employee_based_payroll_payable_entries(
+                    sd.parentfield,
+                    sd.employee,
+                    sd.amount,
+                    sd.salary_structure,
+                )
 
-                if only_tax_impact != 1 and statistical_component != 1:
-                    if is_flexible_benefit == 1 and create_separate_je == 1:
-                        self.set_accounting_entries_for_bank_entry(
-                        sd.amount, sd.salary_component
-                    )
-                    else:
-                        if employee_wise_accounting_enabled:
-                            self.set_employee_based_payroll_payable_entries(
-                            "earnings",
-                            sd.employee,
-                            sd.amount,
-                            sd.salary_structure,
-                        )
-                    salary_slip_total += sd.amount
-
-            elif sd.parentfield == "deductions":
-                statistical_component = frappe.db.get_value(
-                "Salary Component",
-                sd.salary_component,
-                "statistical_component",
-                cache=True,
-            ) or 0
-
-                if not statistical_component:
-                    if employee_wise_accounting_enabled:
-                        self.set_employee_based_payroll_payable_entries(
-                        "deductions",
-                        sd.employee,
-                        sd.amount,
-                        sd.salary_structure,
-                    )
-                    salary_slip_total -= sd.amount
+            if sd.parentfield == "earnings":
+                salary_slip_total += sd.amount
+            else:
+                salary_slip_total -= sd.amount
 
         total_loan_repayment = self.process_loan_repayments_for_bank_entry(salary_details) or 0
         salary_slip_total -= total_loan_repayment

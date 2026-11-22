@@ -18,9 +18,6 @@ def create_salary_component(component_data: dict) -> bool:
             "do_not_include_in_total": 0,
             "formula": None,
             "is_flexible_benefit": 0,
-            "pay_against_benefit_claim": 0,
-            "create_separate_payment_entry_against_benefit_claim": 0,
-            "only_tax_impact": 0,
             "is_tax_applicable": 1,
             "exempted_from_income_tax": 1,
             "is_income_tax_component": 1,
@@ -113,8 +110,9 @@ def create_multiple_salary_components():
             },
             {
                 "is_flexible_benefit": 1,
-                "pay_against_benefit_claim": 1,
-                "create_separate_payment_entry_against_benefit_claim": 1,
+                # HRMS 16 replaced pay_against_benefit_claim with a payout
+                # method, mandatory on a flexible benefit: paid when claimed.
+                "payout_method": "Allow claim for full benefit amount",
                 "name": "Festival Allowance",
                 "salary_component": "Festival Allowance",
                 "salary_component_abbr": "festival_allowance",

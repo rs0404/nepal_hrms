@@ -16,7 +16,7 @@ def slip(**kwargs):
 		employee="EMP-1", start_date="2026-09-14", remaining_sub_periods=10,
 		payroll_period=_dict(name="2083/84", start_date="2026-07-17"),
 		tax_slab=_dict(allow_tax_exemption=1, standard_tax_exemption_amount=0),
-		deductions=[], _salary_structure_doc=_dict(deductions=[]),
+		deductions=[], _evaluated_components=_dict(deductions=[]),
 		deductions_before_tax_calculation=0, tax_exemption_declaration=0, standard_tax_exemption_amount=0,
 	)
 	defaults.update(kwargs)
@@ -31,7 +31,7 @@ class TestExemptDeductions(TestCase):
 	def test_insurance_projected_for_the_year_retirement_left_out(self):
 		doc = slip(
 			deductions=[row("Insurance", 2000), row("CIT", 10000), row("Advance Deduction", 5000, exempt=0)],
-			_salary_structure_doc=_dict(deductions=[row("Insurance", 2000, amount_based_on_formula=0), row("CIT", 10000)]),
+			_evaluated_components=_dict(deductions=[row("Insurance", 2000, amount_based_on_formula=0), row("CIT", 10000)]),
 		)
 		with patch.object(te, "_previous_exempt_deductions", return_value={"Insurance": 4000, "CIT": 20000}):
 			lines = te.exempt_deduction_lines(doc)
@@ -42,7 +42,7 @@ class TestExemptDeductions(TestCase):
 		doc = slip(
 			remaining_sub_periods=3,
 			deductions=[row("Insurance", 1000)],
-			_salary_structure_doc=_dict(deductions=[row("Insurance", 0, amount_based_on_formula=1, formula_amount=1500)]),
+			_evaluated_components=_dict(deductions=[row("Insurance", 0, amount_based_on_formula=1, formula_amount=1500)]),
 		)
 		with patch.object(te, "_previous_exempt_deductions", return_value={}):
 			self.assertEqual(te.exempt_deduction_lines(doc)[0]["amount"], 1000 + 1500 * 2)

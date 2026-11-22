@@ -37,10 +37,16 @@ def custom_mark_attendance_and_link_log(
 	in_time=None,
 	out_time=None,
 	shift=None,
+	overtime_type=None,
 ):
 	"""
 	If any logs are unapproved OOO Work, create/update Attendance on hold and
 	exclude those OOO hours until Leave Approver approval.
+
+	overtime_type is HRMS 16's: the shift's Overtime Type, passed by auto
+	attendance for every log group. Stock records overtime on a new Present
+	attendance only, so it is handed on to stock and nowhere else -- an
+	attendance held for OOO approval has no settled hours to measure it from.
 	"""
 	log_names = [x.name for x in logs]
 	employee = logs[0].employee
@@ -112,6 +118,7 @@ def custom_mark_attendance_and_link_log(
 		in_time,
 		out_time,
 		shift,
+		overtime_type,
 	)
 
 

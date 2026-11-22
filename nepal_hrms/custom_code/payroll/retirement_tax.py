@@ -109,7 +109,7 @@ def _future_contributions(doc):
 	remaining = max(ceil(flt(getattr(doc, "remaining_sub_periods", 0))), 1)
 	rows = [
 		row
-		for row in doc._salary_structure_doc.get("deductions")
+		for row in (getattr(doc, "_evaluated_components", None) or {}).get("deductions") or []
 		if row.salary_component in RETIREMENT_DEDUCTION_COMPONENTS
 	]
 	total = 0.0

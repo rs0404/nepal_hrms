@@ -30,10 +30,6 @@ ACCRUAL_VOUCHER_TYPE = "Journal Entry"
 # ERPNext refuses a journal row on one of these without a party.
 PARTY_TRACKED_ACCOUNT_TYPES = ("Receivable", "Payable")
 
-# Marks a deduction that needs an employee on its journal row but has no
-# Employee Advance document to reference.
-PARTY_ONLY_DEDUCTION = "__party_only__"
-
 
 def is_party_tracked_component(company, salary_component):
 	"""Does this component post to an account ERPNext demands a party on?"""

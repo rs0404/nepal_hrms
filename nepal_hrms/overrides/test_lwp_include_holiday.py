@@ -24,12 +24,16 @@ class TestLwpIncludesHolidays(TestCase):
 
 	WORKING = [date(2026, 7, 24), date(2026, 7, 26)]   # 07-25 stripped as a Saturday
 	HOLIDAYS = [date(2026, 7, 25), date(2026, 8, 1)]
+	# Passed through untouched: a half-day holiday is already in the day list.
+	HALF_DAY_HOLIDAYS = [date(2026, 8, 5)]
 
 	def _days_handed_to_hrms(self, holidays=None, working=None):
 		captured = {}
 
-		def _super(self, holidays, working_days_list, fraction):
+		# HRMS 16 signature: full-day holidays, half-day holidays, days, fraction
+		def _super(self, holidays, half_day_holidays, working_days_list, fraction):
 			captured["days"] = list(working_days_list)
+			captured["half_day_holidays"] = half_day_holidays
 			return 0
 
 		with patch.object(
@@ -40,9 +44,11 @@ class TestLwpIncludesHolidays(TestCase):
 			CustomSalarySlip.calculate_lwp_or_ppl_based_on_leave_application(
 				_Slip(),
 				self.HOLIDAYS if holidays is None else holidays,
+				self.HALF_DAY_HOLIDAYS,
 				self.WORKING if working is None else working,
 				0.5,
 			)
+		self.assertEqual(captured["half_day_holidays"], self.HALF_DAY_HOLIDAYS)
 		return captured["days"]
 
 	def test_holidays_in_the_period_are_handed_back(self):

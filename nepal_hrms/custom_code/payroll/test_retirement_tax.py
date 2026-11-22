@@ -45,7 +45,7 @@ class TestRetirementTax(FrappeTestCase):
 			employee="EMP-1",
 			start_date="2026-07-17",
 			remaining_sub_periods=3,
-			_salary_structure_doc=frappe._dict(
+			_evaluated_components=frappe._dict(
 				deductions=[
 					frappe._dict(
 						salary_component="CIT",

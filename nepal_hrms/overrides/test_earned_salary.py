@@ -297,7 +297,7 @@ class TestEarnedSalaryRows(TestCase):
 
     def test_unconfigured_structures_do_not_start_deducting_attendance(self):
         slip = _dict(
-            _salary_structure_doc=_dict(
+            _evaluated_components=_dict(
                 deductions=[_dict(salary_component="TDS")]
             )
         )
