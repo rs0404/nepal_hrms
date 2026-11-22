@@ -16,3 +16,4 @@ nepal_hrms.patches.v1.drop_per_slip_bs_tail_flag
 nepal_hrms.patches.v1.leave_late_formula_single_total
 nepal_hrms.patches.v1.leave_late_deduction_flags
 nepal_hrms.patches.v1.drop_include_in_taxable_salary
+nepal_hrms.patches.v16.remove_upload_attendance_fields
