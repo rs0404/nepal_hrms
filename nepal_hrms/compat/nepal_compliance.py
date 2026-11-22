@@ -63,11 +63,6 @@ _TARGETS = (
 		"execute",
 		"duplicate Salary Slip after_insert; nepal_hrms computes taxable_salary itself",
 	),
-	(
-		"nepal_compliance.custom_code.leave_allocation.scheduled_tasks",
-		"run_daily_bs_tasks",
-		"duplicate daily BS leave allocation; nepal_hrms owns the watermark",
-	),
 )
 
 
