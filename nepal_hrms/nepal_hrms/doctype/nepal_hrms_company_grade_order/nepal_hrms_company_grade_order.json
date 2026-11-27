@@ -1,0 +1,27 @@
+{
+ "actions": [],
+ "creation": "2026-11-27 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["company", "grade_order"],
+ "fields": [
+  {"columns": 4, "fieldname": "company", "fieldtype": "Link", "in_list_view": 1, "label": "Company", "options": "Company", "reqd": 1},
+  {"columns": 6, "fieldname": "grade_order", "fieldtype": "Select", "in_list_view": 1, "label": "Basic and Grade Order", "reqd": 1,
+   "options": "Basic and Grade pro rata\nBasic first, then Grade"}
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-27 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nepal HRMS",
+ "name": "Nepal HRMS Company Grade Order",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

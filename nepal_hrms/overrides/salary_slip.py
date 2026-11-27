@@ -447,17 +447,38 @@ def _check_setting(settings, fieldname, default=0):
     return cint(default if value is None else value)
 
 
-def allocate_attendance_deduction(components, deduction_amount, proportional=False):
+GRADE_ORDER_FIELD = "attendance_deduction_grade_order"
+GRADE_ORDER_TABLE = "Nepal HRMS Company Grade Order"
+GRADE_PRO_RATA = "Basic and Grade pro rata"
+GRADE_LAST = "Basic first, then Grade"
+
+
+def grade_taken_last(company, settings):
+    """The company's Basic and Grade order from Nepal HRMS Settings, else the site's.
+
+    A site whose settings predate the option has neither, and keeps pro rata.
+    """
+    order = None
+    if company and frappe.db.table_exists(GRADE_ORDER_TABLE):
+        order = frappe.db.get_value(
+            GRADE_ORDER_TABLE,
+            {"parent": "Nepal HRMS Settings", "parentfield": "company_grade_orders", "company": company},
+            "grade_order",
+        )
+    return (order or settings.get(GRADE_ORDER_FIELD) or GRADE_PRO_RATA) == GRADE_LAST
+
+
+def allocate_attendance_deduction(components, deduction_amount, proportional=False, grade_last=False):
     """Allocate a deduction without making any earned component negative.
 
     ``components`` is a list of dictionaries containing a unique ``key``, a
     fixed ``amount`` and whether the component ``contributes`` to the
     SSF/PF/Gratuity base.
 
-    Allowances-first mode consumes non-contribution earnings first, then the
-    rest of the contribution base (Basic), and Grade (``grade``) only last,
-    once Basic is used up -- not pro rata with Basic.
-    Proportional mode treats every fixed component as one pool.
+    Allowances-first mode consumes non-contribution earnings first, then spills
+    into the contribution base. With ``grade_last`` Grade (``grade``) is kept
+    out of both and taken only once Basic is used up, instead of pro rata with
+    it. Proportional mode treats every fixed component as one pool.
     """
     normalized = [
         {
@@ -510,10 +531,11 @@ def allocate_attendance_deduction(components, deduction_amount, proportional=Fal
     if proportional:
         consume(normalized)
     else:
-        others = [component for component in normalized if not component["grade"]]
-        consume([component for component in others if not component["contributes"]])
-        consume([component for component in others if component["contributes"]])
-        consume([component for component in normalized if component["grade"]])
+        held = [c for c in normalized if grade_last and c["grade"]]
+        others = [c for c in normalized if c not in held]
+        consume([c for c in others if not c["contributes"]])
+        consume([c for c in others if c["contributes"]])
+        consume(held)
 
     fixed_contribution_base = flt(
         sum(component["amount"] for component in normalized if component["contributes"]),
@@ -1670,6 +1692,7 @@ class CustomSalarySlip(SalarySlip):
                     default=0,
                 )
             ),
+            grade_last=grade_taken_last(getattr(self, "company", None), settings),
         )
         self._earned_salary_result = frappe._dict(result)
 
