@@ -16,8 +16,8 @@ from nepal_hrms.overrides.salary_slip import (
 )
 
 
-def component(key, amount, contributes):
-    return {"key": key, "amount": amount, "contributes": contributes}
+def component(key, amount, contributes, grade=False):
+    return {"key": key, "amount": amount, "contributes": contributes, "grade": grade}
 
 
 class FakeSalaryRow(_dict):
@@ -165,17 +165,63 @@ class TestAttendanceDeductionAllocation(TestCase):
         result = allocate_attendance_deduction(
             [
                 component("basic", 50_000, True),
-                component("grade", 5_000, True),
+                component("grade", 5_000, True, grade=True),
                 component("da", 5_000, False),
             ],
             10_000,
         )
 
         self.assertEqual(result["earned_amounts"]["da"], 0)
-        self.assertEqual(result["earned_amounts"]["basic"], 45_454.55)
-        self.assertEqual(result["earned_amounts"]["grade"], 4_545.45)
+        self.assertEqual(result["earned_amounts"]["basic"], 45_000)
+        self.assertEqual(result["earned_amounts"]["grade"], 5_000)
         self.assertEqual(result["fixed_contribution_base"], 55_000)
         self.assertEqual(result["earned_contribution_base"], 50_000)
+
+    def test_grade_is_taken_only_after_basic_is_used_up(self):
+        result = allocate_attendance_deduction(
+            [
+                component("basic", 6_000, True),
+                component("grade", 2_000, True, grade=True),
+                component("allowance", 1_000, False),
+            ],
+            7_500,
+        )
+
+        self.assertEqual(result["earned_amounts"]["allowance"], 0)
+        self.assertEqual(result["earned_amounts"]["basic"], 0)
+        self.assertEqual(result["earned_amounts"]["grade"], 1_500)
+        self.assertEqual(result["earned_contribution_base"], 1_500)
+        self.assertEqual(result["unapplied_deduction"], 0)
+
+    def test_grade_outside_ssf_base_still_goes_last(self):
+        result = allocate_attendance_deduction(
+            [
+                component("basic", 30_000, True),
+                component("grade", 2_000, False, grade=True),
+                component("allowance", 5_000, False),
+            ],
+            9_000,
+        )
+
+        self.assertEqual(result["earned_amounts"]["allowance"], 0)
+        self.assertEqual(result["earned_amounts"]["basic"], 26_000)
+        self.assertEqual(result["earned_amounts"]["grade"], 2_000)
+        self.assertEqual(result["earned_contribution_base"], 26_000)
+
+    def test_proportional_mode_still_pools_grade(self):
+        result = allocate_attendance_deduction(
+            [
+                component("basic", 30_000, True),
+                component("grade", 2_000, True, grade=True),
+                component("allowance", 8_000, False),
+            ],
+            4_000,
+            proportional=True,
+        )
+
+        self.assertEqual(result["earned_amounts"]["basic"], 27_000)
+        self.assertEqual(result["earned_amounts"]["grade"], 1_800)
+        self.assertEqual(result["earned_amounts"]["allowance"], 7_200)
 
     def test_oversized_deduction_stops_at_zero_and_returns_residual(self):
         result = allocate_attendance_deduction(

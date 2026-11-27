@@ -454,15 +454,17 @@ def allocate_attendance_deduction(components, deduction_amount, proportional=Fal
     fixed ``amount`` and whether the component ``contributes`` to the
     SSF/PF/Gratuity base.
 
-    Allowances-first mode consumes non-contribution earnings first, then spills
-    into the contribution base. Proportional mode treats every fixed component
-    as one pool.
+    Allowances-first mode consumes non-contribution earnings first, then the
+    rest of the contribution base (Basic), and Grade (``grade``) only last,
+    once Basic is used up -- not pro rata with Basic.
+    Proportional mode treats every fixed component as one pool.
     """
     normalized = [
         {
             "key": component["key"],
             "amount": max(flt(component.get("amount")), 0.0),
             "contributes": bool(component.get("contributes")),
+            "grade": bool(component.get("grade")),
         }
         for component in components
     ]
@@ -508,8 +510,10 @@ def allocate_attendance_deduction(components, deduction_amount, proportional=Fal
     if proportional:
         consume(normalized)
     else:
-        consume([component for component in normalized if not component["contributes"]])
-        consume([component for component in normalized if component["contributes"]])
+        others = [component for component in normalized if not component["grade"]]
+        consume([component for component in others if not component["contributes"]])
+        consume([component for component in others if component["contributes"]])
+        consume([component for component in normalized if component["grade"]])
 
     fixed_contribution_base = flt(
         sum(component["amount"] for component in normalized if component["contributes"]),
@@ -1614,6 +1618,7 @@ class CustomSalarySlip(SalarySlip):
             name = row.salary_component
             contributes = False
             is_fixed_salary = False
+            is_grade = False
 
             if _matches_component(name, BASIC_EARNING_COMPONENTS):
                 is_fixed_salary = contributes = True
@@ -1621,7 +1626,7 @@ class CustomSalarySlip(SalarySlip):
                 is_fixed_salary = True
                 contributes = include_da
             elif _matches_component(name, GRADE_EARNING_COMPONENTS):
-                is_fixed_salary = True
+                is_fixed_salary = is_grade = True
                 contributes = include_grade
             elif (
                 name in allowance_components
@@ -1636,7 +1641,7 @@ class CustomSalarySlip(SalarySlip):
             key = index
             rows[key] = row
             components.append(
-                {"key": key, "amount": amount, "contributes": contributes}
+                {"key": key, "amount": amount, "contributes": contributes, "grade": is_grade}
             )
 
         return components, rows
