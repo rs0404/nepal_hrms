@@ -83,6 +83,8 @@
   "calculate_attendance_deductions_through_earned_salary",
   "column_break_earned_salary_deduction",
   "proportionally_reduce_earnings_for_attendance_deductions",
+  "attendance_deduction_grade_order",
+  "company_grade_orders",
   "salary_slip_print_section",
   "salary_slip_employee_id_field",
   "show_salary_slip_department",
@@ -637,10 +639,27 @@
   {
    "default": "0",
    "depends_on": "eval: doc.calculate_attendance_deductions_through_earned_salary === 1",
-   "description": "When unchecked, deduct non-contribution allowances first and reduce Basic only if those allowances are exhausted. When checked, spread the deduction proportionally across Basic, Dearness Allowance, Grade and other fixed allowances; SSF/PF/Gratuity then use the reduced contribution base.",
+   "description": "When unchecked, deduct non-contribution allowances first and reduce Basic and Grade only once those are exhausted, in the order chosen below. When checked, spread the deduction proportionally across Basic, Dearness Allowance, Grade and other fixed allowances; SSF/PF/Gratuity then use the reduced contribution base.",
    "fieldname": "proportionally_reduce_earnings_for_attendance_deductions",
    "fieldtype": "Check",
    "label": "Reduce Basic and Allowances Proportionally"
+  },
+  {
+   "default": "Basic and Grade pro rata",
+   "depends_on": "eval: doc.calculate_attendance_deductions_through_earned_salary === 1 && !doc.proportionally_reduce_earnings_for_attendance_deductions",
+   "description": "Once allowances are used up, what the rest of the attendance deduction comes from. Pro rata reduces Basic and Grade together in proportion to their amounts; Basic first leaves Grade untouched until Basic reaches zero. Companies listed below use their own choice.",
+   "fieldname": "attendance_deduction_grade_order",
+   "fieldtype": "Select",
+   "label": "Basic and Grade Order",
+   "options": "Basic and Grade pro rata\nBasic first, then Grade"
+  },
+  {
+   "depends_on": "eval: doc.calculate_attendance_deductions_through_earned_salary === 1 && !doc.proportionally_reduce_earnings_for_attendance_deductions",
+   "description": "A different Basic and Grade order for a company. Companies not listed use the order above.",
+   "fieldname": "company_grade_orders",
+   "fieldtype": "Table",
+   "label": "Basic and Grade Order by Company",
+   "options": "Nepal HRMS Company Grade Order"
   },
   {
    "description": "Controls the Nepal Standard Salary Slip print format. These options change presentation only; they do not affect payroll calculations or accounting.",
@@ -1141,7 +1160,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-11-05 19:00:00.000000",
+ "modified": "2026-11-27 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nepal HRMS",
  "name": "Nepal HRMS Settings",

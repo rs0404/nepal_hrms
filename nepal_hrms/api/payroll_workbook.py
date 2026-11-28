@@ -58,6 +58,7 @@ from nepal_hrms.overrides.salary_slip import (
 	_is_attendance_deduction,
 	_matches_component,
 	_taken_from_earnings,
+	grade_taken_last,
 )
 
 # Column groups, in sheet order: (key, title, header fill, cell fill)
@@ -471,42 +472,50 @@ class SlipModel:
 		if not self.mode:
 			return
 		allowance_names = ctx.allowance_components(self.assignment_name)
-		pool_a, pool_c = [], []
+		# a: allowances, c: SSF base, g: Grade when the company takes it last.
+		pool_a, pool_c, pool_g, contributing = [], [], [], []
 		for c in self.components:
 			if c.pf != "earnings" or c.tds:
 				continue
 			name = c.name
+			is_grade = False
 			if _matches_component(name, BASIC_EARNING_COMPONENTS):
 				contributes = True
 			elif _matches_component(name, DA_EARNING_COMPONENTS):
 				contributes = ctx.include_da
 			elif _matches_component(name, GRADE_EARNING_COMPONENTS):
-				contributes = ctx.include_grade
+				contributes, is_grade = ctx.include_grade, bool(ctx.grade_last)
 			elif name in allowance_names or _matches_component(name, OTHER_ALLOWANCE_COMPONENTS):
 				contributes = False
 			else:
 				continue
-			(pool_c if contributes else pool_a).append(c)
+			(pool_g if is_grade else pool_c if contributes else pool_a).append(c)
+			if contributes:
+				contributing.append(c)
 
 		row, total = self.row, self.attendance()
 		fixed = lambda c: f"[[fix:{c.key}]]"  # noqa: E731
 		if ctx.proportional:
-			pool = _sum([fixed(c) for c in pool_a + pool_c])
+			pool = _sum([fixed(c) for c in pool_a + pool_c + pool_g])
 			take = row.formula("es:take", "es", _("Taken from earnings"), f"MIN({total},{pool})")
-			groups = [(pool_a + pool_c, pool, take)]
+			groups = [(pool_a + pool_c + pool_g, pool, take)]
 			taken = take
 		else:
-			a, c_ = _sum([fixed(c) for c in pool_a]), _sum([fixed(c) for c in pool_c])
+			a, c_, g = (_sum([fixed(c) for c in p]) for p in (pool_a, pool_c, pool_g))
 			take_a = row.formula("es:take_a", "es", _("Taken from allowances"), f"MIN({total},{a})")
 			take_c = row.formula("es:take_c", "es", _("Taken from SSF base"), f"MIN({total}-{take_a},{c_})")
 			groups = [(pool_a, a, take_a), (pool_c, c_, take_c)]
 			taken = f"{take_a}+{take_c}"
+			if pool_g:
+				take_g = row.formula("es:take_g", "es", _("Taken from Grade"), f"MIN({total}-{take_a}-{take_c},{g})")
+				groups.append((pool_g, g, take_g))
+				taken += f"+{take_g}"
 		for members, pool, take in groups:
 			for c in members:
 				self.earned[c.key] = f"IF({pool}=0,{fixed(c)},ROUND({fixed(c)}-{take}*{fixed(c)}/{pool},2))"
 		row.formula("es:unapplied", "es", _("Left as a deduction"), f"ROUND({total}-({taken}),2)")
-		fixed_base = _sum([fixed(c) for c in pool_c])
-		earned_base = "+".join(f"({self.earned[c.key]})" for c in pool_c) or "0"
+		fixed_base = _sum([fixed(c) for c in contributing])
+		earned_base = "+".join(f"({self.earned[c.key]})" for c in contributing) or "0"
 		row.formula("es:ratio", "es", _("Earned ÷ fixed SSF base"), f"IF({fixed_base}=0,1,({earned_base})/{fixed_base})", "rate")
 
 	def finals(self):
@@ -696,6 +705,7 @@ def _context(pe, slips):
 		proportional=_check_setting(settings, "proportionally_reduce_earnings_for_attendance_deductions", default=0),
 		include_grade=bool(_check_setting(settings, "include_grade_in_ssf_base", default=1)),
 		include_da=bool(_check_setting(settings, "include_da_in_ssf_base", default=0)),
+		grade_last=grade_taken_last(pe.company, settings),
 		all_abbrs=set(frappe.get_all("Salary Component", pluck="salary_component_abbr")),
 		slabs=_slabs_by_employee(slips),
 		period=_payroll_period(pe),
@@ -800,7 +810,13 @@ def _settings_sheet(ws, ctx):
 	ws.cell(row=7, column=1, value=_("Leave & late taken out of earned salary"))
 	ws.cell(row=7, column=2, value=_("Yes") if ctx.earned_mode else _("No"))
 	ws.cell(row=8, column=1, value=_("Allocation"))
-	ws.cell(row=8, column=2, value=_("Proportional") if ctx.proportional else _("Allowances first, then SSF base"))
+	if ctx.proportional:
+		allocation = _("Proportional")
+	elif ctx.grade_last:
+		allocation = _("Allowances first, then Basic, then Grade")
+	else:
+		allocation = _("Allowances first, then SSF base")
+	ws.cell(row=8, column=2, value=allocation)
 
 	r = 11
 	slabs = OrderedDict()

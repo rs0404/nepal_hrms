@@ -8,16 +8,20 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
 from nepal_hrms.overrides.salary_slip import (
+    GRADE_LAST,
+    GRADE_ORDER_FIELD,
+    GRADE_PRO_RATA,
     CustomPayrollEntry,
     CustomSalarySlip,
     _matches_component,
     _skips_tax_projection,
     allocate_attendance_deduction,
+    grade_taken_last,
 )
 
 
-def component(key, amount, contributes):
-    return {"key": key, "amount": amount, "contributes": contributes}
+def component(key, amount, contributes, grade=False):
+    return {"key": key, "amount": amount, "contributes": contributes, "grade": grade}
 
 
 class FakeSalaryRow(_dict):
@@ -165,7 +169,7 @@ class TestAttendanceDeductionAllocation(TestCase):
         result = allocate_attendance_deduction(
             [
                 component("basic", 50_000, True),
-                component("grade", 5_000, True),
+                component("grade", 5_000, True, grade=True),
                 component("da", 5_000, False),
             ],
             10_000,
@@ -176,6 +180,55 @@ class TestAttendanceDeductionAllocation(TestCase):
         self.assertEqual(result["earned_amounts"]["grade"], 4_545.45)
         self.assertEqual(result["fixed_contribution_base"], 55_000)
         self.assertEqual(result["earned_contribution_base"], 50_000)
+
+    def test_grade_is_taken_only_after_basic_is_used_up(self):
+        result = allocate_attendance_deduction(
+            [
+                component("basic", 6_000, True),
+                component("grade", 2_000, True, grade=True),
+                component("allowance", 1_000, False),
+            ],
+            7_500,
+            grade_last=True,
+        )
+
+        self.assertEqual(result["earned_amounts"]["allowance"], 0)
+        self.assertEqual(result["earned_amounts"]["basic"], 0)
+        self.assertEqual(result["earned_amounts"]["grade"], 1_500)
+        self.assertEqual(result["earned_contribution_base"], 1_500)
+        self.assertEqual(result["unapplied_deduction"], 0)
+
+    def test_grade_outside_ssf_base_still_goes_last(self):
+        result = allocate_attendance_deduction(
+            [
+                component("basic", 30_000, True),
+                component("grade", 2_000, False, grade=True),
+                component("allowance", 5_000, False),
+            ],
+            9_000,
+            grade_last=True,
+        )
+
+        self.assertEqual(result["earned_amounts"]["allowance"], 0)
+        self.assertEqual(result["earned_amounts"]["basic"], 26_000)
+        self.assertEqual(result["earned_amounts"]["grade"], 2_000)
+        self.assertEqual(result["earned_contribution_base"], 26_000)
+
+    def test_proportional_mode_still_pools_grade(self):
+        result = allocate_attendance_deduction(
+            [
+                component("basic", 30_000, True),
+                component("grade", 2_000, True, grade=True),
+                component("allowance", 8_000, False),
+            ],
+            4_000,
+            proportional=True,
+            grade_last=True,
+        )
+
+        self.assertEqual(result["earned_amounts"]["basic"], 27_000)
+        self.assertEqual(result["earned_amounts"]["grade"], 1_800)
+        self.assertEqual(result["earned_amounts"]["allowance"], 7_200)
 
     def test_oversized_deduction_stops_at_zero_and_returns_residual(self):
         result = allocate_attendance_deduction(
@@ -189,6 +242,26 @@ class TestAttendanceDeductionAllocation(TestCase):
         self.assertEqual(result["earned_amounts"], {"basic": 0, "allowance": 0})
         self.assertEqual(result["applied_deduction"], 10_000)
         self.assertEqual(result["unapplied_deduction"], 2_000)
+
+
+class TestGradeOrderSetting(TestCase):
+    def _resolve(self, company_row, site_value, table=True):
+        settings = {} if site_value is None else {GRADE_ORDER_FIELD: site_value}
+        with patch.object(frappe.db, "table_exists", return_value=table), patch.object(
+            frappe.db, "get_value", return_value=company_row
+        ):
+            return grade_taken_last("Company A", settings)
+
+    def test_company_row_overrides_the_site(self):
+        self.assertTrue(self._resolve(GRADE_LAST, GRADE_PRO_RATA))
+        self.assertFalse(self._resolve(GRADE_PRO_RATA, GRADE_LAST))
+
+    def test_unlisted_company_uses_the_site_order(self):
+        self.assertTrue(self._resolve(None, GRADE_LAST))
+        self.assertFalse(self._resolve(None, GRADE_PRO_RATA))
+
+    def test_settings_without_the_option_stay_pro_rata(self):
+        self.assertFalse(self._resolve(None, None, table=False))
 
 
 class TestEarnedSalaryRows(TestCase):
